@@ -6,13 +6,7 @@ import nodemailer from 'nodemailer';
 import MailComposer from 'nodemailer/lib/mail-composer/index.js';
 import type { DirectoryMailbox } from '../directory/index.js';
 import type { Platform } from '../platform.js';
-import {
-  type MailAddress,
-  type MailFolder,
-  MessageStore,
-  SettingsStore,
-  type StoredMessage,
-} from './store.js';
+import { type MailAddress, MessageStore, SettingsStore, type StoredMessage } from './store.js';
 
 export const OUTBOUND_KINDS = ['none', 'cloudflare', 'smtp'] as const;
 export type OutboundKind = (typeof OUTBOUND_KINDS)[number];
@@ -320,7 +314,7 @@ export class MailService {
   private async deliver(
     raw: Buffer,
     mailboxes: DirectoryMailbox[],
-    folder: MailFolder,
+    folder: string,
     seen: boolean,
   ): Promise<StoredMessage[]> {
     const parsed = await simpleParser(raw, { skipHtmlToText: false });
@@ -332,7 +326,7 @@ export class MailService {
       if (seenIds.has(mailbox.id)) continue;
       seenIds.add(mailbox.id);
       if (
-        folder === 'inbox' &&
+        folder === 'INBOX' &&
         parsed.messageId &&
         (await this.messages.exists(mailbox.id, parsed.messageId))
       ) {
@@ -378,7 +372,7 @@ export class MailService {
         targets.push(...found);
       }
     }
-    if (targets.length > 0) await this.deliver(raw, targets, 'inbox', false);
+    if (targets.length > 0) await this.deliver(raw, targets, 'INBOX', false);
     return { accepted, rejected };
   }
 
@@ -425,6 +419,29 @@ export class MailService {
     });
     const raw = await composer.compile().build();
 
+    await this.dispatch(raw, fromAddress, all);
+    const [sent] = await this.deliver(raw, [mailbox], 'Sent', true);
+    if (!sent) throw new Error('Sent copy was not stored');
+    return sent;
+  }
+
+  /** Every address the account may send as (own and delegated mailboxes, with aliases). */
+  async sendableAddresses(accountId: string): Promise<Map<string, DirectoryMailbox>> {
+    const out = new Map<string, DirectoryMailbox>();
+    for (const mailbox of await this.platform.directory.listAccessibleMailboxes(accountId)) {
+      out.set(mailbox.primaryAddress, mailbox);
+      for (const alias of mailbox.aliases) out.set(alias, mailbox);
+    }
+    return out;
+  }
+
+  /**
+   * Delivers a finished MIME message: local recipients go straight into their
+   * mailboxes, everyone else through the configured outbound transport.
+   */
+  async dispatch(raw: Buffer, fromAddress: string, recipients: string[]): Promise<void> {
+    const all = cleanList(recipients);
+    if (all.length === 0) throw new UnprocessableError('Add at least one recipient.');
     const local: DirectoryMailbox[] = [];
     const external: string[] = [];
     for (const recipient of all) {
@@ -462,11 +479,44 @@ export class MailService {
         transporter.close();
       }
     }
+    if (local.length > 0) await this.deliver(raw, local, 'INBOX', false);
+  }
 
-    const [sent] = await this.deliver(raw, [mailbox], 'sent', true);
-    if (local.length > 0) await this.deliver(raw, local, 'inbox', false);
-    if (!sent) throw new Error('Sent copy was not stored');
-    return sent;
+  /** Stores an existing MIME message in a folder (IMAP APPEND, imports). */
+  async append(
+    mailbox: DirectoryMailbox,
+    folder: string,
+    raw: Buffer,
+    options: {
+      seen?: boolean;
+      flagged?: boolean;
+      answered?: boolean;
+      draft?: boolean;
+      receivedAt?: number;
+      importKey?: string;
+    } = {},
+  ): Promise<StoredMessage> {
+    const parsed = await simpleParser(raw);
+    return this.messages.insert({
+      tenantId: mailbox.tenantId,
+      mailboxId: mailbox.id,
+      folder,
+      messageId: parsed.messageId ?? null,
+      subject: parsed.subject ?? '(no subject)',
+      from: addresses(parsed.from)[0] ?? { address: 'unknown', name: null },
+      to: addresses(parsed.to),
+      cc: addresses(parsed.cc),
+      sentAt: parsed.date ? parsed.date.getTime() : null,
+      receivedAt: options.receivedAt ?? Date.now(),
+      seen: options.seen ?? false,
+      flagged: options.flagged ?? false,
+      answered: options.answered ?? false,
+      draft: options.draft ?? false,
+      hasAttachments: parsed.attachments.length > 0,
+      snippet: snippetOf(parsed.text),
+      importKey: options.importKey ?? null,
+      raw,
+    });
   }
 
   async parsed(accountId: string, messageId: string) {
@@ -474,7 +524,7 @@ export class MailService {
     const raw = await this.messages.raw(messageId);
     if (!raw) throw new NotFoundError('Message not found');
     const parsed = await simpleParser(raw);
-    if (!message.seen) await this.messages.update(messageId, { seen: true });
+    if (!message.seen) await this.messages.setFlags(messageId, { seen: true });
     const references = parsed.references
       ? Array.isArray(parsed.references)
         ? parsed.references

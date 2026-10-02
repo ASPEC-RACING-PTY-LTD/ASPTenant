@@ -5,7 +5,7 @@ import { type Context, Hono } from 'hono';
 import { z } from 'zod';
 import { requirePermission } from '../access.js';
 import { INGEST_MAX_BYTES, OUTBOUND_KINDS, SMTP_SECURITY } from '../mail/service.js';
-import { MAIL_FOLDERS, type MailFolder } from '../mail/store.js';
+import { normaliseFolderName } from '../mail/store.js';
 import { cloudflareWorkerScript } from '../mail/worker.js';
 import type { Platform } from '../platform.js';
 
@@ -51,7 +51,7 @@ const settingsBody = z.object({
 const patchBody = z.object({
   seen: z.boolean().optional(),
   flagged: z.boolean().optional(),
-  folder: z.enum(MAIL_FOLDERS).optional(),
+  folder: z.string().min(1).max(200).optional(),
 });
 
 function accountId(c: Context<Env>): string {
@@ -74,9 +74,9 @@ async function json<T>(c: Context<Env>, schema: z.ZodType<T>): Promise<T> {
   return parsed.data;
 }
 
-function folderParam(value: string | undefined): MailFolder {
-  const folder = (value ?? 'inbox') as MailFolder;
-  if (!MAIL_FOLDERS.includes(folder)) throw new UnprocessableError('Unknown folder');
+function folderParam(value: string | undefined): string {
+  const folder = normaliseFolderName(value ?? 'INBOX');
+  if (!folder || folder.length > 200) throw new UnprocessableError('Unknown folder');
   return folder;
 }
 
@@ -143,10 +143,22 @@ export function createMailHttp(
   app.get('/mail/me', async (c) => {
     const mailboxes = await platform.directory.listAccessibleMailboxes(accountId(c));
     const items = await Promise.all(
-      mailboxes.map(async (mailbox) => ({
-        ...mailbox,
-        folders: await platform.mail.messages.folderCounts(mailbox.id),
-      })),
+      mailboxes.map(async (mailbox) => {
+        await platform.mail.messages.ensureFolders(mailbox.tenantId, mailbox.id);
+        const [folders, counts] = await Promise.all([
+          platform.mail.messages.listFolders(mailbox.id),
+          platform.mail.messages.folderCounts(mailbox.id),
+        ]);
+        return {
+          ...mailbox,
+          folders: folders.map((folder) => ({
+            name: folder.name,
+            specialUse: folder.specialUse,
+            total: counts[folder.name]?.total ?? 0,
+            unread: counts[folder.name]?.unread ?? 0,
+          })),
+        };
+      }),
     );
     return c.json({ items });
   });
@@ -168,10 +180,20 @@ export function createMailHttp(
     const mailboxId = c.req.param('id');
     await platform.mail.canAccess(accountId(c), mailboxId);
     const folder = folderParam(c.req.query('folder'));
-    if (folder !== 'trash' && folder !== 'junk') {
+    if (folder !== 'Trash' && folder !== 'Junk') {
       throw new UnprocessableError('Only Trash and Junk can be emptied.');
     }
     return c.json({ deleted: await platform.mail.messages.emptyFolder(mailboxId, folder) });
+  });
+
+  app.post('/mail/mailboxes/:id/folders', async (c) => {
+    const mailbox = await platform.mail.canAccess(accountId(c), c.req.param('id'));
+    const body = await json(c, z.object({ name: z.string().min(1).max(200) }));
+    await platform.mail.messages.ensureFolders(mailbox.tenantId, mailbox.id);
+    return c.json(
+      await platform.mail.messages.createFolder(mailbox.tenantId, mailbox.id, body.name),
+      201,
+    );
   });
 
   app.get('/mail/messages/:id', async (c) => {
@@ -204,18 +226,20 @@ export function createMailHttp(
   app.patch('/mail/messages/:id', async (c) => {
     const message = await platform.mail.messageFor(accountId(c), c.req.param('id'));
     const body = await json(c, patchBody);
-    await platform.mail.messages.update(message.id, {
+    await platform.mail.messages.setFlags(message.id, {
       ...(body.seen !== undefined ? { seen: body.seen } : {}),
       ...(body.flagged !== undefined ? { flagged: body.flagged } : {}),
-      ...(body.folder !== undefined ? { folder: body.folder } : {}),
     });
+    if (body.folder !== undefined && normaliseFolderName(body.folder) !== message.folder) {
+      await platform.mail.messages.move(message.id, body.folder);
+    }
     return c.json({ ok: true });
   });
 
   app.delete('/mail/messages/:id', async (c) => {
     const message = await platform.mail.messageFor(accountId(c), c.req.param('id'));
-    if (message.folder === 'trash') await platform.mail.messages.delete(message.id);
-    else await platform.mail.messages.update(message.id, { folder: 'trash' });
+    if (message.folder === 'Trash') await platform.mail.messages.delete(message.id);
+    else await platform.mail.messages.move(message.id, 'Trash');
     return c.json({ ok: true });
   });
 
@@ -314,6 +338,52 @@ export function createMailHttp(
       actor(c),
     );
     return c.json({ ok: true });
+  });
+
+  // Mail clients (IMAP and SMTP submission)
+  app.get('/mail/clients', async (c) => {
+    await requirePermission(platform, accountId(c), 'mail:manage');
+    return c.json(await platform.mailServers.view());
+  });
+
+  app.put('/mail/clients', async (c) => {
+    await requirePermission(platform, accountId(c), 'mail:manage');
+    const body = await json(
+      c,
+      z.object({
+        enabled: z.boolean(),
+        hostname: z.string().max(253),
+        certMode: z.enum(['acme', 'manual']),
+        acmeEmail: z.string().max(320).nullable().optional(),
+        cloudflareDnsToken: z.string().max(400).optional(),
+        certPem: z.string().max(100_000).optional(),
+        keyPem: z.string().max(100_000).optional(),
+      }),
+    );
+    try {
+      return c.json(
+        await platform.mailServers.update(
+          {
+            enabled: body.enabled,
+            hostname: body.hostname,
+            certMode: body.certMode,
+            acmeEmail: body.acmeEmail ?? null,
+            ...(body.cloudflareDnsToken ? { cloudflareDnsToken: body.cloudflareDnsToken } : {}),
+            ...(body.certPem ? { certPem: body.certPem } : {}),
+            ...(body.keyPem ? { keyPem: body.keyPem } : {}),
+          },
+          actor(c),
+        ),
+      );
+    } catch (error) {
+      if (isAppError(error)) throw error;
+      throw new UnprocessableError(error instanceof Error ? error.message : String(error));
+    }
+  });
+
+  app.post('/mail/clients/certificate', async (c) => {
+    await requirePermission(platform, accountId(c), 'mail:manage');
+    return c.json(await platform.mailServers.issueCertificate());
   });
 
   // Domains

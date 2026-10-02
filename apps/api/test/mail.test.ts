@@ -102,12 +102,12 @@ describe('mail', () => {
     expect(ingest.status).toBe(200);
 
     const me = (await (await request(ctx, '/api/v1/mail/me', { headers })).json()) as {
-      items: Array<{ id: string; folders: { inbox: { unread: number } } }>;
+      items: Array<{ id: string; folders: Array<{ name: string; unread: number }> }>;
     };
-    expect(me.items[0]?.folders.inbox.unread).toBe(1);
+    expect(me.items[0]?.folders.find((folder) => folder.name === 'INBOX')?.unread).toBe(1);
 
     const list = (await (
-      await request(ctx, `/api/v1/mail/mailboxes/${mailboxId}/messages?folder=inbox`, { headers })
+      await request(ctx, `/api/v1/mail/mailboxes/${mailboxId}/messages?folder=INBOX`, { headers })
     ).json()) as { items: Array<{ id: string; subject: string }> };
     expect(list.items[0]?.subject).toBe('Quarterly numbers');
 
@@ -142,7 +142,7 @@ describe('mail', () => {
     });
     expect(local.status).toBe(201);
     const sent = (await (
-      await request(ctx, `/api/v1/mail/mailboxes/${mailboxId}/messages?folder=sent`, { headers })
+      await request(ctx, `/api/v1/mail/mailboxes/${mailboxId}/messages?folder=Sent`, { headers })
     ).json()) as { items: Array<{ id: string; hasAttachments: boolean }> };
     expect(sent.items[0]?.hasAttachments).toBe(true);
 

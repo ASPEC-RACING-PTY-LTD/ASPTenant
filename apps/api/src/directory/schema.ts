@@ -129,6 +129,55 @@ CREATE INDEX IF NOT EXISTS aspectenant_messages_msgid_idx
 `;
 }
 
+function imapSql(dialect: 'postgres' | 'sqlite'): string {
+  const big = dialect === 'postgres' ? 'BIGINT' : 'INTEGER';
+  return `
+CREATE TABLE IF NOT EXISTS aspectenant_mail_folders (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL,
+  mailbox_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  special_use TEXT,
+  uid_validity ${big} NOT NULL,
+  uid_next ${big} NOT NULL,
+  subscribed INTEGER NOT NULL,
+  created_at ${big} NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS aspectenant_mail_folders_name_uq
+  ON aspectenant_mail_folders (mailbox_id, name);
+ALTER TABLE aspectenant_messages ADD COLUMN uid ${big};
+ALTER TABLE aspectenant_messages ADD COLUMN answered INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE aspectenant_messages ADD COLUMN draft INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE aspectenant_messages ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE aspectenant_messages ADD COLUMN import_key TEXT;
+UPDATE aspectenant_messages SET folder = 'INBOX' WHERE folder = 'inbox';
+UPDATE aspectenant_messages SET folder = 'Sent' WHERE folder = 'sent';
+UPDATE aspectenant_messages SET folder = 'Archive' WHERE folder = 'archive';
+UPDATE aspectenant_messages SET folder = 'Junk' WHERE folder = 'junk';
+UPDATE aspectenant_messages SET folder = 'Trash' WHERE folder = 'trash';
+CREATE INDEX IF NOT EXISTS aspectenant_messages_uid_idx
+  ON aspectenant_messages (mailbox_id, folder, uid);
+CREATE UNIQUE INDEX IF NOT EXISTS aspectenant_messages_import_uq
+  ON aspectenant_messages (mailbox_id, import_key) WHERE import_key IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS aspectenant_jobs (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  status TEXT NOT NULL,
+  title TEXT NOT NULL,
+  data TEXT NOT NULL,
+  progress TEXT NOT NULL,
+  error TEXT,
+  created_by TEXT,
+  created_at ${big} NOT NULL,
+  updated_at ${big} NOT NULL,
+  finished_at ${big}
+);
+CREATE INDEX IF NOT EXISTS aspectenant_jobs_kind_idx ON aspectenant_jobs (kind, created_at);
+`;
+}
+
 export async function migrateDirectory(client: SqlClient): Promise<void> {
   const migrator = createMigrator(client, {
     tablePrefix: 'aspectenant_',
@@ -142,6 +191,11 @@ export async function migrateDirectory(client: SqlClient): Promise<void> {
         id: '0002_mail',
         postgres: mailSql('postgres'),
         sqlite: mailSql('sqlite'),
+      },
+      {
+        id: '0003_imap_jobs',
+        postgres: imapSql('postgres'),
+        sqlite: imapSql('sqlite'),
       },
     ],
   });

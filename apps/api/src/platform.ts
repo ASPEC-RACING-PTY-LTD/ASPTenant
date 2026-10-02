@@ -15,6 +15,7 @@ import type { AppConfig } from './config.js';
 import { loadAppConfig } from './config.js';
 import { DirectoryService, migrateDirectory } from './directory/index.js';
 import { MailService } from './mail/service.js';
+import { MailServers } from './mailserver/index.js';
 import { platformRbacDefinition } from './permissions.js';
 import { SecretBox } from './secrets.js';
 import { UpdateService } from './updates.js';
@@ -31,6 +32,7 @@ export interface Platform {
   readonly directory: DirectoryService;
   readonly mail: MailService;
   readonly updates: UpdateService;
+  readonly mailServers: MailServers;
   readonly secrets: SecretBox;
   /** One-time code printed to the log while first-run setup is open. */
   setupCode: string | null;
@@ -124,6 +126,7 @@ export async function createPlatform(options: CreatePlatformOptions = {}): Promi
     directory: undefined as unknown as DirectoryService,
     mail: undefined as unknown as MailService,
     updates: undefined as unknown as UpdateService,
+    mailServers: undefined as unknown as MailServers,
     secrets: new SecretBox(config),
     setupCode: null,
     startedAt: Date.now(),
@@ -132,6 +135,7 @@ export async function createPlatform(options: CreatePlatformOptions = {}): Promi
     directory: new DirectoryService(platform),
     mail: new MailService(platform),
     updates: new UpdateService(platform),
+    mailServers: new MailServers(platform),
   });
   const firstUser = await users.listUsers({ limit: 1 });
   if (firstUser.items.length === 0) {
@@ -146,6 +150,7 @@ export async function createPlatform(options: CreatePlatformOptions = {}): Promi
 
 export async function closePlatform(platform: Platform): Promise<void> {
   platform.updates.stop();
+  platform.mailServers.shutdown();
   await platform.auth.idle();
   await platform.db.close();
 }
