@@ -1,6 +1,6 @@
 {
   "name": "@aspectenant/api",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "license": "MIT",
@@ -29,10 +29,14 @@
     "@aspec/validation": "workspace:*",
     "@hono/node-server": "^1.19.5",
     "hono": "^4.9.9",
+    "mailparser": "^3.9.33",
+    "nodemailer": "^7.0.13",
     "pg": "^8.16.3",
     "zod": "^4.1.11"
   },
   "devDependencies": {
+    "@types/mailparser": "^3.9.0",
+    "@types/nodemailer": "^8.0.2",
     "@types/pg": "^8.15.5",
     "tsx": "^4.20.6",
     "vitest": "3.2.4"

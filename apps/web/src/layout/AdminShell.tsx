@@ -2,19 +2,27 @@ import { NavLink, Outlet } from 'react-router-dom';
 import { logout } from '../api.js';
 import { useAuth } from '../auth.js';
 
-const LINKS = [
-  { to: '/', label: 'Dashboard', implemented: true },
-  { to: '/users', label: 'Users', implemented: true },
-  { to: '/groups', label: 'Groups', implemented: true },
-  { to: '/mail', label: 'Mail', implemented: true },
-  { to: '/applications', label: 'Applications', implemented: true },
-  { to: '/domains', label: 'Domains', implemented: true },
-  { to: '/security', label: 'Security', implemented: true },
-  { to: '/audit', label: 'Audit', implemented: true },
-  { to: '/migration', label: 'Migration', implemented: false },
-  { to: '/system', label: 'System', implemented: true },
-  { to: '/settings', label: 'Settings', implemented: true },
-] as const;
+const LINKS: ReadonlyArray<{
+  to: string;
+  label: string;
+  implemented: boolean;
+  permission: string | null;
+}> = [
+  { to: '/', label: 'Dashboard', implemented: true, permission: 'system:read' },
+  { to: '/mailbox', label: 'Mailbox', implemented: true, permission: null },
+  { to: '/users', label: 'Users', implemented: true, permission: 'users:read' },
+  { to: '/groups', label: 'Groups', implemented: true, permission: 'groups:read' },
+  { to: '/mail', label: 'Mail', implemented: true, permission: 'mail:read' },
+  { to: '/mail/settings', label: 'Mail settings', implemented: true, permission: 'mail:manage' },
+  { to: '/domains', label: 'Domains', implemented: true, permission: 'domains:read' },
+  { to: '/applications', label: 'Applications', implemented: true, permission: 'apps:read' },
+  { to: '/security', label: 'Security', implemented: true, permission: 'security:read' },
+  { to: '/audit', label: 'Audit', implemented: true, permission: 'audit:read' },
+  { to: '/migration', label: 'Migration', implemented: false, permission: 'migration:read' },
+  { to: '/system', label: 'System', implemented: true, permission: 'system:read' },
+  { to: '/updates', label: 'Updates', implemented: true, permission: 'platform:admin' },
+  { to: '/settings', label: 'Settings', implemented: true, permission: 'orgs:settings' },
+];
 
 export function AdminShell() {
   const { session, refresh } = useAuth();
@@ -30,11 +38,13 @@ export function AdminShell() {
           </div>
         </NavLink>
         <nav className="nav" aria-label="Administration">
-          {LINKS.map((link) => (
+          {LINKS.filter(
+            (link) => !link.permission || session?.permissions.includes(link.permission),
+          ).map((link) => (
             <NavLink
               key={link.to}
               to={link.to}
-              end={link.to === '/'}
+              end={link.to === '/' || link.to === '/mail'}
               className={({ isActive }) =>
                 [isActive ? 'active' : '', link.implemented ? '' : 'planned']
                   .filter(Boolean)

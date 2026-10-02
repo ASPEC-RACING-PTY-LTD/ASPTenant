@@ -1,5 +1,6 @@
 import { createDatabase } from '@aspec/db';
 import { createNoopLogger } from '@aspec/observability';
+import { expect } from 'vitest';
 import { createApp } from '../src/app.js';
 import { loadAppConfig } from '../src/config.js';
 import { closePlatform, createPlatform, type Platform } from '../src/platform.js';
@@ -63,4 +64,27 @@ export function cookieHeader(response: Response): string {
     return single ? (single.split(';', 1)[0] ?? '') : '';
   }
   return cookies.map((value) => value.split(';', 1)[0] ?? '').join('; ');
+}
+
+export async function setupOwner(ctx: TestContext): Promise<string> {
+  const created = await request(ctx, '/api/v1/setup', {
+    method: 'POST',
+    body: JSON.stringify({
+      email: 'owner@example.com',
+      password: 'correct-horse-battery',
+      setupCode: ctx.platform.setupCode,
+      displayName: 'Owner',
+      organisationName: 'Contoso',
+    }),
+  });
+  expect(created.status).toBe(201);
+  const login = await request(ctx, '/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({
+      email: 'owner@example.com',
+      password: 'correct-horse-battery',
+    }),
+  });
+  expect(login.status).toBe(200);
+  return cookieHeader(login);
 }

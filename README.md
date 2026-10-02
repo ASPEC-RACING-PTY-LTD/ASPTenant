@@ -7,18 +7,19 @@ Self-hosted control plane for organisation identity, administration and organisa
 On a host with Docker Engine and the Compose plugin:
 
 ```sh
-sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/ASPEC-RACING-PTY-LTD/ASPTenant/main/install.sh)"
+sudo env PUBLIC_URL=https://mail.example.com bash -c "$(curl -fsSL https://raw.githubusercontent.com/ASPEC-RACING-PTY-LTD/ASPTenant/main/install.sh)"
 ```
 
-Unattended:
+- Installs to `/opt/aspectenant` and binds the panel to `127.0.0.1:8080`, ready for a local `cloudflared` tunnel (point the tunnel at `http://localhost:8080`).
+- `.env` holds only the public URL and generated database and encryption secrets.
+- The installer prints a one-time **setup code**. Open `/setup`, enter it and create the super administrator. Everything else (domains, mailboxes, Cloudflare, SMTP, updates) is managed in the panel.
+- Re-running the installer upgrades in place and keeps data.
 
-```sh
-sudo env PUBLIC_URL=https://tenant.example.com bash -c "$(curl -fsSL https://raw.githubusercontent.com/ASPEC-RACING-PTY-LTD/ASPTenant/main/install.sh)"
-```
+Then follow **Mail settings** in the panel to connect Cloudflare Email Routing (inbound) and Cloudflare Email Sending or any SMTP relay (outbound).
 
-Open `/setup` and create the super administrator. `.env` only needs the public URL and generated store credentials. Everything else is collected on that first-run page.
+Updates: the **Updates** page checks GitHub releases and installs them through the bundled updater container. Automatic updates can be switched off there.
 
-Published images:
+Releases are published by pushing a `vX.Y.Z` tag. Images:
 
 - `ghcr.io/aspec-racing-pty-ltd/aspectenant-api`
 - `ghcr.io/aspec-racing-pty-ltd/aspectenant-web`
@@ -30,7 +31,7 @@ cp .env.example .env
 docker compose up --build
 ```
 
-Open http://localhost:8080/setup. Host-side development is documented in [docs/development.md](docs/development.md).
+Open http://localhost:8080/setup and use the setup code from `docker compose logs api`. Host-side development is documented in [docs/development.md](docs/development.md).
 
 ## Documentation
 

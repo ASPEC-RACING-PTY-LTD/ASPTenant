@@ -20,6 +20,7 @@ export function GroupsPage() {
   const [name, setName] = useState('');
   const [kind, setKind] = useState<'security' | 'distribution'>('security');
   const [description, setDescription] = useState('');
+  const [groupEmail, setGroupEmail] = useState('');
   const [memberId, setMemberId] = useState('');
 
   const reload = async () => {
@@ -47,6 +48,7 @@ export function GroupsPage() {
       await createGroup({
         name,
         kind,
+        ...(kind === 'distribution' && groupEmail.trim() ? { email: groupEmail.trim() } : {}),
         ...(description.trim() ? { description: description.trim() } : {}),
       });
       setName('');
@@ -93,6 +95,18 @@ export function GroupsPage() {
               <option value="distribution">Distribution</option>
             </select>
           </div>
+          {kind === 'distribution' ? (
+            <div className="field">
+              <label htmlFor="group-email">Email address</label>
+              <input
+                id="group-email"
+                type="email"
+                placeholder="team@yourdomain.com"
+                value={groupEmail}
+                onChange={(e) => setGroupEmail(e.target.value)}
+              />
+            </div>
+          ) : null}
           <div className="field">
             <label htmlFor="group-desc">Description</label>
             <input
@@ -115,6 +129,7 @@ export function GroupsPage() {
             <tr>
               <th>Name</th>
               <th>Kind</th>
+              <th>Address</th>
               <th>Members</th>
               <th />
             </tr>
@@ -124,6 +139,7 @@ export function GroupsPage() {
               <tr key={group.id}>
                 <td>{group.name}</td>
                 <td>{group.kind}</td>
+                <td>{group.email ?? ''}</td>
                 <td>{group.memberCount}</td>
                 <td className="btn-row">
                   <button

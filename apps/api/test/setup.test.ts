@@ -26,6 +26,7 @@ describe('setup and session', () => {
       body: JSON.stringify({
         email: 'owner@example.com',
         password: 'correct-horse-battery',
+        setupCode: ctx.platform.setupCode,
         displayName: 'Owner',
         organisationName: 'Contoso',
       }),
@@ -39,6 +40,7 @@ describe('setup and session', () => {
       body: JSON.stringify({
         email: 'other@example.com',
         password: 'correct-horse-battery',
+        setupCode: 'ABCDE-FGHIJ',
       }),
     });
     expect(closed.status).toBe(409);
@@ -69,6 +71,20 @@ describe('setup and session', () => {
     expect(sessionBody.organisation.slug).toBe('default');
     expect(sessionBody.organisation.name).toBe('Contoso');
     expect(sessionBody.membership.role).toBe('owner');
+  });
+
+  it('requires the setup code from the server log', async () => {
+    ctx = await createTestContext();
+    expect(ctx.platform.setupCode).toMatch(/^[0-9A-F]{5}-[0-9A-F]{5}$/);
+    const wrong = await request(ctx, '/api/v1/setup', {
+      method: 'POST',
+      body: JSON.stringify({
+        email: 'owner@example.com',
+        password: 'correct-horse-battery',
+        setupCode: '00000-00000',
+      }),
+    });
+    expect(wrong.status).toBe(403);
   });
 
   it('rejects unauthenticated session reads', async () => {

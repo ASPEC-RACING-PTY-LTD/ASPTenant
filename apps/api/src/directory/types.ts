@@ -13,6 +13,7 @@ export interface DirectoryGroup {
   name: string;
   slug: string;
   kind: GroupKind;
+  email: string | null;
   description: string | null;
   memberCount: number;
   createdAt: number;

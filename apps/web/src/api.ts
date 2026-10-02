@@ -19,6 +19,7 @@ export interface PlatformInfo {
 }
 
 export interface SessionInfo {
+  permissions: string[];
   account: { id: string; email: string; emailVerified: boolean; mfaEnabled: boolean };
   user: { id: string; email: string; displayName: string | null; status: string };
   organisation: { id: string; name: string; slug: string; status: string };
@@ -44,6 +45,7 @@ export interface DirectoryUser {
 
 export interface DirectoryGroup {
   id: string;
+  email: string | null;
   name: string;
   slug: string;
   kind: string;
@@ -160,6 +162,7 @@ export async function getSetupState(): Promise<SetupState> {
 export async function completeSetup(input: {
   email: string;
   password: string;
+  setupCode: string;
   displayName?: string;
   organisationName?: string;
 }): Promise<void> {
@@ -227,6 +230,7 @@ export async function getGroup(id: string): Promise<DirectoryGroupDetail> {
 }
 
 export async function createGroup(input: {
+  email?: string;
   name: string;
   kind: 'security' | 'distribution';
   description?: string;
@@ -364,4 +368,206 @@ export async function deleteApplication(id: string): Promise<void> {
 
 export async function getSystem(): Promise<SystemDiagnostics> {
   return api('/api/v1/system');
+}
+
+export interface MailAddress {
+  address: string;
+  name: string | null;
+}
+
+export type FolderCounts = Record<string, { total: number; unread: number }>;
+
+export interface MyMailbox extends DirectoryMailbox {
+  folders: FolderCounts;
+}
+
+export interface MessageSummary {
+  id: string;
+  mailboxId: string;
+  folder: string;
+  messageId: string | null;
+  subject: string;
+  from: MailAddress;
+  to: MailAddress[];
+  cc: MailAddress[];
+  sentAt: number | null;
+  receivedAt: number;
+  sizeBytes: number;
+  seen: boolean;
+  flagged: boolean;
+  hasAttachments: boolean;
+  snippet: string;
+}
+
+export interface MessageDetail extends MessageSummary {
+  replyTo: MailAddress[];
+  references: string[];
+  text: string;
+  html: string | null;
+  attachments: Array<{ index: number; filename: string; contentType: string; size: number }>;
+}
+
+export interface SendInput {
+  mailboxId: string;
+  from?: string;
+  to: string[];
+  cc?: string[];
+  bcc?: string[];
+  subject: string;
+  text: string;
+  inReplyTo?: string;
+  references?: string[];
+  attachments?: Array<{ filename: string; contentType?: string; contentBase64: string }>;
+}
+
+export interface MailSettings {
+  outbound: {
+    kind: 'none' | 'cloudflare' | 'smtp';
+    cloudflare: { hasToken: boolean };
+    smtp: {
+      host: string;
+      port: number;
+      security: 'tls' | 'starttls' | 'none';
+      username: string | null;
+      hasPassword: boolean;
+    };
+  };
+  ingest: { configured: boolean; url: string };
+  workerScript: string;
+}
+
+export interface DomainDns {
+  verification: { name: string; value: string; found: boolean };
+  mx: Array<{ exchange: string; priority: number }>;
+  mxOnCloudflare: boolean;
+  spf: string | null;
+  spfIncludesCloudflare: boolean;
+  dmarc: string | null;
+}
+
+export interface UpdateStatus {
+  current: string;
+  repository: string;
+  autoUpdate: boolean;
+  latest: { version: string; url: string; publishedAt: string | null; notes: string } | null;
+  checkedAt: number | null;
+  lastError: string | null;
+  updateAvailable: boolean;
+  updater: {
+    available: boolean;
+    pending: boolean;
+    state: string | null;
+    finishedAt: number | null;
+    log: string | null;
+  };
+}
+
+export async function myMailboxes(): Promise<MyMailbox[]> {
+  return (await api<{ items: MyMailbox[] }>('/api/v1/mail/me')).items;
+}
+
+export async function listMessages(
+  mailboxId: string,
+  folder: string,
+  search?: string,
+): Promise<MessageSummary[]> {
+  const params = new URLSearchParams({ folder });
+  if (search) params.set('search', search);
+  return (
+    await api<{ items: MessageSummary[] }>(`/api/v1/mail/mailboxes/${mailboxId}/messages?${params}`)
+  ).items;
+}
+
+export async function getMessage(id: string): Promise<MessageDetail> {
+  return api(`/api/v1/mail/messages/${id}`);
+}
+
+export async function updateMessage(
+  id: string,
+  patch: { seen?: boolean; flagged?: boolean; folder?: string },
+): Promise<void> {
+  await api(`/api/v1/mail/messages/${id}`, { method: 'PATCH', body: JSON.stringify(patch) });
+}
+
+export async function deleteMessage(id: string): Promise<void> {
+  await api(`/api/v1/mail/messages/${id}`, { method: 'DELETE' });
+}
+
+export async function emptyFolder(mailboxId: string, folder: string): Promise<void> {
+  await api(`/api/v1/mail/mailboxes/${mailboxId}/empty?folder=${folder}`, { method: 'POST' });
+}
+
+export async function sendMessage(input: SendInput): Promise<void> {
+  await api('/api/v1/mail/send', { method: 'POST', body: JSON.stringify(input) });
+}
+
+export async function getMailSettings(): Promise<MailSettings> {
+  return api('/api/v1/mail/settings');
+}
+
+export async function saveMailSettings(input: {
+  kind: string;
+  cloudflareToken?: string;
+  smtp?: {
+    host: string;
+    port: number;
+    security: string;
+    username?: string | null;
+    password?: string;
+  };
+}): Promise<MailSettings> {
+  return api('/api/v1/mail/settings', { method: 'PUT', body: JSON.stringify(input) });
+}
+
+export async function testMailSettings(to?: string): Promise<{ detail: string }> {
+  return api('/api/v1/mail/settings/test', {
+    method: 'POST',
+    body: JSON.stringify(to ? { to } : {}),
+  });
+}
+
+export async function rotateIngestToken(): Promise<string> {
+  return (await api<{ token: string }>('/api/v1/mail/settings/ingest-token', { method: 'POST' }))
+    .token;
+}
+
+export async function listMailboxMembers(
+  id: string,
+): Promise<Array<{ userId: string; email: string | null; displayName: string | null }>> {
+  return (
+    await api<{
+      items: Array<{ userId: string; email: string | null; displayName: string | null }>;
+    }>(`/api/v1/mail/admin/mailboxes/${id}/members`)
+  ).items;
+}
+
+export async function addMailboxMember(id: string, userId: string): Promise<void> {
+  await api(`/api/v1/mail/admin/mailboxes/${id}/members`, {
+    method: 'POST',
+    body: JSON.stringify({ userId }),
+  });
+}
+
+export async function removeMailboxMember(id: string, userId: string): Promise<void> {
+  await api(`/api/v1/mail/admin/mailboxes/${id}/members/${userId}`, { method: 'DELETE' });
+}
+
+export async function getDomainDns(id: string): Promise<DomainDns> {
+  return api(`/api/v1/domains/${id}/dns`);
+}
+
+export async function getUpdates(): Promise<UpdateStatus> {
+  return api('/api/v1/updates');
+}
+
+export async function checkUpdates(): Promise<UpdateStatus> {
+  return api('/api/v1/updates/check', { method: 'POST' });
+}
+
+export async function applyUpdate(): Promise<UpdateStatus> {
+  return api('/api/v1/updates/apply', { method: 'POST' });
+}
+
+export async function setAutoUpdate(autoUpdate: boolean): Promise<UpdateStatus> {
+  return api('/api/v1/updates/settings', { method: 'PUT', body: JSON.stringify({ autoUpdate }) });
 }

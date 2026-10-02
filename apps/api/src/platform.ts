@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import { createAuditLogger } from '@aspec/audit';
 import { createSqlAuditStore, migrate as migrateAudit } from '@aspec/audit/sql';
 import { type Auth, createAuth } from '@aspec/auth';
@@ -13,7 +14,10 @@ import { createSqlUsersStore, migrate as migrateUsers } from '@aspec/users/sql';
 import type { AppConfig } from './config.js';
 import { loadAppConfig } from './config.js';
 import { DirectoryService, migrateDirectory } from './directory/index.js';
+import { MailService } from './mail/service.js';
 import { platformRbacDefinition } from './permissions.js';
+import { SecretBox } from './secrets.js';
+import { UpdateService } from './updates.js';
 
 export interface Platform {
   readonly config: AppConfig;
@@ -25,6 +29,11 @@ export interface Platform {
   readonly rbac: Rbac;
   readonly audit: ReturnType<typeof createAuditLogger>;
   readonly directory: DirectoryService;
+  readonly mail: MailService;
+  readonly updates: UpdateService;
+  readonly secrets: SecretBox;
+  /** One-time code printed to the log while first-run setup is open. */
+  setupCode: string | null;
   readonly startedAt: number;
 }
 
@@ -103,7 +112,7 @@ export async function createPlatform(options: CreatePlatformOptions = {}): Promi
   });
   await orgs.getDefaultOrg();
 
-  const platform = {
+  const platform: Platform = {
     config,
     db,
     logger,
@@ -113,13 +122,30 @@ export async function createPlatform(options: CreatePlatformOptions = {}): Promi
     rbac,
     audit,
     directory: undefined as unknown as DirectoryService,
+    mail: undefined as unknown as MailService,
+    updates: undefined as unknown as UpdateService,
+    secrets: new SecretBox(config),
+    setupCode: null,
     startedAt: Date.now(),
   };
-  platform.directory = new DirectoryService(platform);
+  Object.assign(platform, {
+    directory: new DirectoryService(platform),
+    mail: new MailService(platform),
+    updates: new UpdateService(platform),
+  });
+  const firstUser = await users.listUsers({ limit: 1 });
+  if (firstUser.items.length === 0) {
+    const code = randomBytes(5).toString('hex').toUpperCase();
+    platform.setupCode = `${code.slice(0, 5)}-${code.slice(5)}`;
+    logger.warn(
+      `Setup code: ${platform.setupCode} (enter it on /setup to create the administrator)`,
+    );
+  }
   return platform;
 }
 
 export async function closePlatform(platform: Platform): Promise<void> {
+  platform.updates.stop();
   await platform.auth.idle();
   await platform.db.close();
 }

@@ -6,6 +6,7 @@ import { closePlatform, createPlatform } from './platform.js';
 const config = loadAppConfig();
 const platform = await createPlatform({ config });
 const app = createApp(platform);
+platform.updates.start();
 
 const server = serve(
   {

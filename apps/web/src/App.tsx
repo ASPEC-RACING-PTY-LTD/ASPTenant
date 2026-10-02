@@ -9,12 +9,21 @@ import { DomainsPage } from './pages/Domains.js';
 import { GroupsPage } from './pages/Groups.js';
 import { LoginPage } from './pages/Login.js';
 import { MailPage } from './pages/Mail.js';
+import { MailSettingsPage } from './pages/MailSettings.js';
 import { PlannedPage } from './pages/Planned.js';
 import { SecurityPage } from './pages/Security.js';
 import { SettingsPage } from './pages/Settings.js';
 import { SetupPage } from './pages/Setup.js';
 import { SystemPage } from './pages/System.js';
+import { UpdatesPage } from './pages/Updates.js';
 import { UsersPage } from './pages/Users.js';
+import { WebmailPage } from './pages/Webmail.js';
+
+function Home() {
+  const { session } = useAuth();
+  if (!session?.permissions.includes('system:read')) return <Navigate to="/mailbox" replace />;
+  return <DashboardPage />;
+}
 
 function RequireSession({ children }: { children: ReactNode }) {
   const { loading, session } = useAuth();
@@ -36,7 +45,10 @@ export function App() {
           </RequireSession>
         }
       >
-        <Route index element={<DashboardPage />} />
+        <Route index element={<Home />} />
+        <Route path="mailbox" element={<WebmailPage />} />
+        <Route path="mail/settings" element={<MailSettingsPage />} />
+        <Route path="updates" element={<UpdatesPage />} />
         <Route path="system" element={<SystemPage />} />
         <Route path="users" element={<UsersPage />} />
         <Route path="groups" element={<GroupsPage />} />

@@ -7,6 +7,7 @@ import { cookieSecure, publicOrigin } from './config.js';
 import { createPlatformIpResolver } from './http/client-ip.js';
 import type { Platform } from './platform.js';
 import { createControlPlaneApi } from './routes/control-plane.js';
+import { createMailHttp } from './routes/mail-http.js';
 
 export function createApp(platform: Platform): Hono<{ Variables: AuthVariables }> {
   const resolveIp = createPlatformIpResolver(platform.config);
@@ -103,6 +104,7 @@ export function createApp(platform: Platform): Hono<{ Variables: AuthVariables }
 
   const publicApi = (path: string) =>
     path === '/api/v1/setup' ||
+    path === '/api/v1/mail/ingest' ||
     path === '/api/v1/platform' ||
     path === '/api/v1/openapi.json' ||
     path === '/api/v1/docs' ||
@@ -113,6 +115,14 @@ export function createApp(platform: Platform): Hono<{ Variables: AuthVariables }
     if (publicApi(c.req.path) || c.req.method === 'OPTIONS') return next();
     return auth.requireAuth()(c, next);
   });
+  app.route(
+    '/api/v1',
+    createMailHttp(platform, (c) => {
+      const incoming = (c.env as { incoming?: { socket?: { remoteAddress?: string } } } | undefined)
+        ?.incoming?.socket?.remoteAddress;
+      return resolveIp(incoming, (name) => c.req.header(name) ?? undefined);
+    }),
+  );
   app.get('/api/v1/session', auth.requireAuth(), async (c) => forwardApi(c));
   app.all('/api', (c) => forwardApi(c));
   app.all('/api/*', (c) => forwardApi(c));
