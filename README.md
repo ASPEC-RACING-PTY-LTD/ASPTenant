@@ -10,10 +10,11 @@ On a host with Docker Engine and the Compose plugin:
 sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/ASPEC-RACING-PTY-LTD/ASPTenant/main/install.sh)"
 ```
 
-- Installs to `/opt/aspectenant` and binds the panel to `127.0.0.1:8080`, ready for a local `cloudflared` tunnel (point the tunnel at `http://localhost:8080`).
+- Installs into `aspectenant/` under the directory you run it from (for example `/root/aspectenant`). The panel binds to `127.0.0.1` on the first free port from 8080; the installer prints it for your `cloudflared` tunnel.
+- Menu: 1) Install, 2) Upgrade / repair (keeps data), 3) Delete everything and install fresh.
 - Nothing to configure: `.env` only holds generated secrets.
 - The installer prints a one-time **setup code**. Open `/setup`, enter it and create the super administrator (or restore a backup). Then set your **Public URL** under Settings. Everything else (domains, mailboxes, Cloudflare, SMTP, mail apps, backups, updates) is managed in the panel.
-- Re-running the installer upgrades in place and keeps data.
+- Re-running the installer and choosing 2 upgrades in place and keeps data.
 
 Mail apps (Outlook, Apple Mail, phones) use IMAP 993 and SMTP 465/587 directly; enable them on **Mail apps** and forward those ports. Import Microsoft 365 PST exports on **Migration**. Configure encrypted R2/S3 backups on **Backups**.
 

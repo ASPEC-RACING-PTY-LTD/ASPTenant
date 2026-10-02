@@ -8,7 +8,7 @@ ASPECTenant is Docker-first and expects to sit behind an operator-provided rever
 sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/ASPEC-RACING-PTY-LTD/ASPTenant/main/install.sh)"
 ```
 
-The installer writes `/opt/aspectenant/compose.yml` and a `.env` of generated values only (`POSTGRES_PASSWORD`, `AUDIT_HMAC_KEY`, `INSTALL_DIR`). The public URL is set on the Settings page, pulls the images, starts Compose and prints the one-time setup code. Re-running it upgrades and keeps data.
+The installer writes `./aspectenant/compose.yml` (relative to where it runs) and a `.env` of generated values only (`POSTGRES_PASSWORD`, `AUDIT_HMAC_KEY`, `INSTALL_DIR`). The public URL is set on the Settings page, pulls the images, starts Compose and prints the one-time setup code. Re-running it upgrades and keeps data.
 
 The panel binds to `127.0.0.1:8080`. With cloudflared on the same host, add a public hostname that points at `http://localhost:8080`. Set `ASPECTENANT_BIND=0.0.0.0` before installing only if the proxy runs elsewhere.
 
