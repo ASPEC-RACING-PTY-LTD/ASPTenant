@@ -401,6 +401,10 @@ export class MailServers {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       await this.save({ ...(await this.load()), lastError: message });
+      this.platform.logger.error(
+        { event: 'mail_apps_certificate_failed', hostname: stored.hostname, err: error },
+        `mail apps certificate request failed: ${message}`,
+      );
       throw new UnprocessableError(`Certificate request failed: ${message}`);
     }
     await this.reconcile('settings-changed');

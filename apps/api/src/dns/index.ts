@@ -161,6 +161,68 @@ export async function discoverZone(token: string, hostname: string): Promise<Zon
   return { id: match.id, name: match.name, subdomain: host !== match.name.toLowerCase() };
 }
 
+/**
+ * Proves the token may edit DNS in the zone by creating and deleting a throwaway TXT record.
+ * Zone: Read alone lets a token find the zone but not publish the ACME challenge.
+ */
+export async function checkDnsWrite(
+  token: string,
+  zone: ZoneMatch,
+  hostname: string,
+): Promise<void> {
+  const base = `https://api.cloudflare.com/client/v4/zones/${zone.id}/dns_records`;
+  const headers = { authorization: `Bearer ${token}`, 'content-type': 'application/json' };
+  const parse = async (response: Response) =>
+    (await response.json().catch(() => ({ success: false }))) as {
+      success: boolean;
+      errors?: { code: number; message: string }[];
+      result?: { id: string };
+    };
+  let created: Awaited<ReturnType<typeof parse>>;
+  let status = 0;
+  try {
+    const response = await fetch(base, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        type: 'TXT',
+        name: `_aspectenant-check.${hostname}`,
+        content: 'aspectenant-dns-write-check',
+        ttl: 60,
+      }),
+      signal: AbortSignal.timeout(20_000),
+    });
+    status = response.status;
+    created = await parse(response);
+  } catch (error) {
+    throw new CloudflareError(
+      'api',
+      `Could not reach the Cloudflare API: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  if (!created.success) {
+    const codes = (created.errors ?? []).map((e) => e.code);
+    const detail = created.errors?.map((e) => e.message).join(', ') || `HTTP ${status}`;
+    if (status === 401 || status === 403 || codes.some((code) => AUTH_CODES.has(code))) {
+      throw new CloudflareError(
+        'permission',
+        `The token can read zone ${zone.name} but cannot edit its DNS records (${detail}). Give it DNS: Edit for ${zone.name}.`,
+      );
+    }
+    throw new CloudflareError(
+      'api',
+      `Cloudflare refused a test DNS record in ${zone.name}: ${detail}`,
+    );
+  }
+  if (created.result?.id) {
+    await fetch(`${base}/${created.result.id}`, {
+      method: 'DELETE',
+      headers,
+      signal: AbortSignal.timeout(20_000),
+    }).catch(() => undefined);
+  }
+}
+
 export interface DnsChallengePlan {
   /** Name on the certificate. Never changed. */
   certificateHostname: string;
@@ -187,6 +249,7 @@ export async function planDnsChallenge(
   for (const candidate of candidates) {
     try {
       const zone = await discoverZone(candidate.token, host);
+      await checkDnsWrite(candidate.token, zone, host);
       return {
         certificateHostname: host,
         recordName: `_acme-challenge.${host}`,

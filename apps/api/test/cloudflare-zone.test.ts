@@ -6,12 +6,25 @@ type Zone = { id: string; name: string };
 /** Stubs the Cloudflare zones API. Each token maps to the zones it can see, or an HTTP error. */
 function stubCloudflare(
   tokens: Record<string, Zone[] | { status: number; code: number; message: string }>,
+  readOnly: string[] = [],
 ) {
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
     const token = String(((init?.headers ?? {}) as Record<string, string>).authorization).replace(
       'Bearer ',
       '',
     );
+    if (url.includes('/dns_records')) {
+      if (readOnly.includes(token)) {
+        return new Response(
+          JSON.stringify({
+            success: false,
+            errors: [{ code: 10000, message: 'Authentication error' }],
+          }),
+          { status: 403 },
+        );
+      }
+      return new Response(JSON.stringify({ success: true, result: { id: 'rec1' } }));
+    }
     const entry = tokens[token];
     if (!entry || !Array.isArray(entry)) {
       const error = entry ?? { status: 401, code: 10000, message: 'Authentication error' };
@@ -93,6 +106,26 @@ describe('Cloudflare zone discovery for DNS-01', () => {
     expect(plan.tokenSource).toBe('Domains Cloudflare connection');
     expect(plan.zone.name).toBe('aspecracing.com.au');
     expect(plan.certificateHostname).toBe('mail.aspecracing.com.au');
+  });
+
+  it('skips a token that can read the zone but not edit DNS, and says why', async () => {
+    stubCloudflare(
+      {
+        readonly: [{ id: 'z-apex', name: 'aspecracing.com.au' }],
+        domains: [{ id: 'z-apex', name: 'aspecracing.com.au' }],
+      },
+      ['readonly'],
+    );
+    const plan = await planDnsChallenge('mail.aspecracing.com.au', [
+      { source: 'Mail apps token', token: 'readonly' },
+      { source: 'Domains Cloudflare connection', token: 'domains' },
+    ]);
+    expect(plan.tokenSource).toBe('Domains Cloudflare connection');
+    await expect(
+      planDnsChallenge('mail.aspecracing.com.au', [
+        { source: 'Mail apps token', token: 'readonly' },
+      ]),
+    ).rejects.toMatchObject({ kind: 'permission', message: expect.stringMatching(/DNS: Edit/) });
   });
 
   it('explains every token failure when none can manage the zone', async () => {
