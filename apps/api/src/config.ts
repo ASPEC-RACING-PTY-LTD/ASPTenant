@@ -44,6 +44,14 @@ export const configShape = {
     .string('MAIL_PUBLIC_PORTS')
     .default('993,465,587')
     .description('Host ports for IMAPS, SMTPS and submission, as shown to users.'),
+  mailListenHost: env
+    .string('MAIL_LISTEN_HOST')
+    .default('0.0.0.0')
+    .description('Address the IMAP and SMTP listeners bind inside the container.'),
+  mailListenPorts: env
+    .string('MAIL_LISTEN_PORTS')
+    .default('1993,1465,1587')
+    .description('Container ports for IMAPS, SMTPS and submission.'),
   dataDir: env
     .string('DATA_DIR')
     .default('/data')

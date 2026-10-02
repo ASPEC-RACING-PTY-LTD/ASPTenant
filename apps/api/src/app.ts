@@ -27,6 +27,11 @@ export function createApp(platform: Platform): Hono<{ Variables: AuthVariables }
         check: () => platform.db.checkHealth(),
         critical: true,
       },
+      mailApps: {
+        // IMAPS 1993, SMTPS 1465, submission 1587. Reported, but does not block readiness.
+        check: () => platform.mailServers.checkHealth(),
+        critical: false,
+      },
     },
   });
 

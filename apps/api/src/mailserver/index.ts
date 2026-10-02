@@ -1,5 +1,12 @@
-import type { Socket } from 'node:net';
-import { createServer as createTlsServer, type Server as TlsServer } from 'node:tls';
+import type { EventEmitter } from 'node:events';
+import { readFile } from 'node:fs/promises';
+import { connect, type Socket } from 'node:net';
+import { join } from 'node:path';
+import {
+  createSecureContext,
+  createServer as createTlsServer,
+  type Server as TlsServer,
+} from 'node:tls';
 import { createScryptHasher, normalizeEmail } from '@aspec/auth';
 import { createSqlAuthStore } from '@aspec/auth/sql';
 import { UnprocessableError } from '@aspec/errors';
@@ -23,6 +30,32 @@ const MAX_MESSAGE = 30 * 1024 * 1024;
 
 export type CertMode = 'acme' | 'manual';
 
+export const LISTENER_NAMES = ['imaps', 'smtps', 'submission'] as const;
+export type ListenerName = (typeof LISTENER_NAMES)[number];
+
+export interface ListenerStatus {
+  name: ListenerName;
+  protocol: string;
+  port: number;
+  state: 'stopped' | 'listening' | 'failed';
+  /** True only when a TCP connection to the port succeeded just now. */
+  accepting: boolean;
+  error: string | null;
+  code: string | null;
+  since: number | null;
+}
+
+const PROTOCOLS: Record<ListenerName, string> = {
+  imaps: 'IMAP over implicit TLS',
+  smtps: 'SMTP submission over implicit TLS',
+  submission: 'SMTP submission with STARTTLS',
+};
+
+/** Certificate files an operator can place in the data volume instead of using the panel. */
+export const TLS_FILES = { cert: 'mail-tls/fullchain.pem', key: 'mail-tls/privkey.pem' } as const;
+
+class MailAppsProblem extends Error {}
+
 interface StoredClientSettings {
   enabled: boolean;
   hostname: string;
@@ -44,7 +77,13 @@ export interface ClientSettingsView {
   hasCertificate: boolean;
   certExpiresAt: number | null;
   lastError: string | null;
+  /** True only when all three listeners are bound and accepting connections. */
   running: boolean;
+  /** Why the listeners are not running, when they are not. */
+  problem: string | null;
+  certificateSource: 'panel' | 'data-volume' | null;
+  cloudflareConnected: boolean;
+  listeners: ListenerStatus[];
   ports: typeof PUBLIC_PORTS;
 }
 
@@ -150,10 +189,17 @@ async function findZone(token: string, hostname: string): Promise<string> {
 export class MailServers {
   readonly accounts: MailAccounts;
   private readonly settings: SettingsStore;
-  private imap: TlsServer | null = null;
-  private smtps: SMTPServer | null = null;
-  private submission: SMTPServer | null = null;
+  private readonly servers: Record<ListenerName, TlsServer | SMTPServer | null> = {
+    imaps: null,
+    smtps: null,
+    submission: null,
+  };
+  private readonly status: Record<ListenerName, ListenerStatus>;
+  private problem: string | null = 'Mail apps have not been started yet.';
+  private certificateSource: 'panel' | 'data-volume' | null = null;
   private renewTimer: NodeJS.Timeout | null = null;
+  private retryTimer: NodeJS.Timeout | null = null;
+  private queue: Promise<void> = Promise.resolve();
   private readonly sockets = new Set<Socket>();
 
   private readonly platform: Platform;
@@ -162,6 +208,34 @@ export class MailServers {
     this.platform = platform;
     this.accounts = new MailAccounts(platform);
     this.settings = new SettingsStore(platform.db);
+    const ports = this.listenPorts();
+    this.status = Object.fromEntries(
+      LISTENER_NAMES.map((name) => [
+        name,
+        {
+          name,
+          protocol: PROTOCOLS[name],
+          port: ports[name],
+          state: 'stopped',
+          accepting: false,
+          error: null,
+          code: null,
+          since: null,
+        } satisfies ListenerStatus,
+      ]),
+    ) as Record<ListenerName, ListenerStatus>;
+  }
+
+  /** Container ports the listeners bind (the host maps 993/465/587 onto them). */
+  private listenPorts(): Record<ListenerName, number> {
+    const [imaps, smtps, submission] = this.platform.config.mailListenPorts
+      .split(',')
+      .map((value) => Number.parseInt(value.trim(), 10));
+    return {
+      imaps: imaps || CLIENT_PORTS.imaps,
+      smtps: smtps || CLIENT_PORTS.smtps,
+      submission: submission || CLIENT_PORTS.submission,
+    };
   }
 
   private async tenantId(): Promise<string> {
@@ -192,6 +266,7 @@ export class MailServers {
 
   async view(): Promise<ClientSettingsView> {
     const stored = await this.load();
+    const listeners = await this.listeners();
     return {
       enabled: stored.enabled,
       hostname: stored.hostname,
@@ -201,7 +276,11 @@ export class MailServers {
       hasCertificate: Boolean(stored.certPem && stored.keyPem),
       certExpiresAt: stored.certExpiresAt,
       lastError: stored.lastError,
-      running: this.imap !== null,
+      running: listeners.every((item) => item.accepting),
+      problem: this.problem,
+      certificateSource: this.certificateSource,
+      cloudflareConnected: Boolean(await this.platform.domainSetup.cloudflareToken()),
+      listeners,
       ports: this.publicPorts(),
     };
   }
@@ -251,7 +330,7 @@ export class MailServers {
       resource: { type: 'mail-clients', id: KEY },
       changes: { after: { enabled: next.enabled, hostname, certMode: next.certMode } },
     });
-    await this.apply();
+    await this.reconcile('settings-changed');
     return this.view();
   }
 
@@ -313,16 +392,20 @@ export class MailServers {
       await this.save({ ...(await this.load()), lastError: message });
       throw new UnprocessableError(`Certificate request failed: ${message}`);
     }
-    await this.apply();
+    await this.reconcile('settings-changed');
     return this.view();
   }
 
+  /** Restores the listeners from persisted settings and keeps retrying while any is down. */
   async start(): Promise<void> {
-    await this.apply().catch((error: unknown) => {
-      this.platform.logger.error({ err: error }, 'mail client servers failed to start');
-    });
+    await this.reconcile('startup');
     this.renewTimer = setInterval(() => void this.renewIfDue(), 12 * 60 * 60 * 1000);
     this.renewTimer.unref();
+    this.retryTimer = setInterval(() => {
+      const down = LISTENER_NAMES.some((name) => this.status[name].state !== 'listening');
+      if (down) void this.reconcile('retry');
+    }, 60_000);
+    this.retryTimer.unref();
   }
 
   private async renewIfDue(): Promise<void> {
@@ -330,57 +413,279 @@ export class MailServers {
     if (!stored.enabled || stored.certMode !== 'acme' || !stored.certExpiresAt) return;
     if (stored.certExpiresAt - Date.now() > 30 * 86_400_000) return;
     await this.issueCertificate().catch((error: unknown) => {
-      this.platform.logger.error({ err: error }, 'mail client certificate renewal failed');
+      this.platform.logger.error(
+        { event: 'mail_apps_certificate_renewal_failed', err: error },
+        'mail apps certificate renewal failed; the current certificate stays in use',
+      );
     });
   }
 
-  private async apply(): Promise<void> {
+  /** Loads and validates the certificate: panel settings first, then files in the data volume. */
+  private async loadTls(stored: StoredClientSettings): Promise<{ key: string; cert: string }> {
+    let key: string;
+    let cert: string;
+    if (stored.certPem && stored.keyPem) {
+      try {
+        key = this.platform.secrets.decrypt(stored.keyPem);
+      } catch {
+        throw new MailAppsProblem(
+          'The stored private key cannot be decrypted (SECRET_KEY or AUDIT_HMAC_KEY changed). Issue or upload the certificate again.',
+        );
+      }
+      cert = stored.certPem;
+      this.certificateSource = 'panel';
+    } else {
+      const certPath = join(this.platform.config.dataDir, TLS_FILES.cert);
+      const keyPath = join(this.platform.config.dataDir, TLS_FILES.key);
+      try {
+        [cert, key] = await Promise.all([readFile(certPath, 'utf8'), readFile(keyPath, 'utf8')]);
+      } catch {
+        throw new MailAppsProblem(
+          `No certificate configured. Use "Get certificate" on Mail apps, upload a PEM certificate and key, or place ${certPath} and ${keyPath} in the data volume.`,
+        );
+      }
+      this.certificateSource = 'data-volume';
+    }
+    try {
+      createSecureContext({ key, cert });
+    } catch (error) {
+      throw new MailAppsProblem(
+        `The certificate or private key is invalid or they do not match: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    try {
+      const info = acme.crypto.readCertificateInfo(cert);
+      if (info.notAfter.getTime() < Date.now()) {
+        this.platform.logger.error(
+          { event: 'mail_apps_certificate_expired', notAfter: info.notAfter.toISOString() },
+          'mail apps certificate has expired; mail apps will reject it until it is renewed',
+        );
+      }
+    } catch {
+      // Expiry is informational; createSecureContext already validated the PEM.
+    }
+    return { key, cert };
+  }
+
+  /** Brings the listeners in line with settings. Serialised so concurrent calls cannot race. */
+  reconcile(reason: string): Promise<void> {
+    const run = this.queue.then(() => this.reconcileNow(reason));
+    this.queue = run.catch(() => undefined);
+    return run;
+  }
+
+  private async reconcileNow(reason: string): Promise<void> {
     const stored = await this.load();
-    if (!stored.enabled || !stored.certPem || !stored.keyPem) {
-      await this.stop();
+    if (!stored.enabled) {
+      await this.stopAll();
+      this.problem = 'Mail apps are disabled.';
+      this.platform.logger.info(
+        { event: 'mail_apps_disabled', reason },
+        'mail apps disabled; IMAP and SMTP listeners are not running',
+      );
       return;
     }
-    const tls = { key: this.platform.secrets.decrypt(stored.keyPem), cert: stored.certPem };
-    if (this.imap) {
-      this.imap.setSecureContext(tls);
-      this.smtps?.updateSecureContext(tls);
-      this.submission?.updateSecureContext(tls);
+    let tls: { key: string; cert: string };
+    try {
+      if (!stored.hostname) throw new MailAppsProblem('No mail apps hostname is configured.');
+      tls = await this.loadTls(stored);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await this.stopAll();
+      this.problem = message;
+      for (const name of LISTENER_NAMES) this.mark(name, 'failed', message, 'CONFIG');
+      this.platform.logger.error(
+        { event: 'mail_apps_start_failed', reason, problem: message, listeners: this.snapshot() },
+        `mail apps cannot start: ${message}`,
+      );
       return;
     }
-    this.imap = createTlsServer(tls, (socket) => {
-      this.sockets.add(socket);
-      socket.on('close', () => this.sockets.delete(socket));
-      new ImapSession(socket, this.platform, this.accounts, socket.remoteAddress ?? 'unknown');
-    });
-    this.imap.on('tlsClientError', () => undefined);
-    this.imap.listen(CLIENT_PORTS.imaps);
-    this.smtps = this.smtp(true, tls, stored.hostname);
-    this.smtps.listen(CLIENT_PORTS.smtps);
-    this.submission = this.smtp(false, tls, stored.hostname);
-    this.submission.listen(CLIENT_PORTS.submission);
-    this.platform.logger.info({ hostname: stored.hostname }, 'IMAP and SMTP submission listening');
+    const ports = this.listenPorts();
+    const host = this.platform.config.mailListenHost;
+    for (const name of LISTENER_NAMES) {
+      const server = this.servers[name];
+      if (server && this.status[name].state === 'listening' && this.isListening(server)) {
+        try {
+          if (server instanceof SMTPServer) server.updateSecureContext(tls);
+          else server.setSecureContext(tls);
+          continue;
+        } catch (error) {
+          this.platform.logger.error(
+            { event: 'mail_apps_tls_update_failed', listener: name, err: error },
+            `could not apply the new certificate to ${name}; restarting it`,
+          );
+          await this.closeOne(name);
+        }
+      } else if (server) {
+        await this.closeOne(name);
+      }
+      const created = this.create(name, tls, stored.hostname);
+      const events = created as unknown as EventEmitter;
+      try {
+        await new Promise<void>((resolve, reject) => {
+          const onError = (error: Error) => reject(error);
+          events.once('error', onError);
+          created.listen(ports[name], host, () => {
+            events.off('error', onError);
+            resolve();
+          });
+        });
+        events.on('error', (error: Error) => {
+          // smtp-server also emits per-connection errors (a client dropping mid-handshake).
+          // Only a server that stopped listening is a listener failure.
+          if (this.isListening(created)) return;
+          this.mark(name, 'failed', error.message, (error as NodeJS.ErrnoException).code ?? null);
+          this.platform.logger.error(
+            { event: 'mail_apps_listener_error', listener: name, port: ports[name], err: error },
+            `${name} listener error`,
+          );
+        });
+        this.servers[name] = created;
+        this.mark(name, 'listening', null, null);
+      } catch (error) {
+        const err = error as NodeJS.ErrnoException;
+        this.mark(name, 'failed', err.message, err.code ?? null);
+        this.platform.logger.error(
+          {
+            event: 'mail_apps_listener_failed',
+            listener: name,
+            protocol: PROTOCOLS[name],
+            host,
+            port: ports[name],
+            code: err.code ?? null,
+            err: error,
+          },
+          `${name} could not listen on ${host}:${ports[name]}: ${err.message}`,
+        );
+        await new Promise<void>((resolve) => created.close(() => resolve()));
+      }
+    }
+    const failed = LISTENER_NAMES.filter((name) => this.status[name].state !== 'listening');
+    this.problem = failed.length
+      ? `Not listening: ${failed.map((name) => `${name} (${this.status[name].error})`).join(', ')}`
+      : null;
+    const log = failed.length ? this.platform.logger.error : this.platform.logger.info;
+    log.call(
+      this.platform.logger,
+      {
+        event: failed.length ? 'mail_apps_partially_running' : 'mail_apps_running',
+        reason,
+        hostname: stored.hostname,
+        certificate: this.certificateSource,
+        listeners: this.snapshot(),
+      },
+      failed.length
+        ? `mail apps listeners failed: ${failed.join(', ')}`
+        : 'IMAP and SMTP listeners running',
+    );
+  }
+
+  private create(name: ListenerName, tls: { key: string; cert: string }, hostname: string) {
+    if (name === 'imaps') {
+      const server = createTlsServer(tls, (socket) => {
+        this.sockets.add(socket);
+        socket.on('close', () => this.sockets.delete(socket));
+        new ImapSession(socket, this.platform, this.accounts, socket.remoteAddress ?? 'unknown');
+      });
+      server.on('tlsClientError', () => undefined);
+      return server;
+    }
+    return this.smtp(name === 'smtps', tls, hostname);
+  }
+
+  private isListening(server: TlsServer | SMTPServer): boolean {
+    return server instanceof SMTPServer ? server.server.listening : server.listening;
+  }
+
+  private mark(
+    name: ListenerName,
+    state: ListenerStatus['state'],
+    error: string | null,
+    code: string | null,
+  ) {
+    const ports = this.listenPorts();
+    this.status[name] = {
+      ...this.status[name],
+      port: ports[name],
+      state,
+      error,
+      code,
+      since: Date.now(),
+    };
+  }
+
+  private snapshot() {
+    return LISTENER_NAMES.map((name) => ({
+      listener: name,
+      port: this.status[name].port,
+      state: this.status[name].state,
+      ...(this.status[name].error
+        ? { error: this.status[name].error, code: this.status[name].code }
+        : {}),
+    }));
+  }
+
+  /** Live status: each listener's bind state plus a real TCP connection test. */
+  async listeners(): Promise<ListenerStatus[]> {
+    const host =
+      this.platform.config.mailListenHost === '0.0.0.0'
+        ? '127.0.0.1'
+        : this.platform.config.mailListenHost;
+    return Promise.all(
+      LISTENER_NAMES.map(async (name) => {
+        const server = this.servers[name];
+        const bound =
+          Boolean(server && this.isListening(server)) && this.status[name].state === 'listening';
+        const accepting = bound ? await probe(host, this.status[name].port) : false;
+        return { ...this.status[name], accepting };
+      }),
+    );
+  }
+
+  /** Health check: ok when disabled, or when every listener accepts connections. */
+  async checkHealth(): Promise<{ ok: boolean; details: Record<string, unknown> }> {
+    const stored = await this.load();
+    const listeners = await this.listeners();
+    const ok = !stored.enabled || listeners.every((item) => item.accepting);
+    return {
+      ok,
+      details: {
+        enabled: stored.enabled,
+        problem: this.problem,
+        listeners: Object.fromEntries(
+          listeners.map((item) => [
+            item.name,
+            { port: item.port, state: item.state, accepting: item.accepting, error: item.error },
+          ]),
+        ),
+      },
+    };
+  }
+
+  private async closeOne(name: ListenerName): Promise<void> {
+    const server = this.servers[name];
+    this.servers[name] = null;
+    if (!server) return;
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+
+  private async stopAll(): Promise<void> {
+    for (const socket of this.sockets) socket.destroy();
+    this.sockets.clear();
+    await Promise.all(LISTENER_NAMES.map((name) => this.closeOne(name)));
+    for (const name of LISTENER_NAMES) {
+      if (this.status[name].state === 'listening') this.mark(name, 'stopped', null, null);
+    }
   }
 
   async stop(): Promise<void> {
-    const servers = [this.imap, this.smtps, this.submission];
-    this.imap = null;
-    this.smtps = null;
-    this.submission = null;
-    for (const socket of this.sockets) socket.destroy();
-    this.sockets.clear();
-    await Promise.all(
-      servers.map(
-        (server) =>
-          new Promise<void>((resolve) => {
-            if (!server) resolve();
-            else server.close(() => resolve());
-          }),
-      ),
-    );
+    await this.queue;
+    await this.stopAll();
   }
 
   shutdown(): void {
     if (this.renewTimer) clearInterval(this.renewTimer);
+    if (this.retryTimer) clearInterval(this.retryTimer);
     void this.stop();
   }
 
@@ -446,8 +751,10 @@ export class MailServers {
         });
       },
     });
+    // Per-connection errors (clients and health probes hanging up); listener failures are
+    // handled in reconcileNow.
     server.on('error', (error) =>
-      this.platform.logger.warn({ err: error }, 'smtp submission error'),
+      this.platform.logger.debug({ err: error }, 'smtp submission connection error'),
     );
     return server;
   }
@@ -457,6 +764,20 @@ export class MailServers {
     if (!account) return false;
     return (await this.platform.mail.sendableAddresses(account)).has(address.trim().toLowerCase());
   }
+}
+
+/** True when a TCP connection to host:port succeeds within a second. */
+function probe(host: string, port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = connect({ host, port });
+    const done = (ok: boolean) => {
+      socket.destroy();
+      resolve(ok);
+    };
+    socket.setTimeout(1000, () => done(false));
+    socket.once('connect', () => done(true));
+    socket.once('error', () => done(false));
+  });
 }
 
 function rejection(message: string, code: number): Error & { responseCode: number } {

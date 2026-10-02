@@ -591,6 +591,18 @@ export interface MailClientSettings {
   certExpiresAt: number | null;
   lastError: string | null;
   running: boolean;
+  problem: string | null;
+  certificateSource: 'panel' | 'data-volume' | null;
+  cloudflareConnected: boolean;
+  listeners: Array<{
+    name: string;
+    protocol: string;
+    port: number;
+    state: 'stopped' | 'listening' | 'failed';
+    accepting: boolean;
+    error: string | null;
+    code: string | null;
+  }>;
   ports: { imaps: number; smtps: number; submission: number };
 }
 

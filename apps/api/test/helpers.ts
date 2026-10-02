@@ -14,7 +14,7 @@ export interface TestContext {
   origin: string;
 }
 
-export async function createTestContext(): Promise<TestContext> {
+export async function createTestContext(env: Record<string, string> = {}): Promise<TestContext> {
   const dataDir = mkdtempSync(join(tmpdir(), 'aspectenant-test-'));
   const origin = 'http://127.0.0.1:8080';
   const config = loadAppConfig({
@@ -27,6 +27,7 @@ export async function createTestContext(): Promise<TestContext> {
       LISTEN_HOST: '127.0.0.1',
       LISTEN_PORT: '3000',
       DATA_DIR: dataDir,
+      ...env,
     },
   });
   const database = await createDatabase({

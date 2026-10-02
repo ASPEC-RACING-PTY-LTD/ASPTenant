@@ -17,7 +17,8 @@ If Cloudflare Access protects the hostname, bypass `/api/v1/mail/ingest` so the 
 ## Mail apps and data
 
 - The API container publishes 993 (IMAPS), 465 (SMTPS) and 587 (submission) on all interfaces. Forward them on your router to the host and point a DNS-only (grey cloud) A record at your public IP. Set `ASPECTENANT_MAIL_BIND` to restrict.
-- `/data` (volume `data`) holds PST uploads and backup staging.
+- `/data` (volume `data`) holds PST uploads and backup staging. A certificate can also be supplied as `/data/mail-tls/fullchain.pem` and `/data/mail-tls/privkey.pem`; the panel's certificate takes precedence.
+- Listener state: Mail apps shows each listener (IMAPS 1993, SMTPS 1465, submission 1587 inside the container) with a live connection test, and `/healthz` reports `mailApps`. When they cannot start, the API logs `mail_apps_start_failed` or `mail_apps_listener_failed` with the reason (no certificate, key cannot be decrypted, certificate and key mismatch, port in use). Failed listeners are retried every minute.
 
 ## Backups
 

@@ -94,6 +94,41 @@ export function MailClientsPage() {
             ? `Certificate valid until ${new Date(settings.certExpiresAt).toLocaleDateString()}`
             : 'No certificate yet'}
         </p>
+        {settings.problem && settings.enabled ? (
+          <p className="notice notice-error">{settings.problem}</p>
+        ) : null}
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th>Listener</th>
+              <th>Container port</th>
+              <th>State</th>
+              <th>Accepting</th>
+            </tr>
+          </thead>
+          <tbody>
+            {settings.listeners.map((item) => (
+              <tr key={item.name}>
+                <td>{item.protocol}</td>
+                <td>{item.port}</td>
+                <td>
+                  <span
+                    className={`badge ${item.state === 'listening' ? 'badge-ok' : item.state === 'failed' ? 'badge-warn' : 'badge-off'}`}
+                  >
+                    {item.state}
+                  </span>
+                  {item.error ? (
+                    <div className="muted">
+                      {item.code ? `${item.code}: ` : ''}
+                      {item.error}
+                    </div>
+                  ) : null}
+                </td>
+                <td>{item.accepting ? 'yes' : 'no'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
         {settings.lastError ? <p className="notice notice-error">{settings.lastError}</p> : null}
         <table className="data-table">
           <tbody>
@@ -218,7 +253,11 @@ export function MailClientsPage() {
             <button
               className="btn btn-ghost"
               type="button"
-              disabled={busy || !settings.hostname || !settings.hasDnsToken}
+              disabled={
+                busy ||
+                !settings.hostname ||
+                !(settings.hasDnsToken || settings.cloudflareConnected)
+              }
               onClick={() =>
                 void run(async () => {
                   setNotice('Requesting a certificate. This takes about a minute.');
