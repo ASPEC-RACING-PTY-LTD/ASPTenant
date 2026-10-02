@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import { resolveMx, resolveTxt } from 'node:dns/promises';
 import { ConflictError, NotFoundError, UnprocessableError } from '@aspec/errors';
 import type { Actor } from '@aspec/users';
 import type { Platform } from '../platform.js';
@@ -70,6 +71,136 @@ export class DirectoryService {
     return this.store.counts(await this.tenantId());
   }
 
+  /** Validates that an address is well formed, on a registered domain and unused. */
+  async claimAddress(tenantId: string, value: string): Promise<string> {
+    const address = normaliseEmail(value);
+    if (!EMAIL.test(address)) throw new UnprocessableError('Enter a valid email address.');
+    const domain = address.split('@')[1] ?? '';
+    if (!(await this.store.findDomainByHostname(tenantId, domain))) {
+      throw new UnprocessableError(
+        `${domain} is not one of your domains. Add it on the Domains page first.`,
+      );
+    }
+    if (
+      (await this.store.findMailboxByAddress(tenantId, address)) ||
+      (await this.store.findGroupByEmail(tenantId, address))
+    ) {
+      throw new ConflictError('That address is already in use.');
+    }
+    return address;
+  }
+
+  async isOwnedDomain(address: string): Promise<boolean> {
+    const domain = normaliseEmail(address).split('@')[1] ?? '';
+    return (await this.store.findDomainByHostname(await this.tenantId(), domain)) !== null;
+  }
+
+  async findGroupByEmail(address: string): Promise<DirectoryGroup | null> {
+    return this.store.findGroupByEmail(await this.tenantId(), normaliseEmail(address));
+  }
+
+  async findMailboxByAddress(address: string): Promise<DirectoryMailbox | null> {
+    return this.store.findMailboxByAddress(await this.tenantId(), normaliseEmail(address));
+  }
+
+  domainVerification(domain: DirectoryDomain): { name: string; value: string } {
+    return {
+      name: domain.hostname,
+      value: `aspectenant-verification=${this.platform.secrets.derive(`domain:${domain.id}`)}`,
+    };
+  }
+
+  async domainDns(id: string): Promise<{
+    verification: { name: string; value: string; found: boolean };
+    mx: { exchange: string; priority: number }[];
+    mxOnCloudflare: boolean;
+    spf: string | null;
+    spfIncludesCloudflare: boolean;
+    dmarc: string | null;
+  }> {
+    const domain = await this.store.getDomain(await this.tenantId(), id);
+    if (!domain) throw new NotFoundError('Domain not found');
+    const txt = async (name: string) => {
+      try {
+        return (await resolveTxt(name)).map((parts) => parts.join(''));
+      } catch {
+        return [];
+      }
+    };
+    const [rootTxt, dmarcTxt, mx] = await Promise.all([
+      txt(domain.hostname),
+      txt(`_dmarc.${domain.hostname}`),
+      resolveMx(domain.hostname).catch(() => []),
+    ]);
+    const verification = this.domainVerification(domain);
+    const spf = rootTxt.find((value) => value.toLowerCase().startsWith('v=spf1')) ?? null;
+    return {
+      verification: { ...verification, found: rootTxt.includes(verification.value) },
+      mx: mx.map((record) => ({ exchange: record.exchange, priority: record.priority })),
+      mxOnCloudflare: mx.some((record) => record.exchange.endsWith('mx.cloudflare.net')),
+      spf,
+      spfIncludesCloudflare: spf?.includes('_spf.mx.cloudflare.net') ?? false,
+      dmarc: dmarcTxt.find((value) => value.toLowerCase().startsWith('v=dmarc1')) ?? null,
+    };
+  }
+
+  async listMailboxMembers(mailboxId: string) {
+    await this.getMailbox(mailboxId);
+    const members = await this.store.listMailboxMembers(mailboxId);
+    return Promise.all(
+      members.map(async (member) => {
+        const user = await this.platform.users.findUser(member.userId);
+        return {
+          ...member,
+          email: user?.email ?? null,
+          displayName: user?.profile.displayName ?? null,
+        };
+      }),
+    );
+  }
+
+  async addMailboxMember(mailboxId: string, userId: string, actor: Actor): Promise<void> {
+    const mailbox = await this.getMailbox(mailboxId);
+    if (mailbox.userId === userId) throw new ConflictError('That user already owns this mailbox.');
+    if (!(await this.platform.users.findUser(userId))) throw new NotFoundError('User not found');
+    const existing = await this.store.listMailboxMembers(mailboxId);
+    if (existing.some((member) => member.userId === userId)) {
+      throw new ConflictError('That user already has access.');
+    }
+    await this.store.addMailboxMember(await this.tenantId(), mailboxId, userId);
+    await audit(
+      this.platform,
+      actor,
+      'directory.mailbox.member_added',
+      {
+        type: 'mailbox',
+        id: mailboxId,
+      },
+      { after: { userId } },
+    );
+  }
+
+  async removeMailboxMember(mailboxId: string, userId: string, actor: Actor): Promise<void> {
+    await this.getMailbox(mailboxId);
+    if (!(await this.store.removeMailboxMember(mailboxId, userId))) {
+      throw new NotFoundError('Member not found');
+    }
+    await audit(
+      this.platform,
+      actor,
+      'directory.mailbox.member_removed',
+      {
+        type: 'mailbox',
+        id: mailboxId,
+      },
+      { before: { userId } },
+    );
+  }
+
+  async listAccessibleMailboxes(userId: string): Promise<DirectoryMailbox[]> {
+    return this.store.listAccessibleMailboxes(await this.tenantId(), userId);
+  }
+
   async listGroups(): Promise<DirectoryGroup[]> {
     return this.store.listGroups(await this.tenantId());
   }
@@ -81,10 +212,11 @@ export class DirectoryService {
   }
 
   async createGroup(
-    input: { name: string; kind: GroupKind; description?: string },
+    input: { name: string; kind: GroupKind; description?: string; email?: string | null },
     actor: Actor,
   ): Promise<DirectoryGroup> {
     const tenantId = await this.tenantId();
+    const email = input.email ? await this.claimAddress(tenantId, input.email) : null;
     const name = input.name.trim();
     if (!name) throw new UnprocessableError('Group name is required');
     let slug = slugify(name);
@@ -96,6 +228,7 @@ export class DirectoryService {
       name,
       slug,
       kind: input.kind,
+      email,
       description: input.description?.trim() ? input.description.trim() : null,
     });
     await audit(
@@ -112,11 +245,19 @@ export class DirectoryService {
 
   async updateGroup(
     id: string,
-    patch: { name?: string; description?: string | null; kind?: GroupKind },
+    patch: { name?: string; description?: string | null; kind?: GroupKind; email?: string | null },
     actor: Actor,
   ): Promise<DirectoryGroup> {
     const tenantId = await this.tenantId();
+    let email: string | null | undefined;
+    if (patch.email !== undefined) {
+      const current = await this.getGroup(id);
+      const wanted = patch.email ? normaliseEmail(patch.email) : null;
+      email =
+        wanted && wanted !== current.email ? await this.claimAddress(tenantId, wanted) : wanted;
+    }
     const updated = await this.store.updateGroup(tenantId, id, {
+      ...(email !== undefined ? { email } : {}),
       ...(patch.name !== undefined ? { name: patch.name.trim() } : {}),
       ...(patch.description !== undefined
         ? { description: patch.description === null ? null : patch.description.trim() || null }
@@ -232,6 +373,12 @@ export class DirectoryService {
     const tenantId = await this.tenantId();
     const current = await this.store.getDomain(tenantId, id);
     if (!current) throw new NotFoundError('Domain not found');
+    const dns = await this.domainDns(id);
+    if (!dns.verification.found) {
+      throw new UnprocessableError(
+        `TXT record not found. Add ${dns.verification.value} as a TXT record on ${dns.verification.name}, wait for DNS to update, then try again.`,
+      );
+    }
     const updated = await this.store.updateDomain(tenantId, id, {
       status: 'verified',
       verifiedAt: Date.now(),
@@ -299,10 +446,12 @@ export class DirectoryService {
     primaryAddress: string,
     displayName: string | null,
     actor?: Actor,
-  ): Promise<DirectoryMailbox> {
+  ): Promise<DirectoryMailbox | null> {
     const tenantId = await this.tenantId();
     const existing = await this.store.findMailboxByUser(tenantId, userId);
     if (existing) return existing;
+    if (!(await this.isOwnedDomain(primaryAddress))) return null;
+    if (await this.findMailboxByAddress(primaryAddress)) return null;
     return this.createMailbox(
       {
         kind: 'user',
@@ -325,17 +474,13 @@ export class DirectoryService {
     actor?: Actor,
   ): Promise<DirectoryMailbox> {
     const tenantId = await this.tenantId();
-    const primaryAddress = normaliseEmail(input.primaryAddress);
-    if (!EMAIL.test(primaryAddress)) throw new UnprocessableError('Enter a valid mailbox address.');
     if (input.kind === 'user') {
       if (!input.userId) throw new UnprocessableError('A user mailbox must be linked to a user.');
       if (await this.store.findMailboxByUser(tenantId, input.userId)) {
         throw new ConflictError('That user already has a mailbox.');
       }
     }
-    if (await this.store.findMailboxByAddress(tenantId, primaryAddress)) {
-      throw new ConflictError('That mailbox address is already in use.');
-    }
+    const primaryAddress = await this.claimAddress(tenantId, input.primaryAddress);
     const mailbox = await this.store.insertMailbox({
       tenantId,
       userId: input.kind === 'user' ? (input.userId ?? null) : null,
@@ -398,11 +543,7 @@ export class DirectoryService {
     const tenantId = await this.tenantId();
     const mailbox = await this.store.getMailbox(tenantId, mailboxId);
     if (!mailbox) throw new NotFoundError('Mailbox not found');
-    const address = normaliseEmail(alias);
-    if (!EMAIL.test(address)) throw new UnprocessableError('Enter a valid alias address.');
-    if (await this.store.findMailboxByAddress(tenantId, address)) {
-      throw new ConflictError('That address is already in use.');
-    }
+    const address = await this.claimAddress(tenantId, alias);
     await this.store.addAlias(mailboxId, address);
     const updated = await this.getMailbox(mailboxId);
     await audit(

@@ -1,13 +1,17 @@
 import { type FormEvent, useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import {
   addMailboxAlias,
+  addMailboxMember,
   createMailbox,
   type DirectoryMailbox,
   type DirectoryUser,
   deleteMailbox,
   listMailboxes,
+  listMailboxMembers,
   listUsers,
   removeMailboxAlias,
+  removeMailboxMember,
 } from '../api.js';
 
 export function MailPage() {
@@ -20,6 +24,17 @@ export function MailPage() {
   const [userId, setUserId] = useState('');
   const [alias, setAlias] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [members, setMembers] = useState<
+    Array<{ userId: string; email: string | null; displayName: string | null }>
+  >([]);
+  const [memberId, setMemberId] = useState('');
+
+  useEffect(() => {
+    if (!selectedId) return;
+    void listMailboxMembers(selectedId)
+      .then(setMembers)
+      .catch(() => setMembers([]));
+  }, [selectedId]);
 
   const reload = async () => {
     const [nextMailboxes, nextUsers] = await Promise.all([listMailboxes(), listUsers()]);
@@ -63,14 +78,11 @@ export function MailPage() {
       <div className="page-header">
         <h1>Mail</h1>
         <p>
-          ASPECTenant owns mailbox data. This page administers directory records and aliases only.
-          Cloudflare or another relay is transport, not the mailbox.
+          Create user and shared mailboxes, aliases and delegates. Messages are stored in
+          ASPECTenant. Configure Cloudflare or SMTP under{' '}
+          <Link to="/mail/settings">Mail settings</Link>.
         </p>
       </div>
-      <p className="notice">
-        No message store, ingest, IMAP, outbound submission or webmail is running. Addresses can be
-        reserved here so later mail services have a directory to attach to.
-      </p>
       {error ? (
         <p className="notice notice-error" role="alert">
           {error}
@@ -151,12 +163,19 @@ export function MailPage() {
                     type="button"
                     onClick={() => setSelectedId(mailbox.id)}
                   >
-                    Aliases
+                    Manage
                   </button>
                   <button
                     className="btn btn-danger"
                     type="button"
                     onClick={() => {
+                      if (
+                        !window.confirm(
+                          `Delete ${mailbox.primaryAddress} and every message in it? This cannot be undone.`,
+                        )
+                      ) {
+                        return;
+                      }
                       void deleteMailbox(mailbox.id)
                         .then(() => {
                           if (selectedId === mailbox.id) setSelectedId(null);
@@ -177,7 +196,65 @@ export function MailPage() {
       </section>
       {selected ? (
         <section className="panel">
-          <h2>Aliases for {selected.primaryAddress}</h2>
+          <h2>{selected.primaryAddress}</h2>
+          <h3>Mailbox access</h3>
+          <p className="muted">
+            {selected.kind === 'user'
+              ? 'The linked user always has access. Add delegates who can also read and send.'
+              : 'People listed here can read and send from this shared mailbox.'}
+          </p>
+          <form
+            className="form-grid"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (!memberId) return;
+              void addMailboxMember(selected.id, memberId)
+                .then(() => listMailboxMembers(selected.id))
+                .then(setMembers)
+                .catch((err: unknown) => {
+                  setError(err instanceof Error ? err.message : 'Could not add access.');
+                });
+            }}
+          >
+            <div className="field">
+              <label htmlFor="member">Person</label>
+              <select id="member" value={memberId} onChange={(e) => setMemberId(e.target.value)}>
+                <option value="">Select a user</option>
+                {users.map((user) => (
+                  <option key={user.id} value={user.id}>
+                    {user.email}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="field field-action">
+              <button className="btn" type="submit">
+                Grant access
+              </button>
+            </div>
+          </form>
+          <ul>
+            {members.map((member) => (
+              <li key={member.userId}>
+                {member.email ?? member.userId}{' '}
+                <button
+                  className="btn btn-ghost"
+                  type="button"
+                  onClick={() => {
+                    void removeMailboxMember(selected.id, member.userId)
+                      .then(() => listMailboxMembers(selected.id))
+                      .then(setMembers)
+                      .catch((err: unknown) => {
+                        setError(err instanceof Error ? err.message : 'Remove failed.');
+                      });
+                  }}
+                >
+                  Remove
+                </button>
+              </li>
+            ))}
+          </ul>
+          <h3>Aliases</h3>
           <form
             className="form-grid"
             onSubmit={(event) => {

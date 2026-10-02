@@ -14,4 +14,4 @@ COPY deploy/docker/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/apps/web/dist /usr/share/nginx/html
 EXPOSE 80
 HEALTHCHECK --interval=10s --timeout=5s --retries=12 --start-period=10s \
-  CMD wget -qO- http://127.0.0.1/healthz >/dev/null || exit 1
+  CMD wget -qO- http://127.0.0.1/livez >/dev/null || exit 1

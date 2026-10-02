@@ -6,6 +6,7 @@ networks:
 
 volumes:
   postgres_data:
+  data:
 
 services:
   postgres:
@@ -38,6 +39,12 @@ services:
       PUBLIC_URL: ${PUBLIC_URL:-http://localhost:8080}
       TRUSTED_PROXIES: private
       AUDIT_HMAC_KEY: ${AUDIT_HMAC_KEY:-}
+    volumes:
+      - data:/data
+    ports:
+      - "127.0.0.1:1993:1993"
+      - "127.0.0.1:1465:1465"
+      - "127.0.0.1:1587:1587"
     networks:
       - internal
     depends_on:

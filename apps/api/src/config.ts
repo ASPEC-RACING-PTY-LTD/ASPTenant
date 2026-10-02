@@ -28,6 +28,27 @@ export const configShape = {
     .optional()
     .secret()
     .description('Optional HMAC key for the audit hash chain.'),
+  appVersion: env
+    .string('APP_VERSION')
+    .default('dev')
+    .description('Release version baked into published images.'),
+  updateRepo: env
+    .string('UPDATE_REPO')
+    .default('ASPEC-RACING-PTY-LTD/ASPTenant')
+    .description('GitHub repository checked for new releases.'),
+  updatesDir: env
+    .string('UPDATES_DIR')
+    .default('/updates')
+    .description('Directory shared with the updater sidecar.'),
+  dataDir: env
+    .string('DATA_DIR')
+    .default('/data')
+    .description('Writable directory for uploads and backup staging.'),
+  secretKey: env
+    .string('SECRET_KEY', { min: 32 })
+    .optional()
+    .secret()
+    .description('Key for encrypting stored credentials. Defaults to AUDIT_HMAC_KEY.'),
   cookieSecure: env
     .boolean('COOKIE_SECURE')
     .optional()

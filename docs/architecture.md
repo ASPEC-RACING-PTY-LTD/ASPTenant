@@ -12,15 +12,17 @@ The control plane is a working administrative foundation:
 - Seeded RBAC (`tenant.owner`, `tenant.admin`, `tenant.auditor`)
 - User directory (create, profile, suspend/reinstate)
 - Security and distribution groups with membership
-- Custom domain records with operator-confirmed verification
-- Mailbox directory records and aliases (no message store)
+- Custom domains with DNS TXT verification and MX/SPF/DMARC checks
+- Mailboxes with stored messages, aliases, delegates and distribution groups
+- Inbound mail through Cloudflare Email Routing (Worker to ingest API) and outbound through Cloudflare Email Sending or SMTP
+- Built-in webmail and live mail settings in the panel
+- In-app updates through an updater sidecar
 - Application registration records (no OIDC/SAML IdP)
 - Organisation settings
 - Searchable audit history
 - Health, readiness and system diagnostics
-- Mail transport contracts that keep mailbox ownership in ASPECTenant
 
-Mailbox ingest, IMAP, webmail, outbound sending, MFA UI, SAML, SCIM, LDAP, mailbox migration and SoftDock integration are specified, not shipped.
+IMAP, MFA UI, SAML, SCIM, LDAP, mailbox migration and SoftDock integration are specified, not shipped.
 
 ## Component boundaries
 

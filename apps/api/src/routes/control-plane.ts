@@ -17,6 +17,7 @@ import { createUserRoutes } from './users.js';
 const setupBody = z.object({
   email: z.string().email().max(320),
   password: z.string().min(12).max(1024),
+  setupCode: z.string().min(1).max(32),
   displayName: z.string().min(1).max(120).optional(),
   organisationName: z.string().min(1).max(120).optional(),
 });
@@ -58,6 +59,7 @@ export function createControlPlaneApi(platform: Platform) {
       const result = await completeSetup(platform, {
         email: body.email,
         password: body.password,
+        setupCode: body.setupCode,
         ...(body.displayName ? { displayName: body.displayName } : {}),
         ...(body.organisationName ? { organisationName: body.organisationName } : {}),
         ...(ip ? { ip } : {}),
@@ -90,8 +92,12 @@ export function createControlPlaneApi(platform: Platform) {
         platform.orgs.getDefaultOrg(),
       ]);
       if (!account || !user) throw new UnauthorizedError('Sign in required');
-      const membership = await platform.orgs.getMembership(org.id, account.id);
+      const [membership, permissions] = await Promise.all([
+        platform.orgs.getMembership(org.id, account.id),
+        platform.rbac.permissionsFor({ id: account.id, type: 'user' }),
+      ]);
       return ok({
+        permissions: permissions.permissions,
         account: {
           id: account.id,
           email: account.email,
@@ -128,7 +134,7 @@ export function createControlPlaneApi(platform: Platform) {
       return ok({
         name: platform.config.appName,
         product: 'ASPECTenant',
-        version: '0.1.0',
+        version: platform.config.appVersion,
         setupRequired: setupState.required,
         tenantMode: 'single',
         capabilities: {
@@ -190,7 +196,7 @@ export function createControlPlaneApi(platform: Platform) {
   return createApi({
     info: {
       title: 'ASPECTenant Control Plane',
-      version: '0.1.0',
+      version: platform.config.appVersion,
       description:
         'Self-hosted identity and administration API. Mailbox message storage, IMAP and SoftDock are documented but not implemented.',
     },

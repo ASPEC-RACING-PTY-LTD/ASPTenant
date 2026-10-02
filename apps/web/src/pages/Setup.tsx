@@ -2,11 +2,13 @@ import { type FormEvent, useEffect, useState } from 'react';
 import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { completeSetup, getSetupState, login } from '../api.js';
 import { useAuth } from '../auth.js';
+import { SetupRestore } from './SetupRestore.js';
 
 export function SetupPage() {
   const { session, refresh } = useAuth();
   const navigate = useNavigate();
   const [ready, setReady] = useState<boolean | null>(null);
+  const [setupCode, setSetupCode] = useState('');
   const [organisationName, setOrganisationName] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
@@ -37,6 +39,7 @@ export function SetupPage() {
     setError(null);
     try {
       await completeSetup({
+        setupCode: setupCode.trim(),
         email,
         password,
         organisationName: organisationName.trim(),
@@ -69,6 +72,20 @@ export function SetupPage() {
             {error}
           </p>
         ) : null}
+        <div className="field">
+          <label htmlFor="setupCode">Setup code</label>
+          <input
+            id="setupCode"
+            autoComplete="off"
+            placeholder="XXXXX-XXXXX"
+            value={setupCode}
+            onChange={(event) => setSetupCode(event.target.value)}
+            required
+          />
+          <small className="muted">
+            Printed by the installer, or run: docker compose logs api | grep "Setup code"
+          </small>
+        </div>
         <div className="field">
           <label htmlFor="organisationName">Organisation</label>
           <input
@@ -133,6 +150,7 @@ export function SetupPage() {
           Already set up? <Link to="/login">Sign in</Link>
         </p>
       </form>
+      <SetupRestore />
     </div>
   );
 }

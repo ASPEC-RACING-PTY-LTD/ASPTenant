@@ -26,7 +26,7 @@ export function createMailboxRoutes(platform: Platform) {
       method: 'get',
       path: '/mailboxes',
       operationId: 'listMailboxes',
-      summary: 'List mailbox directory records. Messages are not stored yet.',
+      summary: 'List mailboxes',
       tags: ['mail'],
       request: {},
       responses: { '200': { description: 'Mailboxes' } },
@@ -35,7 +35,6 @@ export function createMailboxRoutes(platform: Platform) {
         await requirePermission(platform, accountId, 'mail:read');
         return ok({
           items: await platform.directory.listMailboxes(),
-          messageStore: false,
         });
       },
     }),
@@ -43,7 +42,7 @@ export function createMailboxRoutes(platform: Platform) {
       method: 'post',
       path: '/mailboxes',
       operationId: 'createMailbox',
-      summary: 'Provision a mailbox directory record without creating a message store',
+      summary: 'Provision a mailbox on a registered domain',
       tags: ['mail'],
       request: { body: createBody },
       responses: { '201': { description: 'Created' } },
@@ -95,7 +94,7 @@ export function createMailboxRoutes(platform: Platform) {
       method: 'delete',
       path: '/mailboxes/:id',
       operationId: 'deleteMailbox',
-      summary: 'Delete a mailbox directory record',
+      summary: 'Delete a mailbox and all of its messages',
       tags: ['mail'],
       request: { params: idParams },
       responses: { '204': { description: 'Deleted' } },

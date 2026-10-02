@@ -7,6 +7,7 @@ import {
   isAuthEmailTaken,
   requirePermission,
 } from '../access.js';
+import { PLATFORM_OWNER_ROLE } from '../permissions.js';
 import type { Platform } from '../platform.js';
 
 const createBody = z.object({
@@ -32,6 +33,16 @@ const listQuery = z.object({
   status: z.enum(['pending', 'active', 'suspended', 'deleted']).optional(),
   limit: z.coerce.number().int().min(1).max(100).optional(),
 });
+
+/** Only an organisation owner may suspend or sign out another owner. */
+async function assertCanManage(platform: Platform, actorId: string, targetId: string) {
+  const targetRoles = await platform.rbac.rolesFor({ id: targetId, type: 'user' });
+  if (!targetRoles.includes(PLATFORM_OWNER_ROLE)) return;
+  const actorRoles = await platform.rbac.rolesFor({ id: actorId, type: 'user' });
+  if (!actorRoles.includes(PLATFORM_OWNER_ROLE)) {
+    throw new ForbiddenError('Only an organisation owner can change another owner.');
+  }
+}
 
 export function createUserRoutes(platform: Platform) {
   const listUsers = defineRoute({
@@ -201,7 +212,7 @@ export function createUserRoutes(platform: Platform) {
       const actor = actorFromRequest(raw, accountId);
       const user = await platform.users.updateProfile(
         id,
-        { displayName: request.body?.displayName ?? null },
+        request.body?.displayName !== undefined ? { displayName: request.body.displayName } : {},
         {},
         { actor },
       );
@@ -228,6 +239,7 @@ export function createUserRoutes(platform: Platform) {
       const id = request.params?.id;
       if (!id) throw new NotFoundError('User not found');
       if (id === accountId) throw new ForbiddenError('You cannot suspend your own account.');
+      await assertCanManage(platform, accountId, id);
       const actor = actorFromRequest(raw, accountId);
       const reason = request.body?.reason ?? 'Suspended by administrator';
       const user = await platform.users.suspendUser(id, { reason }, { actor });
@@ -301,6 +313,7 @@ export function createUserRoutes(platform: Platform) {
       const userId = request.params?.userId;
       const sessionId = request.params?.sessionId;
       if (!userId || !sessionId) throw new NotFoundError('Session not found');
+      await assertCanManage(platform, accountId, userId);
       const revoked = await platform.auth.revokeSession(userId, sessionId);
       if (!revoked) throw new NotFoundError('Session not found');
       return noContent();

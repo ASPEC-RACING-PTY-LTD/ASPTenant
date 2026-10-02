@@ -1,75 +1,86 @@
 #!/usr/bin/env bash
-# Install ASPECTenant from published images.
+# Install or upgrade ASPECTenant from published images.
 #
 #   sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/ASPEC-RACING-PTY-LTD/ASPTenant/main/install.sh)"
 #
 # Unattended:
-#   sudo env PUBLIC_URL=https://tenant.example.com bash -c "$(curl -fsSL https://raw.githubusercontent.com/ASPEC-RACING-PTY-LTD/ASPTenant/main/install.sh)"
+#   sudo env PUBLIC_URL=https://mail.example.com bash -c "$(curl -fsSL https://raw.githubusercontent.com/ASPEC-RACING-PTY-LTD/ASPTenant/main/install.sh)"
 #
+# Optional: ASPECTENANT_DIR (default /opt/aspectenant), ASPECTENANT_BIND (default
+# 127.0.0.1, for a local cloudflared), ASPECTENANT_PORT (default 8080).
+# Re-running is safe: it refreshes compose.yml, keeps .env and the database.
 set -euo pipefail
 
 REPO_RAW="${ASPECTENANT_RAW:-https://raw.githubusercontent.com/ASPEC-RACING-PTY-LTD/ASPTenant/main}"
-API_IMAGE="${ASPECTENANT_API_IMAGE:-ghcr.io/aspec-racing-pty-ltd/aspectenant-api:latest}"
-WEB_IMAGE="${ASPECTENANT_WEB_IMAGE:-ghcr.io/aspec-racing-pty-ltd/aspectenant-web:latest}"
+PREFIX="${ASPECTENANT_DIR:-/opt/aspectenant}"
 
 if [[ "$(id -u)" -ne 0 ]]; then
   echo "Run as root (sudo)." >&2
   exit 1
 fi
-
-if [[ "$(basename "$(pwd)")" == "aspectenant" ]]; then
-  PREFIX="$(pwd)"
-else
-  PREFIX="$(pwd)/aspectenant"
-fi
-
-mkdir -p "${PREFIX}"
-cd "${PREFIX}"
-
 if ! command -v docker >/dev/null 2>&1; then
   echo "Docker is required. Install Docker Engine, then re-run." >&2
   exit 1
 fi
-
 if ! docker compose version >/dev/null 2>&1; then
   echo "Docker Compose is required. Install the Compose plugin, then re-run." >&2
   exit 1
 fi
 
-if [[ ! -f compose.yml ]]; then
-  curl -fsSL "${REPO_RAW}/deploy/compose.release.yml" -o compose.yml
-fi
+mkdir -p "${PREFIX}"
+cd "${PREFIX}"
+
+curl -fsSL "${REPO_RAW}/deploy/compose.release.yml" -o compose.yml.new
+mv compose.yml.new compose.yml
+
+random() {
+  openssl rand -hex "$1" 2>/dev/null || tr -dc 'a-f0-9' </dev/urandom | head -c "$(($1 * 2))"
+}
 
 if [[ ! -f .env ]]; then
   if [[ -z "${PUBLIC_URL:-}" ]]; then
     if [[ -t 0 ]]; then
-      read -r -p "Public URL (for example https://tenant.example.com): " PUBLIC_URL
+      read -r -p "Public URL people will open (for example https://mail.example.com): " PUBLIC_URL
     else
-      PUBLIC_URL="http://127.0.0.1:8080"
+      PUBLIC_URL="http://localhost:8080"
     fi
   fi
-  POSTGRES_PASSWORD="$(openssl rand -hex 24 2>/dev/null || tr -dc 'A-Za-z0-9' </dev/urandom | head -c 48)"
-  AUDIT_HMAC_KEY="$(openssl rand -hex 32 2>/dev/null || tr -dc 'A-Za-z0-9' </dev/urandom | head -c 64)"
-  cat > .env <<EOF
-PUBLIC_URL=${PUBLIC_URL}
-POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-AUDIT_HMAC_KEY=${AUDIT_HMAC_KEY}
-ASPECTENANT_PORT=${ASPECTENANT_PORT:-8080}
-ASPECTENANT_API_IMAGE=${API_IMAGE}
-ASPECTENANT_WEB_IMAGE=${WEB_IMAGE}
-EOF
+  {
+    echo "PUBLIC_URL=${PUBLIC_URL%/}"
+    echo "POSTGRES_PASSWORD=$(random 24)"
+    echo "AUDIT_HMAC_KEY=$(random 32)"
+    echo "INSTALL_DIR=${PREFIX}"
+    if [[ -n "${ASPECTENANT_BIND:-}" ]]; then echo "ASPECTENANT_BIND=${ASPECTENANT_BIND}"; fi
+    if [[ -n "${ASPECTENANT_PORT:-}" ]]; then echo "ASPECTENANT_PORT=${ASPECTENANT_PORT}"; fi
+  } > .env
   chmod 600 .env
+elif ! grep -q '^INSTALL_DIR=' .env; then
+  echo "INSTALL_DIR=${PREFIX}" >> .env
 fi
 
-# shellcheck disable=SC1091
 set -a
+# shellcheck disable=SC1091
 . ./.env
 set +a
 
 docker compose pull
-docker compose up -d
+docker compose up -d --remove-orphans
+
+echo "Waiting for ASPECTenant to start..."
+CODE=""
+for _ in $(seq 1 60); do
+  CODE="$(docker compose logs api 2>/dev/null | grep -o 'Setup code: [A-F0-9-]*' | tail -1 | cut -d' ' -f3 || true)"
+  if [[ -n "${CODE}" ]] || docker compose logs api 2>/dev/null | grep -q 'control plane listening'; then
+    break
+  fi
+  sleep 3
+done
 
 echo
-echo "ASPECTenant is running."
-echo "Open ${PUBLIC_URL}/setup and create the super administrator."
-echo "Installation directory: ${PREFIX}"
+echo "ASPECTenant is running in ${PREFIX}"
+echo "Panel: ${PUBLIC_URL} (local: http://${ASPECTENANT_BIND:-127.0.0.1}:${ASPECTENANT_PORT:-8080})"
+if [[ -n "${CODE}" ]]; then
+  echo
+  echo "Open ${PUBLIC_URL}/setup and enter this setup code: ${CODE}"
+  echo "(It changes if the API restarts: docker compose logs api | grep 'Setup code')"
+fi

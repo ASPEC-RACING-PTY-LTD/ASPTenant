@@ -2,7 +2,21 @@
 
 ASPECTenant provides and owns the mailbox platform. Email is not "forward everything to Gmail or Microsoft 365". A successful deployment can move business mail off Exchange Online and keep the mailboxes here.
 
-This document describes the intended design. The control plane stores mailbox directory records and aliases. There is no ingest API, message store, IMAP server, outbound submission or webmail yet.
+## What works today
+
+- Mailboxes (user and shared), aliases, delegates and distribution groups with an address. Addresses must be on a domain registered under Domains.
+- Message store in PostgreSQL: raw MIME plus indexed metadata, folders Inbox, Sent, Archive, Junk, Trash.
+- Inbound: `POST /api/v1/mail/ingest` with a bearer ingest token. The Worker in `deploy/cloudflare/email-worker.js` (also shown with your URL on Mail settings) forwards each Cloudflare Email Routing delivery. Unknown recipients get a 550 reject. Duplicate Message-IDs per mailbox are dropped.
+- Outbound: Cloudflare Email Sending over SMTP (`smtp.mx.cloudflare.net:465`, user `api_token`) or any SMTP server/relay, configured and tested live on Mail settings. Credentials are AES-256-GCM encrypted in the database. Mail to local recipients is delivered internally and never leaves the server.
+- Webmail at `/mailbox`: read (HTML in a sandboxed frame with remote scripts blocked), search, reply, reply all, forward, attachments, move, delete, download `.eml`.
+- Domains page: TXT ownership verification and MX, SPF and DMARC checks.
+
+- Mail apps: IMAPS 993 and SMTP submission 465/587 (`apps/api/src/imap`, `apps/api/src/mailserver`). Login is the ASPECTenant email and password. Shared and delegated mailboxes appear under `Shared/<address>/`. Submitted mail goes through the same outbound transport; clients save their own copy to Sent. Certificates come from Let's Encrypt (Cloudflare DNS-01 token) or an uploaded PEM and renew automatically. These ports bypass Cloudflare Tunnel: forward them to the host and use a DNS-only record.
+- PST import (Migration page): chunked resumable upload, folders mapped (Inbox, Sent Items, Deleted Items, Junk, Drafts, custom), read state and dates kept. A content key per message makes re-imports skip duplicates.
+
+Not implemented yet: spam scoring (Cloudflare Email Routing applies its own checks before the Worker), retention policies, quota enforcement, full-text index, IMAP keywords and CONDSTORE.
+
+The rest of this document describes the design those pieces follow.
 
 ## Ownership
 
@@ -74,11 +88,12 @@ Use it to avoid running a public outbound MTA and to inherit Cloudflare's DKIM/S
 
 Constraints that matter:
 
-- Product is Email Sending (Beta). It is transactional, not a marketing ESP
+- It is transactional, not a marketing ESP. Workers Paid includes 3,000 messages a month, then $0.35 per 1,000 (pricing page, 2026-10-02)
 - Sending to arbitrary recipients requires the Workers Paid plan. Sends only to verified destination addresses are available more broadly and are the wrong model for a mailbox platform
 - SMTP: `smtp.mx.cloudflare.net:465`, implicit TLS, username `api_token`, password a Cloudflare API token with Email Sending: Edit
 - No outbound port 587 STARTTLS. No unauthenticated port 25 outbound. Port 25 is inbound Email Routing
-- Outbound SIZE 5 MiB (25 MiB only to verified destinations). Business mail with attachments will need another outbound transport or splitting when over 5 MiB
+- Outbound SIZE 5 MiB (25 MiB only to verified destinations). Business mail with attachments will need another outbound transport when over 5 MiB
+- At most 50 recipients per message
 - Daily quotas start conservative and are reputation-based
 - Suppression lists can accept a recipient at `RCPT TO` and later drop it
 
@@ -111,13 +126,7 @@ Do not adopt a hosted mailbox (Exchange Online, Google Workspace, Fastmail, Clou
 
 Mature open-source mail servers (for example Stalwart) may be used underneath if they remain swappable and ASPECTenant remains the administrative plane. That decision is not made in this scaffold.
 
-## What this scaffold does not do
+## Not done here
 
-- Accept inbound MIME
-- Submit outbound mail
-- Create mailboxes
-- Run IMAP or webmail
-- Configure Cloudflare automatically
-- Bundle cloudflared or a Worker project
-
-The contracts exist so later work does not accidentally treat a relay as the mailbox.
+- Configure Cloudflare automatically (the Worker and routing rule are set up by hand, guided on Mail settings)
+- Bundle cloudflared

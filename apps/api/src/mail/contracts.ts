@@ -3,7 +3,8 @@
  *
  * ASPECTenant owns mailbox data. Cloudflare, SES, Postmark or a local MTA are
  * transports, not mailbox providers. These types are the stable boundary for
- * later implementation. No provider is implemented in this scaffold.
+ * implementations in mail/service.ts. Cloudflare Email Routing (via the Worker in
+ * deploy/cloudflare), Cloudflare Email Sending SMTP and generic SMTP are implemented.
  *
  * Constraints that shaped the Cloudflare options (official docs, retrieved
  * 2026-10-02):
@@ -102,7 +103,7 @@ export const MAIL_TRANSPORT_CATALOGUE: readonly MailTransportDescriptor[] = [
   {
     kind: 'cloudflare-email-routing',
     direction: 'inbound',
-    status: 'planned',
+    status: 'available',
     title: 'Cloudflare Email Routing',
     summary:
       'Preferred inbound MX when the domain is on Cloudflare. A Worker receives raw MIME and posts it to ASPECTenant ingest. Cloudflare does not keep the mailbox.',
@@ -117,7 +118,7 @@ export const MAIL_TRANSPORT_CATALOGUE: readonly MailTransportDescriptor[] = [
   {
     kind: 'cloudflare-email-sending',
     direction: 'outbound',
-    status: 'planned',
+    status: 'available',
     title: 'Cloudflare Email Sending',
     summary:
       'Preferred outbound submission when the operator does not want to run a public MTA. SMTP, REST or a Worker binding may be used. Still only a transport.',
@@ -132,7 +133,7 @@ export const MAIL_TRANSPORT_CATALOGUE: readonly MailTransportDescriptor[] = [
   {
     kind: 'smtp-direct',
     direction: 'outbound',
-    status: 'planned',
+    status: 'available',
     title: 'Direct self-hosted SMTP',
     summary:
       'ASPECTenant submits outbound mail through an operator-owned MTA. Required when Cloudflare or another relay is unavailable or undesired.',
@@ -144,7 +145,7 @@ export const MAIL_TRANSPORT_CATALOGUE: readonly MailTransportDescriptor[] = [
   {
     kind: 'smtp-relay',
     direction: 'outbound',
-    status: 'planned',
+    status: 'available',
     title: 'Generic SMTP relay',
     summary: 'Authenticated submission to any SMTP smart host, including self-hosted relays.',
     constraints: ['Relay credentials stay in ASPECTenant configuration, not in mailbox data.'],
@@ -177,7 +178,7 @@ export interface MailboxRecord {
 }
 
 export interface MailCapabilityStatus {
-  implemented: false;
+  implemented: boolean;
   ownsMailboxes: true;
   inboundTransports: readonly MailTransportKind[];
   outboundTransports: readonly MailTransportKind[];
@@ -186,7 +187,7 @@ export interface MailCapabilityStatus {
 
 export function mailCapabilityStatus(): MailCapabilityStatus {
   return {
-    implemented: false,
+    implemented: true,
     ownsMailboxes: true,
     inboundTransports: MAIL_TRANSPORT_CATALOGUE.filter((item) => item.direction === 'inbound').map(
       (item) => item.kind,
@@ -195,9 +196,10 @@ export function mailCapabilityStatus(): MailCapabilityStatus {
       (item) => item.direction === 'outbound',
     ).map((item) => item.kind),
     notes: [
-      'Mailbox directory records and aliases can be provisioned. Folders, messages and attachments are not stored yet.',
-      'IMAP and self-hosted webmail are planned against that store, not against Gmail, Microsoft 365 or Cloudflare.',
-      'No ingest, SMTP submission, IMAP or webmail server is implemented.',
+      'Messages, folders and attachments are stored in the ASPECTenant database.',
+      'Inbound: Cloudflare Email Routing Worker posts raw MIME to /api/v1/mail/ingest.',
+      'Outbound: Cloudflare Email Sending SMTP or any SMTP relay, configured in Mail settings.',
+      'Webmail is built in. IMAP and SMTP client submission are not implemented yet.',
     ],
   };
 }

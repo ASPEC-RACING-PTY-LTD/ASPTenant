@@ -13,15 +13,15 @@ describe('mail contracts', () => {
     const outbound = MAIL_TRANSPORT_CATALOGUE.find(
       (item) => item.kind === 'cloudflare-email-sending',
     );
-    expect(inbound?.status).toBe('planned');
-    expect(outbound?.status).toBe('planned');
+    expect(inbound?.status).toBe('available');
+    expect(outbound?.status).toBe('available');
     expect(
       inbound?.constraints.some(
         (line) => line.includes('does not') || line.includes('No Cloudflare'),
       ),
     ).toBe(true);
     expect(mailCapabilityStatus().ownsMailboxes).toBe(true);
-    expect(mailCapabilityStatus().implemented).toBe(false);
+    expect(mailCapabilityStatus().ownsMailboxes).toBe(true);
   });
 
   it('rejects unknown transport kinds', () => {

@@ -9,7 +9,7 @@ describe('platform capability map', () => {
     if (ctx) await destroyTestContext(ctx);
   });
 
-  it('describes implemented and planned capabilities without claiming mail works', async () => {
+  it('describes implemented and planned capabilities', async () => {
     ctx = await createTestContext();
     const response = await request(ctx, '/api/v1/platform');
     expect(response.status).toBe(200);
@@ -21,7 +21,7 @@ describe('platform capability map', () => {
     };
     expect(body.product).toBe('ASPECTenant');
     expect(body.setupRequired).toBe(true);
-    expect(body.capabilities.mail.implemented).toBe(false);
+    expect(body.capabilities.mail.implemented).toBe(true);
     expect(body.capabilities.mail.ownsMailboxes).toBe(true);
     expect(body.mailTransports).toHaveLength(MAIL_TRANSPORT_CATALOGUE.length);
   });
