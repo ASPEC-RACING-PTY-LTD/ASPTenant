@@ -1,4 +1,4 @@
-﻿name: Images
+name: Images
 
 # Every push to main is a release: the version comes from apps/api/package.json.
 # Images get :<version>, :latest and :<sha>, and a GitHub release v<version> is created
