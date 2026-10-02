@@ -100,6 +100,18 @@ export function MigrationPage() {
         <h2>Import a PST file</h2>
         <form className="form-grid" onSubmit={(event) => void onUpload(event)}>
           <div className="field">
+            <label htmlFor="imp-source">Import from</label>
+            <select id="imp-source" defaultValue="pst">
+              <option value="pst">Outlook data file (.pst)</option>
+              <option value="exchange" disabled>
+                Exchange / Microsoft 365 export (coming later)
+              </option>
+              <option value="azure" disabled>
+                Azure / Entra backup (coming later)
+              </option>
+            </select>
+          </div>
+          <div className="field">
             <label htmlFor="imp-mailbox">Into mailbox</label>
             <select
               id="imp-mailbox"

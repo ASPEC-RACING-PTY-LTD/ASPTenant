@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { resolveMx, resolveTxt } from 'node:dns/promises';
+import { Resolver } from 'node:dns/promises';
 import { ConflictError, NotFoundError, UnprocessableError } from '@aspec/errors';
 import type { Actor } from '@aspec/users';
 import type { Platform } from '../platform.js';
@@ -120,9 +120,12 @@ export class DirectoryService {
   }> {
     const domain = await this.store.getDomain(await this.tenantId(), id);
     if (!domain) throw new NotFoundError('Domain not found');
+    const dns = new Resolver({ timeout: 4000, tries: 2 });
+    dns.setServers(['1.1.1.1', '8.8.8.8']);
+    const resolveMx = (name: string) => dns.resolveMx(name);
     const txt = async (name: string) => {
       try {
-        return (await resolveTxt(name)).map((parts) => parts.join(''));
+        return (await dns.resolveTxt(name)).map((parts) => parts.join(''));
       } catch {
         return [];
       }
@@ -376,9 +379,14 @@ export class DirectoryService {
     const dns = await this.domainDns(id);
     if (!dns.verification.found) {
       throw new UnprocessableError(
-        `TXT record not found. Add ${dns.verification.value} as a TXT record on ${dns.verification.name}, wait for DNS to update, then try again.`,
+        `TXT record not found yet. Add ${dns.verification.value} as a TXT record on ${dns.verification.name}, wait a few minutes for DNS to update, then try again.`,
       );
     }
+    return this.markVerified(id, actor, 'dns-txt');
+  }
+
+  async markVerified(id: string, actor: Actor, method: string): Promise<DirectoryDomain> {
+    const tenantId = await this.tenantId();
     const updated = await this.store.updateDomain(tenantId, id, {
       status: 'verified',
       verifiedAt: Date.now(),
@@ -389,9 +397,7 @@ export class DirectoryService {
       actor,
       'directory.domain.verified',
       { type: 'domain', id },
-      {
-        after: updated,
-      },
+      { after: { ...updated, method } },
     );
     return updated;
   }

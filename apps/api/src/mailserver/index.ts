@@ -250,10 +250,14 @@ export class MailServers {
   async issueCertificate(): Promise<ClientSettingsView> {
     const stored = await this.load();
     if (!stored.hostname) throw new UnprocessableError('Save a hostname first.');
-    if (!stored.cloudflareDnsToken) {
-      throw new UnprocessableError('Save a Cloudflare API token with Zone:DNS:Edit and Zone:Read.');
+    const token = stored.cloudflareDnsToken
+      ? this.platform.secrets.decrypt(stored.cloudflareDnsToken)
+      : await this.platform.domainSetup.cloudflareToken();
+    if (!token) {
+      throw new UnprocessableError(
+        'Connect Cloudflare on the Domains page, or save a token here with Zone:Read and DNS:Edit.',
+      );
     }
-    const token = this.platform.secrets.decrypt(stored.cloudflareDnsToken);
     try {
       const zone = await findZone(token, stored.hostname);
       const client = new acme.Client({

@@ -395,6 +395,39 @@ export function createMailHttp(
     return c.json(await platform.mailServers.issueCertificate());
   });
 
+  // Cloudflare integration and guided domain setup
+  app.get('/integrations/cloudflare', async (c) => {
+    await requirePermission(platform, accountId(c), 'domains:read');
+    return c.json(await platform.domainSetup.status());
+  });
+
+  app.put('/integrations/cloudflare', async (c) => {
+    await requirePermission(platform, accountId(c), 'domains:manage');
+    const body = await json(c, z.object({ token: z.string().min(10).max(400) }));
+    return c.json(await platform.domainSetup.connectCloudflare(body.token, actor(c)));
+  });
+
+  app.delete('/integrations/cloudflare', async (c) => {
+    await requirePermission(platform, accountId(c), 'domains:manage');
+    await platform.domainSetup.disconnectCloudflare();
+    return c.json({ ok: true });
+  });
+
+  app.get('/domains/:id/setup', async (c) => {
+    await requirePermission(platform, accountId(c), 'domains:read');
+    return c.json(await platform.domainSetup.view(c.req.param('id')));
+  });
+
+  app.post('/domains/:id/verify/cloudflare', async (c) => {
+    await requirePermission(platform, accountId(c), 'domains:manage');
+    return c.json(await platform.domainSetup.verifyWithCloudflare(c.req.param('id'), actor(c)));
+  });
+
+  app.post('/domains/:id/records/apply', async (c) => {
+    await requirePermission(platform, accountId(c), 'domains:manage');
+    return c.json(await platform.domainSetup.applyRecords(c.req.param('id'), actor(c)));
+  });
+
   // Domains
   app.get('/domains/:id/dns', async (c) => {
     await requirePermission(platform, accountId(c), 'domains:read');

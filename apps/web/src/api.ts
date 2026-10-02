@@ -745,3 +745,42 @@ export async function setupRestore(input: {
 }): Promise<{ key: string; tables: number; rows: number }> {
   return api('/api/v1/setup/restore', { method: 'POST', body: JSON.stringify(input) });
 }
+
+export interface RequiredRecord {
+  key: string;
+  purpose: string;
+  type: string;
+  name: string;
+  content: string;
+  priority?: number;
+  status: 'ok' | 'missing' | 'different';
+  found: string[];
+  automatic: boolean;
+}
+
+export interface DomainSetup {
+  domain: DirectoryDomain;
+  provider: { id: string; name: string; nameservers: string[] };
+  cloudflare: { connected: boolean; zone: boolean };
+  verification: { name: string; value: string; found: boolean };
+  records: RequiredRecord[];
+  manualSteps: string[];
+}
+
+export async function getDomainSetup(id: string): Promise<DomainSetup> {
+  return api(`/api/v1/domains/${id}/setup`);
+}
+
+export async function connectCloudflare(token: string): Promise<{ zones: string[] }> {
+  return api('/api/v1/integrations/cloudflare', { method: 'PUT', body: JSON.stringify({ token }) });
+}
+
+export async function verifyDomainWithCloudflare(id: string): Promise<void> {
+  await api(`/api/v1/domains/${id}/verify/cloudflare`, { method: 'POST' });
+}
+
+export async function applyDomainRecords(
+  id: string,
+): Promise<{ created: string[]; skipped: string[] }> {
+  return api(`/api/v1/domains/${id}/records/apply`, { method: 'POST' });
+}
