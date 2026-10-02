@@ -1,0 +1,449 @@
+{
+  "$schema": "https://aspec.tech/schemas/module-manifest/v1.json",
+  "manifestVersion": 1,
+  "id": "aspec/rate-limit",
+  "name": "Rate Limit",
+  "summary": "Request and operation rate limiting with token bucket, sliding window, fixed window and GCRA algorithms.",
+  "description": "Reusable rate limiting for Node.js applications. Supports in-memory and Redis-compatible stores, IETF RateLimit headers, penalty-box bans, allow and deny lists, trusted-proxy IP resolution, and middleware for Express, Fastify, Hono and Fetch.",
+  "version": "1.0.0",
+  "category": "security",
+  "tags": ["rate-limit", "throttling", "abuse-prevention", "redis"],
+  "license": "MIT",
+  "maintainers": [
+    { "name": "ASPEC TECH", "email": "modules@aspec.tech", "url": "https://aspec.tech" }
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ASPEC-RACING-PTY-LTD/aspecdev",
+    "directory": "modules/rate-limit"
+  },
+  "homepage": "https://aspec.tech/modules/aspec/rate-limit",
+  "readme": "README.md",
+  "changelog": "CHANGELOG.md",
+  "languages": ["typescript", "javascript"],
+  "runtimes": [{ "name": "node", "range": ">=22.13.0" }],
+  "frameworks": [
+    {
+      "id": "express",
+      "name": "Express",
+      "range": "^4.18.0 || ^5.0.0",
+      "entrypoint": "@aspec/rate-limit/express",
+      "kind": "backend",
+      "tested": true,
+      "testedVersions": ["4.22.3", "5.2.1"]
+    },
+    {
+      "id": "fastify",
+      "name": "Fastify",
+      "range": "^5.0.0",
+      "entrypoint": "@aspec/rate-limit/fastify",
+      "kind": "backend",
+      "tested": true,
+      "testedVersions": ["5.12.5"]
+    },
+    {
+      "id": "hono",
+      "name": "Hono",
+      "range": "^4.0.0",
+      "entrypoint": "@aspec/rate-limit/hono",
+      "kind": "backend",
+      "tested": true,
+      "testedVersions": ["4.13.10"]
+    },
+    {
+      "id": "fetch",
+      "name": "Fetch API",
+      "range": "*",
+      "entrypoint": "@aspec/rate-limit/fetch",
+      "kind": "backend",
+      "tested": true,
+      "testedVersions": ["24.16.0"]
+    }
+  ],
+  "databases": [{ "id": "memory", "tested": true }],
+  "services": [
+    {
+      "id": "redis",
+      "name": "Redis-compatible store",
+      "optional": true,
+      "tested": true,
+      "testedVersions": ["8.1.10"]
+    }
+  ],
+  "platforms": {
+    "os": ["linux", "darwin", "windows"],
+    "arch": ["x64", "arm64"],
+    "tested": [{ "os": "windows", "arch": "x64", "runtime": "node@24.16.0" }]
+  },
+  "capabilities": [
+    {
+      "id": "rate-limit",
+      "summary": "Consume, peek, reset and penalize counters for named policies."
+    },
+    {
+      "id": "http-middleware",
+      "summary": "HTTP middleware with IETF RateLimit headers and problem+json 429 responses.",
+      "optional": true
+    },
+    {
+      "id": "redis-store",
+      "summary": "Distributed Redis-compatible store with atomic Lua scripts.",
+      "optional": true,
+      "entrypoint": "@aspec/rate-limit/redis"
+    },
+    { "id": "abuse-prevention", "summary": "Penalty box, allow and deny lists (IP, CIDR, keys)." }
+  ],
+  "dependencies": {
+    "required": [],
+    "optional": [
+      {
+        "id": "aspec/audit",
+        "range": "^1.0.0",
+        "reason": "Records rate_limit.banned events when an AuditSink is provided."
+      }
+    ],
+    "peer": []
+  },
+  "compatibility": { "conflicts": [], "cli": ">=0.1.0" },
+  "packages": {
+    "npm": {
+      "name": "@aspec/rate-limit",
+      "entrypoints": {
+        ".": "Portable core (createRateLimiter, algorithms, HTTP helpers)",
+        "./memory": "Bounded in-memory store",
+        "./redis": "Redis-compatible store and client adapters",
+        "./express": "Express 4 and 5 middleware",
+        "./fastify": "Fastify plugin with per-route config",
+        "./hono": "Hono middleware",
+        "./fetch": "Fetch API helper"
+      },
+      "dependencyType": "prod"
+    }
+  },
+  "install": {
+    "modes": ["package", "vendor"],
+    "defaultMode": "package",
+    "requirements": ["Node.js 22.13 or newer"],
+    "vendor": { "source": "src", "jsSource": "dist" }
+  },
+  "configuration": {
+    "schema": "config.schema.json",
+    "env": {
+      "required": [],
+      "optional": [
+        {
+          "name": "RATE_LIMIT_REDIS_URL",
+          "description": "Redis-compatible connection URL when using the Redis store.",
+          "example": "redis://127.0.0.1:6379",
+          "secret": false
+        },
+        {
+          "name": "RATE_LIMIT_KEY_PREFIX",
+          "description": "Key prefix for the Redis store. Default rl:.",
+          "example": "rl:"
+        }
+      ]
+    },
+    "explorer": {
+      "parameters": [
+        {
+          "id": "framework",
+          "label": "Framework",
+          "type": "select",
+          "default": "express",
+          "options": [
+            { "value": "express", "label": "Express" },
+            { "value": "fastify", "label": "Fastify" },
+            { "value": "hono", "label": "Hono" },
+            { "value": "fetch", "label": "Fetch API" },
+            { "value": "none", "label": "Core only" }
+          ]
+        },
+        {
+          "id": "storage",
+          "label": "Storage",
+          "type": "select",
+          "default": "memory",
+          "options": [
+            { "value": "memory", "label": "In memory" },
+            { "value": "redis", "label": "Redis-compatible" }
+          ]
+        },
+        {
+          "id": "algorithm",
+          "label": "Algorithm",
+          "type": "select",
+          "default": "sliding-window",
+          "options": [
+            { "value": "sliding-window", "label": "Sliding window counter" },
+            { "value": "token-bucket", "label": "Token bucket" },
+            { "value": "fixed-window", "label": "Fixed window" },
+            { "value": "gcra", "label": "GCRA" },
+            { "value": "sliding-log", "label": "Sliding log" }
+          ]
+        },
+        {
+          "id": "limit",
+          "label": "Limit",
+          "type": "number",
+          "default": 100
+        },
+        {
+          "id": "windowMs",
+          "label": "Window (ms)",
+          "type": "number",
+          "default": 60000
+        },
+        {
+          "id": "failureMode",
+          "label": "Failure mode",
+          "type": "select",
+          "default": "open",
+          "options": [
+            { "value": "open", "label": "Fail open (allow)" },
+            { "value": "closed", "label": "Fail closed (deny)" }
+          ]
+        },
+        {
+          "id": "legacyHeaders",
+          "label": "Legacy X-RateLimit headers",
+          "type": "boolean",
+          "default": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "setup",
+          "label": "rate-limit.setup.ts",
+          "language": "typescript",
+          "filename": "src/aspec/rate-limit.setup.ts",
+          "template": "templates/explorer/setup.ts.tmpl"
+        },
+        {
+          "id": "env",
+          "label": ".env",
+          "language": "dotenv",
+          "template": "templates/explorer/env.tmpl"
+        }
+      ]
+    }
+  },
+  "integration": {
+    "targets": [
+      {
+        "id": "express-typescript",
+        "label": "Express (TypeScript)",
+        "language": "typescript",
+        "framework": "express",
+        "automated": true,
+        "docs": "frameworks/express",
+        "files": [
+          {
+            "template": "templates/express/setup.ts.tmpl",
+            "path": "{{ srcDir }}/aspec/rate-limit.setup.ts",
+            "description": "Creates the rate limiter and Express middleware."
+          }
+        ],
+        "packages": [{ "name": "express", "range": "^4.18.0 || ^5.0.0" }],
+        "env": [],
+        "steps": [
+          "Import rateLimitMiddleware from the generated file.",
+          "Mount it early: app.use(rateLimitMiddleware).",
+          "Configure trustProxy on the generated limiter when behind a reverse proxy."
+        ]
+      },
+      {
+        "id": "fastify-typescript",
+        "label": "Fastify (TypeScript)",
+        "language": "typescript",
+        "framework": "fastify",
+        "automated": true,
+        "docs": "frameworks/fastify",
+        "files": [
+          {
+            "template": "templates/fastify/setup.ts.tmpl",
+            "path": "{{ srcDir }}/aspec/rate-limit.setup.ts",
+            "description": "Creates the rate limiter and Fastify plugin."
+          }
+        ],
+        "packages": [{ "name": "fastify", "range": "^5.0.0" }],
+        "env": [],
+        "steps": [
+          "Register the plugin: await app.register(rateLimitPlugin).",
+          "Override per route with config: { rateLimit: { ... } } or false to skip."
+        ]
+      },
+      {
+        "id": "hono-typescript",
+        "label": "Hono (TypeScript)",
+        "language": "typescript",
+        "framework": "hono",
+        "automated": true,
+        "docs": "frameworks/hono",
+        "files": [
+          {
+            "template": "templates/hono/setup.ts.tmpl",
+            "path": "{{ srcDir }}/aspec/rate-limit.setup.ts",
+            "description": "Creates the rate limiter and Hono middleware."
+          }
+        ],
+        "packages": [{ "name": "hono", "range": "^4.0.0" }],
+        "env": [],
+        "steps": [
+          "Import rateLimitMiddleware from the generated file.",
+          "Apply it with app.use('*', rateLimitMiddleware).",
+          "Provide getRemoteAddress when not using @hono/node-server."
+        ]
+      },
+      {
+        "id": "fetch-typescript",
+        "label": "Fetch API (TypeScript)",
+        "language": "typescript",
+        "framework": "fetch",
+        "automated": true,
+        "docs": "frameworks/fetch",
+        "files": [
+          {
+            "template": "templates/fetch/setup.ts.tmpl",
+            "path": "{{ srcDir }}/aspec/rate-limit.setup.ts",
+            "description": "Creates the Fetch rate limiter helper."
+          }
+        ],
+        "packages": [],
+        "env": [],
+        "steps": [
+          "Call await fetchRateLimiter.check(request) before handling.",
+          "Return fetchRateLimiter.rejection(outcome) when action is reject.",
+          "Pass getRemoteAddress from your runtime when available."
+        ]
+      },
+      {
+        "id": "generic-typescript",
+        "label": "Any TypeScript project",
+        "language": "typescript",
+        "automated": true,
+        "docs": "integrate",
+        "files": [
+          {
+            "template": "templates/generic/setup.ts.tmpl",
+            "path": "{{ srcDir }}/aspec/rate-limit.setup.ts",
+            "description": "Creates a core rate limiter without HTTP adapters."
+          }
+        ],
+        "steps": [
+          "Import limiter from the generated file.",
+          "Call await limiter.consume(key) or await limiter.limit(key) in your code."
+        ]
+      },
+      {
+        "id": "generic-javascript",
+        "label": "Any JavaScript project",
+        "language": "javascript",
+        "automated": true,
+        "docs": "integrate",
+        "files": [
+          {
+            "template": "templates/generic/setup.js.tmpl",
+            "path": "{{ srcDir }}/aspec/rate-limit.setup.js",
+            "description": "Creates a core rate limiter without HTTP adapters."
+          }
+        ],
+        "steps": [
+          "Import or require limiter from the generated file.",
+          "Call await limiter.consume(key) or await limiter.limit(key) in your code."
+        ]
+      }
+    ]
+  },
+  "validation": {
+    "checks": [
+      { "type": "package", "name": "@aspec/rate-limit", "range": "^1.0.0" },
+      { "type": "import", "specifier": "@aspec/rate-limit" }
+    ],
+    "commands": [
+      {
+        "run": ["node", "-e", "import('@aspec/rate-limit')"],
+        "description": "Imports the module entrypoint."
+      }
+    ],
+    "docs": "testing"
+  },
+  "uninstall": {
+    "steps": [
+      "Remove middleware or plugin registration.",
+      "Delete the generated setup file.",
+      "Flush Redis keys matching your key prefix if you used the Redis store."
+    ],
+    "dataRetention": "In-memory state is discarded on process exit. Redis keys expire with the policy window and ban TTL; they are not deleted automatically on uninstall.",
+    "docs": "uninstall"
+  },
+  "migrations": {
+    "docs": "migration"
+  },
+  "docs": {
+    "sections": {
+      "summary": "docs/summary.md",
+      "install": "docs/install.md",
+      "configure": "docs/configure.md",
+      "integrate": "docs/integrate.md",
+      "frameworks/express": "docs/frameworks/express.md",
+      "frameworks/fastify": "docs/frameworks/fastify.md",
+      "frameworks/hono": "docs/frameworks/hono.md",
+      "frameworks/fetch": "docs/frameworks/fetch.md",
+      "api": "docs/api.md",
+      "examples": "docs/examples.md",
+      "testing": "docs/testing.md",
+      "migration": "docs/migration.md",
+      "troubleshooting": "docs/troubleshooting.md",
+      "security": "docs/security.md",
+      "uninstall": "docs/uninstall.md",
+      "ai": "docs/ai.md"
+    }
+  },
+  "security": {
+    "contact": "security@aspec.tech",
+    "policy": "https://github.com/ASPEC-RACING-PTY-LTD/aspecdev/security/policy",
+    "sensitiveData": ["none"],
+    "notes": [
+      "Raw API keys are hashed (SHA-256) before they reach the store.",
+      "Use failureMode closed for authentication endpoints.",
+      "Configure trustProxy carefully to prevent IP spoofing."
+    ],
+    "threatModel": "security"
+  },
+  "ai": {
+    "summary": "Use createRateLimiter with a memory or Redis store; mount framework adapters for HTTP RateLimit headers and 429 problem+json responses.",
+    "useWhen": [
+      "You need per-IP, per-user or per-API-key request throttling.",
+      "You need distributed limits across multiple Node processes.",
+      "You need abuse prevention with bans and allow or deny lists."
+    ],
+    "avoidWhen": [
+      "You only need a single global concurrency semaphore (use a different primitive).",
+      "You need complex quota billing with invoices (use a billing system)."
+    ],
+    "keywords": ["rate-limit", "throttle", "429", "token-bucket", "sliding-window", "redis"],
+    "entrypoints": [
+      {
+        "name": "createRateLimiter",
+        "import": "@aspec/rate-limit",
+        "description": "Creates a RateLimiterLike for one named policy."
+      },
+      {
+        "name": "createMemoryStore",
+        "import": "@aspec/rate-limit/memory",
+        "description": "Bounded in-memory store with TTL cleanup."
+      },
+      {
+        "name": "createRedisStore",
+        "import": "@aspec/rate-limit/redis",
+        "description": "Redis-compatible store with atomic Lua scripts."
+      },
+      {
+        "name": "rateLimit",
+        "import": "@aspec/rate-limit/express",
+        "description": "Express middleware."
+      }
+    ]
+  }
+}

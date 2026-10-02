@@ -1,0 +1,94 @@
+import { createOrgs } from '{{ imports.root }}';
+{{#if storage == "memory"}}
+import { createMemoryOrgsStore } from '{{ imports.memory }}';
+{{else}}
+import { createSqlOrgsStore, migrate } from '{{ imports.sql }}';
+{{/if}}
+{{#if framework == "express"}}
+import { createOrgsAdminRouter, createOrgsMemberRouter } from '{{ imports.express }}';
+{{/if}}
+{{#if framework == "fastify"}}
+import { createOrgsAdminPlugin, createOrgsMemberPlugin } from '{{ imports.fastify }}';
+{{/if}}
+{{#if framework == "hono"}}
+import { createOrgsAdminApp, createOrgsMemberApp } from '{{ imports.hono }}';
+{{/if}}
+{{#if framework == "fetch"}}
+import { createOrgsAdminHandler, createOrgsMemberHandler } from '{{ imports.fetch }}';
+{{/if}}
+
+{{#if storage == "memory"}}
+const store = createMemoryOrgsStore();
+{{else}}
+const client = /* your SqlClient */ null as never;
+await migrate(client);
+const store = createSqlOrgsStore(client);
+{{/if}}
+
+export const orgs = createOrgs({
+  mode: '{{ mode }}',
+  store,
+  tenant: { defaultStrategy: '{{ isolation }}' },
+  invitations: {
+    acceptUrl: process.env.ORGS_ACCEPT_URL,
+    appName: process.env.ORGS_APP_NAME ?? 'our application',
+  },
+});
+
+{{#if framework == "express"}}
+export const adminRouter = createOrgsAdminRouter(orgs, {
+  tenant: { method: '{{ resolution }}'{{#if resolution == "subdomain"}}, rootDomain: 'example.com'{{/if}} },
+  async resolveActor(req) {
+    void req;
+    return null;
+  },
+});
+export const memberRouter = createOrgsMemberRouter(orgs, {
+  async resolveActor(req) {
+    void req;
+    return null;
+  },
+});
+{{/if}}
+{{#if framework == "fastify"}}
+export const adminPlugin = createOrgsAdminPlugin(orgs, {
+  async resolveActor(req) {
+    void req;
+    return null;
+  },
+});
+export const memberPlugin = createOrgsMemberPlugin(orgs, {
+  async resolveActor(req) {
+    void req;
+    return null;
+  },
+});
+{{/if}}
+{{#if framework == "hono"}}
+export const adminApp = createOrgsAdminApp(orgs, {
+  async resolveActor(c) {
+    void c;
+    return null;
+  },
+});
+export const memberApp = createOrgsMemberApp(orgs, {
+  async resolveActor(c) {
+    void c;
+    return null;
+  },
+});
+{{/if}}
+{{#if framework == "fetch"}}
+export const adminHandler = createOrgsAdminHandler(orgs, {
+  async resolveActor(req) {
+    void req;
+    return null;
+  },
+});
+export const memberHandler = createOrgsMemberHandler(orgs, {
+  async resolveActor(req) {
+    void req;
+    return null;
+  },
+});
+{{/if}}

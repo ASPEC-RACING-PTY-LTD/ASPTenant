@@ -1,0 +1,40 @@
+{
+  "name": "@aspectenant/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node dist/index.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@aspec/api": "workspace:*",
+    "@aspec/audit": "workspace:*",
+    "@aspec/auth": "workspace:*",
+    "@aspec/config": "workspace:*",
+    "@aspec/db": "workspace:*",
+    "@aspec/errors": "workspace:*",
+    "@aspec/observability": "workspace:*",
+    "@aspec/orgs": "workspace:*",
+    "@aspec/rate-limit": "workspace:*",
+    "@aspec/rbac": "workspace:*",
+    "@aspec/users": "workspace:*",
+    "@aspec/validation": "workspace:*",
+    "@hono/node-server": "^1.19.5",
+    "hono": "^4.9.9",
+    "pg": "^8.16.3",
+    "zod": "^4.1.11"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.15.5",
+    "tsx": "^4.20.6",
+    "vitest": "3.2.4"
+  }
+}

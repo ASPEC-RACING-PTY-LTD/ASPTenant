@@ -1,0 +1,16 @@
+'use client';
+
+import { PermissionProvider } from '{{ imports.react }}';
+import type { PermissionSnapshot } from '{{ imports.root }}';
+import type { ReactNode } from 'react';
+
+/** Wrap client trees with a server-produced PermissionSnapshot. UX only. */
+export function RbacProvider({
+  snapshot,
+  children,
+}: {
+  snapshot: PermissionSnapshot;
+  children?: ReactNode;
+}) {
+  return <PermissionProvider snapshot={snapshot}>{children}</PermissionProvider>;
+}

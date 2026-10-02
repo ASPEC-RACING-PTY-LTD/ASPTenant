@@ -1,0 +1,24 @@
+{{#if moduleSystem == "commonjs"}}
+const { createRateLimiter } = require('{{ imports.root }}');
+const { createMemoryStore } = require('{{ imports.memory }}');
+
+const store = createMemoryStore();
+
+const limiter = createRateLimiter({
+  store,
+  policy: { name: 'api', limit: 100, windowMs: 60_000 },
+});
+
+module.exports = { limiter };
+{{else}}
+import { createRateLimiter } from '{{ imports.root }}';
+import { createMemoryStore } from '{{ imports.memory }}';
+
+const store = createMemoryStore();
+
+/** Call `await limiter.consume(key)` or `await limiter.limit(key)`. */
+export const limiter = createRateLimiter({
+  store,
+  policy: { name: 'api', limit: 100, windowMs: 60_000 },
+});
+{{/if}}

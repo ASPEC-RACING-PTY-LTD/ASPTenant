@@ -1,0 +1,22 @@
+import {
+  createLogger,
+  createMetricsRegistry,
+  createHealth,
+  type LogLevelSetting,
+  registerProcessMetrics,
+} from '{{ imports.root }}';
+import { withObservability } from '{{ imports.fetch }}';
+
+// createLogger rejects values other than trace, debug, info, warn, error, fatal and silent.
+export const log = createLogger({ level: (process.env.LOG_LEVEL ?? 'info') as LogLevelSetting });
+export const registry = createMetricsRegistry();
+registerProcessMetrics(registry);
+export const health = createHealth({ checks: { self: async () => ({ ok: true }) } });
+
+export function wrapHandler(handler: (request: Request) => Response | Promise<Response>) {
+  return withObservability(handler, {
+    registry,
+    logger: log,
+    endpoints: { health, registry },
+  });
+}

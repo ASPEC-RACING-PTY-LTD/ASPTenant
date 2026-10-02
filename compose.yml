@@ -1,0 +1,59 @@
+name: aspectenant
+
+networks:
+  internal:
+    driver: bridge
+
+volumes:
+  postgres_data:
+
+services:
+  postgres:
+    image: postgres:17.6-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: aspec
+      POSTGRES_DB: aspec
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aspec}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - internal
+    ports:
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aspec -d aspec"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+  api:
+    build:
+      context: .
+      dockerfile: deploy/docker/api.Dockerfile
+    image: ${ASPECTENANT_API_IMAGE:-aspectenant-api:local}
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://aspec:${POSTGRES_PASSWORD:-aspec}@postgres:5432/aspec
+      PUBLIC_URL: ${PUBLIC_URL:-http://localhost:8080}
+      TRUSTED_PROXIES: private
+      AUDIT_HMAC_KEY: ${AUDIT_HMAC_KEY:-}
+    networks:
+      - internal
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  web:
+    build:
+      context: .
+      dockerfile: deploy/docker/web.Dockerfile
+    image: ${ASPECTENANT_WEB_IMAGE:-aspectenant-web:local}
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${ASPECTENANT_PORT:-8080}:80"
+    networks:
+      - internal
+    depends_on:
+      api:
+        condition: service_healthy

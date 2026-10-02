@@ -1,0 +1,3 @@
+# Observability
+
+`@aspec/observability` gives Node.js applications structured JSON logging (with redaction and request context), Prometheus metrics, health/readiness/liveness checks, HTTP instrumentation for Express, Fastify, Hono and Fetch, and optional OpenTelemetry tracing. The core has zero runtime dependencies so you can adopt logging without installing a monitoring stack. Metrics expose Prometheus text format 0.0.4; OTLP export is left to the application OpenTelemetry SDK.

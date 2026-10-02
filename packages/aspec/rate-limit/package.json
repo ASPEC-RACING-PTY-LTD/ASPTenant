@@ -1,0 +1,102 @@
+{
+  "name": "@aspec/rate-limit",
+  "version": "1.0.0",
+  "description": "Request and operation rate limiting with token bucket and sliding window algorithms, in-memory and Redis-compatible backends, standard headers and abuse prevention.",
+  "type": "module",
+  "license": "MIT",
+  "author": "ASPEC TECH",
+  "homepage": "https://aspec.tech/modules/aspec/rate-limit",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ASPEC-RACING-PTY-LTD/aspecdev",
+    "directory": "modules/rate-limit"
+  },
+  "keywords": [
+    "aspec",
+    "rate-limit"
+  ],
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./memory": {
+      "types": "./dist/stores/memory.d.ts",
+      "default": "./dist/stores/memory.js"
+    },
+    "./redis": {
+      "types": "./dist/stores/redis.d.ts",
+      "default": "./dist/stores/redis.js"
+    },
+    "./express": {
+      "types": "./dist/adapters/express.d.ts",
+      "default": "./dist/adapters/express.js"
+    },
+    "./fastify": {
+      "types": "./dist/adapters/fastify.d.ts",
+      "default": "./dist/adapters/fastify.js"
+    },
+    "./hono": {
+      "types": "./dist/adapters/hono.d.ts",
+      "default": "./dist/adapters/hono.js"
+    },
+    "./fetch": {
+      "types": "./dist/adapters/fetch.d.ts",
+      "default": "./dist/adapters/fetch.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "docs",
+    "templates",
+    "aspec.module.json",
+    "config.schema.json",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "lint": "biome check ."
+  },
+  "peerDependencies": {
+    "express": "^4.18.0 || ^5.0.0",
+    "fastify": "^5.0.0",
+    "hono": "^4.0.0",
+    "ioredis": "^5.0.0 || ^6.0.0",
+    "redis": "^4.6.0 || ^5.0.0 || ^6.0.0"
+  },
+  "peerDependenciesMeta": {
+    "express": {
+      "optional": true
+    },
+    "fastify": {
+      "optional": true
+    },
+    "hono": {
+      "optional": true
+    },
+    "ioredis": {
+      "optional": true
+    },
+    "redis": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "express": "^5.2.1",
+    "express4": "npm:express@^4.22.3",
+    "fastify": "^5.12.5",
+    "hono": "^4.13.10",
+    "ioredis": "^6.0.0",
+    "redis": "^6.2.1"
+  }
+}

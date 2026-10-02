@@ -1,0 +1,27 @@
+import { createUsers } from '{{ imports.root }}';
+import { createUsersAdminPlugin, createUsersSelfServicePlugin } from '{{ imports.fastify }}';
+import { createMemoryUsersStore } from '{{ imports.memory }}';
+
+export const users = createUsers({
+  store: createMemoryUsersStore(),
+  // Admin routes deny every request until this delegates to your authorisation layer.
+  permissions: { can: async () => false },
+  invitations: {
+    acceptUrl: process.env.USERS_ACCEPT_URL,
+    appName: process.env.USERS_APP_NAME ?? 'our application',
+  },
+});
+
+export const adminPlugin = createUsersAdminPlugin(users, {
+  async resolveActor(req) {
+    void req;
+    return null;
+  },
+});
+
+export const selfServicePlugin = createUsersSelfServicePlugin(users, {
+  async resolveActor(req) {
+    void req;
+    return null;
+  },
+});

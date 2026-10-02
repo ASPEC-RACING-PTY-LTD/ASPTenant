@@ -1,0 +1,51 @@
+name: aspectenant
+
+networks:
+  internal:
+    driver: bridge
+
+volumes:
+  postgres_data:
+
+services:
+  postgres:
+    image: postgres:17.6-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: aspec
+      POSTGRES_DB: aspec
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aspec -d aspec"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+  api:
+    image: ${ASPECTENANT_API_IMAGE:-ghcr.io/aspec-racing-pty-ltd/aspectenant-api:latest}
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://aspec:${POSTGRES_PASSWORD}@postgres:5432/aspec
+      PUBLIC_URL: ${PUBLIC_URL}
+      TRUSTED_PROXIES: private
+      AUDIT_HMAC_KEY: ${AUDIT_HMAC_KEY}
+    networks:
+      - internal
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  web:
+    image: ${ASPECTENANT_WEB_IMAGE:-ghcr.io/aspec-racing-pty-ltd/aspectenant-web:latest}
+    restart: unless-stopped
+    ports:
+      - "${ASPECTENANT_BIND:-0.0.0.0}:${ASPECTENANT_PORT:-8080}:80"
+    networks:
+      - internal
+    depends_on:
+      api:
+        condition: service_healthy

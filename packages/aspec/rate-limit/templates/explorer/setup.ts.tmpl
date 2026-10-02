@@ -1,0 +1,74 @@
+import { createRateLimiter, keys } from '{{ imports.root }}';
+{{#if storage == "redis"}}
+import { createRedisStore, fromIoredis } from '{{ imports.redis }}';
+import { Redis } from 'ioredis';
+{{else}}
+import { createMemoryStore } from '{{ imports.memory }}';
+{{/if}}
+{{#if framework == "express"}}
+import { rateLimit } from '{{ imports.express }}';
+{{/if}}
+{{#if framework == "fastify"}}
+import { fastifyRateLimit } from '{{ imports.fastify }}';
+{{/if}}
+{{#if framework == "hono"}}
+import { rateLimit } from '{{ imports.hono }}';
+{{/if}}
+{{#if framework == "fetch"}}
+import { createFetchRateLimiter } from '{{ imports.fetch }}';
+{{/if}}
+
+{{#if storage == "redis"}}
+const redis = new Redis(process.env.RATE_LIMIT_REDIS_URL!);
+const store = createRedisStore({
+  client: fromIoredis(redis),
+  keyPrefix: process.env.RATE_LIMIT_KEY_PREFIX ?? 'rl:',
+});
+{{else}}
+const store = createMemoryStore();
+{{/if}}
+
+export const limiter = createRateLimiter({
+  store,
+  policy: {
+    name: 'api',
+    algorithm: '{{ algorithm }}',
+    limit: {{ limit }},
+    windowMs: {{ windowMs }},
+  },
+  failureMode: '{{ failureMode }}',
+});
+
+{{#if framework == "express"}}
+export const rateLimitMiddleware = rateLimit({
+  limiter,
+  key: keys.ip(),
+  trustProxy: 1,
+  headers: { legacy: {{ legacyHeaders }} },
+});
+{{/if}}
+{{#if framework == "fastify"}}
+export const rateLimitPlugin = fastifyRateLimit;
+export const rateLimitPluginOptions = {
+  limiter,
+  key: keys.ip(),
+  trustProxy: 1,
+  headers: { legacy: {{ legacyHeaders }} },
+};
+{{/if}}
+{{#if framework == "hono"}}
+export const rateLimitMiddleware = rateLimit({
+  limiter,
+  key: keys.ip(),
+  trustProxy: 1,
+  headers: { legacy: {{ legacyHeaders }} },
+});
+{{/if}}
+{{#if framework == "fetch"}}
+export const fetchRateLimiter = createFetchRateLimiter({
+  limiter,
+  key: keys.ip(),
+  trustProxy: 1,
+  headers: { legacy: {{ legacyHeaders }} },
+});
+{{/if}}

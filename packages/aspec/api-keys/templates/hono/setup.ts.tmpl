@@ -1,0 +1,17 @@
+import { createApiKeys } from '{{ imports.root }}';
+import { createMemoryStore } from '{{ imports.memory }}';
+import { apiKeyMiddleware, createApiKeysAdminApp } from '{{ imports.hono }}';
+
+const pepper = process.env.API_KEYS_PEPPER;
+if (!pepper || Buffer.byteLength(pepper, 'utf8') < 32) {
+  throw new Error('API_KEYS_PEPPER must be set to at least 32 bytes');
+}
+
+export const apiKeys = createApiKeys({
+  store: createMemoryStore(),
+  pepper,
+  prefix: process.env.API_KEYS_PREFIX ?? 'ak_live_',
+});
+
+export const verifyApiKey = apiKeyMiddleware(apiKeys);
+export { createApiKeysAdminApp };

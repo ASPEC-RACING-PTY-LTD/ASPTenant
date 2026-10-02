@@ -1,0 +1,113 @@
+{
+  "name": "@aspec/rbac",
+  "version": "1.0.0",
+  "description": "Standalone authorisation engine: roles, permissions, hierarchy, resource, ownership, organisation and team scopes, attribute policies, middleware and frontend guards.",
+  "type": "module",
+  "license": "MIT",
+  "author": "ASPEC TECH",
+  "homepage": "https://aspec.tech/modules/aspec/rbac",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ASPEC-RACING-PTY-LTD/aspecdev",
+    "directory": "modules/rbac"
+  },
+  "keywords": [
+    "aspec",
+    "rbac",
+    "authorisation",
+    "authorization",
+    "permissions",
+    "roles",
+    "abac"
+  ],
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./memory": {
+      "types": "./dist/memory.d.ts",
+      "default": "./dist/memory.js"
+    },
+    "./sql": {
+      "types": "./dist/sql.d.ts",
+      "default": "./dist/sql.js"
+    },
+    "./express": {
+      "types": "./dist/adapters/express.d.ts",
+      "default": "./dist/adapters/express.js"
+    },
+    "./fastify": {
+      "types": "./dist/adapters/fastify.d.ts",
+      "default": "./dist/adapters/fastify.js"
+    },
+    "./hono": {
+      "types": "./dist/adapters/hono.d.ts",
+      "default": "./dist/adapters/hono.js"
+    },
+    "./fetch": {
+      "types": "./dist/adapters/fetch.d.ts",
+      "default": "./dist/adapters/fetch.js"
+    },
+    "./react": {
+      "types": "./dist/adapters/react.d.ts",
+      "default": "./dist/adapters/react.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "docs",
+    "templates",
+    "aspec.module.json",
+    "config.schema.json",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "lint": "biome check ."
+  },
+  "peerDependencies": {
+    "express": "^4.18.0 || ^5.0.0",
+    "fastify": "^5.0.0",
+    "hono": "^4.0.0",
+    "react": "^19.0.0"
+  },
+  "peerDependenciesMeta": {
+    "express": {
+      "optional": true
+    },
+    "fastify": {
+      "optional": true
+    },
+    "hono": {
+      "optional": true
+    },
+    "react": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@testing-library/react": "^16.3.3",
+    "@types/express": "^5.0.6",
+    "@types/pg": "^8.23.1",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "express": "^5.2.1",
+    "express4": "npm:express@^4.22.3",
+    "fastify": "^5.12.5",
+    "happy-dom": "^20.14.5",
+    "hono": "^4.13.10",
+    "pg": "^8.23.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
+  }
+}

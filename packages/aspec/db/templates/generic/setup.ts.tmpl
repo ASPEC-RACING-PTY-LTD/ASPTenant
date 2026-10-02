@@ -1,0 +1,31 @@
+{{#if moduleSystem == "commonjs"}}
+import { createDatabase, createMigrator, type Database, type Migrator } from '{{ imports.root }}';
+
+const url = process.env.DATABASE_URL;
+if (!url) {
+  throw new Error('DATABASE_URL is required');
+}
+
+// CommonJS TypeScript cannot use top-level await, so the connection is a function.
+export function openDatabase(): Promise<{ db: Database; migrator: Migrator }> {
+  return createDatabase({ url }).then((db) => ({
+    db,
+    migrator: createMigrator(db, {
+      directory: process.env.ASPEC_DB_MIGRATIONS_DIR ?? 'migrations',
+    }),
+  }));
+}
+{{else}}
+import { createDatabase, createMigrator } from '{{ imports.root }}';
+
+const url = process.env.DATABASE_URL;
+if (!url) {
+  throw new Error('DATABASE_URL is required');
+}
+
+export const db = await createDatabase({ url });
+
+export const migrator = createMigrator(db, {
+  directory: process.env.ASPEC_DB_MIGRATIONS_DIR ?? 'migrations',
+});
+{{/if}}

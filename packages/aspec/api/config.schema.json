@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ASPEC api configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "title": { "type": "string", "minLength": 1, "description": "OpenAPI info.title." },
+    "version": { "type": "string", "minLength": 1, "description": "OpenAPI info.version." },
+    "basePath": { "type": "string", "description": "Optional mount prefix, for example /api." },
+    "versioningStyle": { "enum": ["url", "header", "both"], "default": "url" },
+    "defaultLimit": { "type": "integer", "minimum": 1, "default": 20 },
+    "maxLimit": { "type": "integer", "minimum": 1, "default": 100 },
+    "cursorSecret": {
+      "type": "string",
+      "minLength": 16,
+      "description": "HMAC secret for signed cursors. Treat as a secret."
+    }
+  }
+}

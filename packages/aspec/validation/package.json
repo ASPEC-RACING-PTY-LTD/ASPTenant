@@ -1,0 +1,95 @@
+{
+  "name": "@aspec/validation",
+  "version": "1.0.0",
+  "description": "Standard Schema based validation for requests and data with structured results, standardised errors, custom rules and framework middleware.",
+  "type": "module",
+  "license": "MIT",
+  "author": "ASPEC TECH",
+  "homepage": "https://aspec.tech/modules/aspec/validation",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ASPEC-RACING-PTY-LTD/aspecdev",
+    "directory": "modules/validation"
+  },
+  "keywords": [
+    "aspec",
+    "validation"
+  ],
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./express": {
+      "types": "./dist/adapters/express.d.ts",
+      "default": "./dist/adapters/express.js"
+    },
+    "./fastify": {
+      "types": "./dist/adapters/fastify.d.ts",
+      "default": "./dist/adapters/fastify.js"
+    },
+    "./hono": {
+      "types": "./dist/adapters/hono.d.ts",
+      "default": "./dist/adapters/hono.js"
+    },
+    "./fetch": {
+      "types": "./dist/adapters/fetch.d.ts",
+      "default": "./dist/adapters/fetch.js"
+    },
+    "./ajv": {
+      "types": "./dist/ajv.d.ts",
+      "default": "./dist/ajv.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "docs",
+    "templates",
+    "aspec.module.json",
+    "config.schema.json",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "lint": "biome check ."
+  },
+  "peerDependencies": {
+    "ajv": "^8.12.0",
+    "express": "^4.18.0 || ^5.0.0",
+    "fastify": "^5.0.0",
+    "hono": "^4.0.0"
+  },
+  "peerDependenciesMeta": {
+    "ajv": {
+      "optional": true
+    },
+    "express": {
+      "optional": true
+    },
+    "fastify": {
+      "optional": true
+    },
+    "hono": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "ajv": "^8.20.0",
+    "express": "^5.2.1",
+    "express4": "npm:express@^4.22.3",
+    "fastify": "^5.12.5",
+    "hono": "^4.13.10",
+    "valibot": "^1.5.0",
+    "zod": "^4.6.5"
+  }
+}

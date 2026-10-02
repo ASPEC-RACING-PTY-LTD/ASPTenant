@@ -1,0 +1,114 @@
+{
+  "name": "@aspec/auth",
+  "version": "1.0.0",
+  "description": "Email and password authentication, sessions, refresh tokens, password reset, email verification, lockout, OAuth 2.0 and OpenID Connect, passkeys and TOTP multifactor authentication.",
+  "type": "module",
+  "license": "MIT",
+  "author": "ASPEC TECH",
+  "homepage": "https://aspec.tech/modules/aspec/auth",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ASPEC-RACING-PTY-LTD/aspecdev",
+    "directory": "modules/auth"
+  },
+  "keywords": [
+    "aspec",
+    "auth"
+  ],
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./express": {
+      "types": "./dist/adapters/express.d.ts",
+      "default": "./dist/adapters/express.js"
+    },
+    "./fastify": {
+      "types": "./dist/adapters/fastify.d.ts",
+      "default": "./dist/adapters/fastify.js"
+    },
+    "./hono": {
+      "types": "./dist/adapters/hono.d.ts",
+      "default": "./dist/adapters/hono.js"
+    },
+    "./fetch": {
+      "types": "./dist/adapters/fetch.d.ts",
+      "default": "./dist/adapters/fetch.js"
+    },
+    "./memory": {
+      "types": "./dist/stores/memory.d.ts",
+      "default": "./dist/stores/memory.js"
+    },
+    "./sql": {
+      "types": "./dist/stores/sql.d.ts",
+      "default": "./dist/stores/sql.js"
+    },
+    "./oidc": {
+      "types": "./dist/oidc.d.ts",
+      "default": "./dist/oidc.js"
+    },
+    "./webauthn": {
+      "types": "./dist/webauthn.d.ts",
+      "default": "./dist/webauthn.js"
+    },
+    "./hibp": {
+      "types": "./dist/hibp.d.ts",
+      "default": "./dist/hibp.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "docs",
+    "templates",
+    "aspec.module.json",
+    "config.schema.json",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "lint": "biome check ."
+  },
+  "dependencies": {
+    "jose": "^6.2.12"
+  },
+  "peerDependencies": {
+    "@simplewebauthn/server": "^13.0.0 || ^14.0.0",
+    "express": "^4.18.0 || ^5.0.0",
+    "fastify": "^5.0.0",
+    "hono": "^4.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@simplewebauthn/server": {
+      "optional": true
+    },
+    "express": {
+      "optional": true
+    },
+    "fastify": {
+      "optional": true
+    },
+    "hono": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@simplewebauthn/server": "^14.0.3",
+    "@types/express": "^5.0.6",
+    "@types/pg": "^8.23.1",
+    "express": "^5.2.1",
+    "express4": "npm:express@^4.22.3",
+    "fastify": "^5.12.5",
+    "hono": "^4.13.10",
+    "pg": "^8.23.0"
+  }
+}

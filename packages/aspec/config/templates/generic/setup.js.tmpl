@@ -1,0 +1,22 @@
+{{#if moduleSystem == "commonjs"}}
+const { defineConfig, env } = require('{{ imports.root }}');
+
+const shape = {
+  port: env.port('PORT').default(3000),
+  databaseUrl: env.url('DATABASE_URL').secret(),
+  logLevel: env.enum('LOG_LEVEL', ['debug', 'info', 'warn', 'error']).default('info'),
+};
+
+const config = defineConfig(shape);
+module.exports = { config, shape };
+{{else}}
+import { defineConfig, env } from '{{ imports.root }}';
+
+export const shape = {
+  port: env.port('PORT').default(3000),
+  databaseUrl: env.url('DATABASE_URL').secret(),
+  logLevel: env.enum('LOG_LEVEL', ['debug', 'info', 'warn', 'error']).default('info'),
+};
+
+export const config = defineConfig(shape);
+{{/if}}

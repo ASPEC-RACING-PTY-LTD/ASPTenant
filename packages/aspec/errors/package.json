@@ -1,0 +1,90 @@
+{
+  "name": "@aspec/errors",
+  "version": "1.0.0",
+  "description": "Consistent application errors: typed errors, classification, RFC 9457 problem responses, safe output, redaction, logging and recovery middleware.",
+  "type": "module",
+  "license": "MIT",
+  "author": "ASPEC TECH",
+  "homepage": "https://aspec.tech/modules/aspec/errors",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ASPEC-RACING-PTY-LTD/aspecdev",
+    "directory": "modules/errors"
+  },
+  "keywords": [
+    "aspec",
+    "errors",
+    "problem-details",
+    "rfc9457",
+    "error-handling",
+    "express",
+    "fastify",
+    "hono"
+  ],
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./express": {
+      "types": "./dist/adapters/express.d.ts",
+      "default": "./dist/adapters/express.js"
+    },
+    "./fastify": {
+      "types": "./dist/adapters/fastify.d.ts",
+      "default": "./dist/adapters/fastify.js"
+    },
+    "./hono": {
+      "types": "./dist/adapters/hono.d.ts",
+      "default": "./dist/adapters/hono.js"
+    },
+    "./fetch": {
+      "types": "./dist/adapters/fetch.d.ts",
+      "default": "./dist/adapters/fetch.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "docs",
+    "templates",
+    "aspec.module.json",
+    "config.schema.json",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "lint": "biome check ."
+  },
+  "peerDependencies": {
+    "express": "^4.18.0 || ^5.0.0",
+    "fastify": "^5.0.0",
+    "hono": "^4.0.0"
+  },
+  "peerDependenciesMeta": {
+    "express": {
+      "optional": true
+    },
+    "fastify": {
+      "optional": true
+    },
+    "hono": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "express": "^5.2.1",
+    "express4": "npm:express@^4.22.3",
+    "fastify": "^5.12.5",
+    "hono": "^4.13.10"
+  }
+}

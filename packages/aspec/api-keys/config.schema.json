@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "API keys module configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "storage": {
+      "enum": ["memory", "postgres", "sqlite"],
+      "default": "memory"
+    },
+    "prefix": {
+      "type": "string",
+      "default": "ak_live_",
+      "pattern": "^[A-Za-z][A-Za-z0-9_]{0,20}_$"
+    },
+    "defaultTtlDays": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 3650,
+      "default": 90
+    },
+    "tablePrefix": {
+      "type": "string",
+      "default": "api_keys_"
+    }
+  }
+}

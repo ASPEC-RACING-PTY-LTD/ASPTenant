@@ -1,0 +1,59 @@
+import { afterEach } from 'vitest';
+import {
+  cleanupAll,
+  resetSequences,
+  setSeed,
+{{#if framework != "none"}}
+  createTestClient,
+{{/if}}
+{{#if sql != "none"}}
+  {{#if sql == "postgres"}}
+  createPostgresClient,
+  {{else}}
+  createSqliteClient,
+  {{/if}}
+{{/if}}
+{{#if includeAuth}}
+  createTestJwtSigner,
+  authHeader,
+{{/if}}
+{{#if includeHttpMock}}
+  mockFetch,
+{{/if}}
+} from '{{ imports.root }}';
+
+setSeed(process.env.ASPEC_TEST_SEED ?? 'aspec-testing');
+
+afterEach(async () => {
+  resetSequences();
+  await cleanupAll();
+});
+
+{{#if framework != "none"}}
+/** Fluent client for the application under test. */
+export function createAppClient(app: Parameters<typeof createTestClient>[0]) {
+  return createTestClient(app);
+}
+{{/if}}
+
+{{#if sql == "sqlite"}}
+export async function openTestDb() {
+  return createSqliteClient();
+}
+{{/if}}
+{{#if sql == "postgres"}}
+export async function openTestDb() {
+  return createPostgresClient({ url: process.env.ASPEC_TEST_POSTGRES_URL });
+}
+{{/if}}
+
+{{#if includeAuth}}
+export function createSigner() {
+  return createTestJwtSigner({ issuer: 'test' });
+}
+export { authHeader };
+{{/if}}
+
+{{#if includeHttpMock}}
+export { mockFetch };
+{{/if}}

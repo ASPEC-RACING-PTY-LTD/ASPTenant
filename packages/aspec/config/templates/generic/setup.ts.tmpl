@@ -1,0 +1,13 @@
+import { defineConfig, env } from '{{ imports.root }}';
+
+export const shape = {
+  port: env.port('PORT').default(3000).description('HTTP listen port'),
+  databaseUrl: env.url('DATABASE_URL').secret(),
+  logLevel: env.enum('LOG_LEVEL', ['debug', 'info', 'warn', 'error']).default('info'),
+  allowedOrigins: env.list('ALLOWED_ORIGINS').default([]),
+  features: {
+    signup: env.boolean('FEATURE_SIGNUP').default(true),
+  },
+};
+
+export const config = defineConfig(shape);

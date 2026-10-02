@@ -1,0 +1,20 @@
+{{#if moduleSystem == "commonjs"}}
+const {
+  createLogger,
+  createMetricsRegistry,
+  createHealth,
+  registerProcessMetrics,
+} = require('{{ imports.root }}');
+const log = createLogger({ level: process.env.LOG_LEVEL || 'info' });
+const registry = createMetricsRegistry();
+registerProcessMetrics(registry);
+const health = createHealth({ checks: { self: async () => ({ ok: true }) } });
+module.exports = { log, registry, health };
+{{else}}
+import { createLogger, createMetricsRegistry, createHealth, registerProcessMetrics } from '{{ imports.root }}';
+
+export const log = createLogger({ level: process.env.LOG_LEVEL || 'info' });
+export const registry = createMetricsRegistry();
+registerProcessMetrics(registry);
+export const health = createHealth({ checks: { self: async () => ({ ok: true }) } });
+{{/if}}

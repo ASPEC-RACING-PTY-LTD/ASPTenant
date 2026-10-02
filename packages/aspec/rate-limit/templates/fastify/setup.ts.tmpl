@@ -1,0 +1,18 @@
+import { createRateLimiter, keys } from '{{ imports.root }}';
+import { createMemoryStore } from '{{ imports.memory }}';
+import { fastifyRateLimit } from '{{ imports.fastify }}';
+
+const store = createMemoryStore();
+
+export const limiter = createRateLimiter({
+  store,
+  policy: { name: 'api', limit: 100, windowMs: 60_000 },
+});
+
+/** Register with `await app.register(rateLimitPlugin, rateLimitPluginOptions)`. */
+export const rateLimitPlugin = fastifyRateLimit;
+export const rateLimitPluginOptions = {
+  limiter,
+  key: keys.ip(),
+  trustProxy: 1,
+};

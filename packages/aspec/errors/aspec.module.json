@@ -1,0 +1,412 @@
+{
+  "$schema": "https://aspec.tech/schemas/module-manifest/v1.json",
+  "manifestVersion": 1,
+  "id": "aspec/errors",
+  "name": "Errors",
+  "summary": "Typed application errors, RFC 9457 problem responses, redaction, correlation and recovery middleware.",
+  "description": "Provides AppError and typed HTTP errors, mapping from any thrown value, RFC 9457 problem details or envelopes, sensitive-data redaction, request correlation, LoggerLike integration, process fatal handlers and adapters for Express, Fastify, Hono and Fetch.",
+  "version": "1.0.0",
+  "category": "api",
+  "tags": ["errors", "problem-details", "rfc9457", "middleware"],
+  "license": "MIT",
+  "maintainers": [
+    {
+      "name": "ASPEC TECH",
+      "email": "modules@aspec.tech",
+      "url": "https://aspec.tech"
+    }
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ASPEC-RACING-PTY-LTD/aspecdev",
+    "directory": "modules/errors"
+  },
+  "homepage": "https://aspec.tech/modules/aspec/errors",
+  "readme": "README.md",
+  "changelog": "CHANGELOG.md",
+  "languages": ["typescript", "javascript"],
+  "runtimes": [
+    {
+      "name": "node",
+      "range": ">=22.13.0"
+    }
+  ],
+  "frameworks": [
+    {
+      "id": "express",
+      "name": "Express",
+      "range": "^4.18.0 || ^5.0.0",
+      "entrypoint": "@aspec/errors/express",
+      "kind": "backend",
+      "tested": true,
+      "testedVersions": ["4.22.3", "5.2.1"]
+    },
+    {
+      "id": "fastify",
+      "name": "Fastify",
+      "range": "^5.0.0",
+      "entrypoint": "@aspec/errors/fastify",
+      "kind": "backend",
+      "tested": true,
+      "testedVersions": ["5.12.5"]
+    },
+    {
+      "id": "hono",
+      "name": "Hono",
+      "range": "^4.0.0",
+      "entrypoint": "@aspec/errors/hono",
+      "kind": "backend",
+      "tested": true,
+      "testedVersions": ["4.13.10"]
+    },
+    {
+      "id": "fetch",
+      "name": "Fetch API",
+      "range": ">=0.0.0",
+      "entrypoint": "@aspec/errors/fetch",
+      "kind": "backend",
+      "tested": true,
+      "testedVersions": ["24.16.0"]
+    }
+  ],
+  "platforms": {
+    "os": ["linux", "darwin", "windows"],
+    "arch": ["x64", "arm64"],
+    "tested": [
+      {
+        "os": "windows",
+        "arch": "x64",
+        "runtime": "node@24.16.0"
+      }
+    ]
+  },
+  "capabilities": [
+    {
+      "id": "typed-errors",
+      "summary": "AppError hierarchy and defineError factory."
+    },
+    {
+      "id": "problem-details",
+      "summary": "RFC 9457 problem+json serialization."
+    },
+    {
+      "id": "recovery-middleware",
+      "summary": "Framework error handlers with correlation.",
+      "optional": true
+    }
+  ],
+  "dependencies": {
+    "required": [],
+    "optional": [],
+    "peer": []
+  },
+  "compatibility": {
+    "conflicts": [],
+    "cli": ">=0.1.0"
+  },
+  "packages": {
+    "npm": {
+      "name": "@aspec/errors",
+      "entrypoints": {
+        ".": "Portable core",
+        "./express": "Express adapter",
+        "./fastify": "Fastify adapter",
+        "./hono": "Hono adapter",
+        "./fetch": "Fetch adapter"
+      },
+      "dependencyType": "prod"
+    }
+  },
+  "install": {
+    "modes": ["package", "vendor"],
+    "defaultMode": "package",
+    "requirements": ["Node.js 22.13 or newer"],
+    "vendor": {
+      "source": "src",
+      "jsSource": "dist"
+    }
+  },
+  "configuration": {
+    "schema": "config.schema.json",
+    "env": {
+      "required": [],
+      "optional": [
+        {
+          "name": "NODE_ENV",
+          "description": "When production, debug response fields are disabled.",
+          "example": "production"
+        },
+        {
+          "name": "ERRORS_TYPE_BASE_URI",
+          "description": "Problem type base URI.",
+          "example": "https://api.example.com/errors/"
+        }
+      ]
+    },
+    "explorer": {
+      "parameters": [
+        {
+          "id": "framework",
+          "label": "Framework",
+          "type": "select",
+          "default": "express",
+          "options": [
+            {
+              "value": "express",
+              "label": "Express"
+            },
+            {
+              "value": "fastify",
+              "label": "Fastify"
+            },
+            {
+              "value": "hono",
+              "label": "Hono"
+            },
+            {
+              "value": "fetch",
+              "label": "Fetch"
+            },
+            {
+              "value": "none",
+              "label": "Core only"
+            }
+          ]
+        },
+        {
+          "id": "format",
+          "label": "Response format",
+          "type": "select",
+          "default": "problem",
+          "options": [
+            {
+              "value": "problem",
+              "label": "RFC 9457"
+            },
+            {
+              "value": "envelope",
+              "label": "Envelope"
+            }
+          ]
+        },
+        {
+          "id": "debug",
+          "label": "Debug responses",
+          "type": "boolean",
+          "default": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "setup",
+          "label": "errors.setup.ts",
+          "language": "typescript",
+          "filename": "src/aspec/errors.setup.ts",
+          "template": "templates/explorer/setup.ts.tmpl"
+        },
+        {
+          "id": "env",
+          "label": ".env",
+          "language": "dotenv",
+          "template": "templates/explorer/env.tmpl"
+        }
+      ]
+    }
+  },
+  "integration": {
+    "targets": [
+      {
+        "id": "express-typescript",
+        "label": "Express (TypeScript)",
+        "language": "typescript",
+        "framework": "express",
+        "automated": true,
+        "docs": "frameworks/express",
+        "files": [
+          {
+            "template": "templates/express/setup.ts.tmpl",
+            "path": "{{ srcDir }}/aspec/errors.setup.ts",
+            "description": "Creates Express error handling."
+          }
+        ],
+        "packages": [
+          {
+            "name": "express",
+            "range": "^4.18.0 || ^5.0.0"
+          }
+        ],
+        "env": [],
+        "steps": ["Mount requestContext first, notFound and errorHandler last on your Express app."]
+      },
+      {
+        "id": "fastify-typescript",
+        "label": "Fastify (TypeScript)",
+        "language": "typescript",
+        "framework": "fastify",
+        "automated": true,
+        "docs": "frameworks/fastify",
+        "files": [
+          {
+            "template": "templates/fastify/setup.ts.tmpl",
+            "path": "{{ srcDir }}/aspec/errors.setup.ts",
+            "description": "Registers Fastify error handling."
+          }
+        ],
+        "packages": [
+          {
+            "name": "fastify",
+            "range": "^5.0.0"
+          }
+        ],
+        "env": [],
+        "steps": ["Await registerErrorHandling(app) during plugin setup."]
+      },
+      {
+        "id": "hono-typescript",
+        "label": "Hono (TypeScript)",
+        "language": "typescript",
+        "framework": "hono",
+        "automated": true,
+        "docs": "frameworks/hono",
+        "files": [
+          {
+            "template": "templates/hono/setup.ts.tmpl",
+            "path": "{{ srcDir }}/aspec/errors.setup.ts",
+            "description": "Creates Hono error handling."
+          }
+        ],
+        "packages": [
+          {
+            "name": "hono",
+            "range": "^4.0.0"
+          }
+        ],
+        "env": [],
+        "steps": ["Attach middleware, notFound and onError from the exported helper."]
+      },
+      {
+        "id": "fetch-typescript",
+        "label": "Fetch (TypeScript)",
+        "language": "typescript",
+        "framework": "fetch",
+        "automated": true,
+        "docs": "frameworks/fetch",
+        "files": [
+          {
+            "template": "templates/fetch/setup.ts.tmpl",
+            "path": "{{ srcDir }}/aspec/errors.setup.ts",
+            "description": "Wraps a Fetch handler."
+          }
+        ],
+        "packages": [],
+        "env": [],
+        "steps": ["Export the wrapped handler from your route module."]
+      },
+      {
+        "id": "generic-typescript",
+        "label": "Any TypeScript project",
+        "language": "typescript",
+        "automated": true,
+        "docs": "integrate",
+        "files": [
+          {
+            "template": "templates/generic-ts/setup.ts.tmpl",
+            "path": "{{ srcDir }}/aspec/errors.setup.ts",
+            "description": "Creates a portable error handler."
+          }
+        ],
+        "steps": ["Call handler.toResponse(err) from your own HTTP layer."]
+      },
+      {
+        "id": "generic-javascript",
+        "label": "Any JavaScript project",
+        "language": "javascript",
+        "automated": true,
+        "docs": "integrate",
+        "files": [
+          {
+            "template": "templates/generic-js/setup.js.tmpl",
+            "path": "{{ srcDir }}/aspec/errors.setup.js",
+            "description": "Creates a portable error handler."
+          }
+        ],
+        "steps": ["Call handler.toResponse(err) from your own HTTP layer."]
+      }
+    ]
+  },
+  "validation": {
+    "checks": [
+      {
+        "type": "package",
+        "name": "@aspec/errors",
+        "range": "^1.0.0"
+      },
+      {
+        "type": "import",
+        "specifier": "@aspec/errors"
+      }
+    ],
+    "commands": [
+      {
+        "run": ["node", "-e", "import('@aspec/errors')"],
+        "description": "Imports the module entrypoint."
+      }
+    ],
+    "docs": "testing"
+  },
+  "uninstall": {
+    "steps": ["Remove error middleware registration.", "Remove @aspec/errors from dependencies."],
+    "dataRetention": "No persistent data.",
+    "docs": "uninstall"
+  },
+  "migrations": {
+    "docs": "migration"
+  },
+  "docs": {
+    "sections": {
+      "summary": "docs/summary.md",
+      "install": "docs/install.md",
+      "configure": "docs/configure.md",
+      "integrate": "docs/integrate.md",
+      "api": "docs/api.md",
+      "examples": "docs/examples.md",
+      "testing": "docs/testing.md",
+      "migration": "docs/migration.md",
+      "troubleshooting": "docs/troubleshooting.md",
+      "security": "docs/security.md",
+      "uninstall": "docs/uninstall.md",
+      "ai": "docs/ai.md",
+      "frameworks/express": "docs/frameworks/express.md",
+      "frameworks/fastify": "docs/frameworks/fastify.md",
+      "frameworks/hono": "docs/frameworks/hono.md",
+      "frameworks/fetch": "docs/frameworks/fetch.md"
+    }
+  },
+  "security": {
+    "contact": "security@aspec.tech",
+    "policy": "https://github.com/ASPEC-RACING-PTY-LTD/aspecdev/security/policy",
+    "sensitiveData": ["none"],
+    "notes": [
+      "Error messages with expose true are returned to clients; keep them free of secrets."
+    ],
+    "threatModel": "security"
+  },
+  "ai": {
+    "summary": "Use createErrorHandler and framework adapters for RFC 9457 problem responses.",
+    "useWhen": ["HTTP APIs need consistent safe error responses."],
+    "avoidWhen": ["Non-HTTP scripts that only log errors locally."],
+    "keywords": ["errors", "problem-details", "rfc9457"],
+    "entrypoints": [
+      {
+        "name": "createErrorHandler",
+        "import": "@aspec/errors",
+        "description": "Creates the portable error handler."
+      },
+      {
+        "name": "createExpressErrorHandling",
+        "import": "@aspec/errors/express",
+        "description": "Express recovery middleware."
+      }
+    ]
+  }
+}

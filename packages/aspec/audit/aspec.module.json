@@ -1,0 +1,446 @@
+{
+  "$schema": "https://aspec.tech/schemas/module-manifest/v1.json",
+  "manifestVersion": 1,
+  "id": "aspec/audit",
+  "name": "Audit Logging",
+  "summary": "Structured, tamper-evident audit logging with redaction, querying and retention.",
+  "description": "Records actors, actions, resources, outcomes, before-and-after changes and request correlation. Events are redacted, hash-chained (optional HMAC) and stored in memory, SQL, JSON Lines or console sinks. Provides correlation middleware and a protected admin query API for Express, Fastify, Hono and Fetch.",
+  "version": "1.0.0",
+  "category": "security",
+  "tags": ["audit", "logging", "security", "compliance", "tamper-evident"],
+  "license": "MIT",
+  "maintainers": [
+    { "name": "ASPEC TECH", "email": "modules@aspec.tech", "url": "https://aspec.tech" }
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ASPEC-RACING-PTY-LTD/aspecdev",
+    "directory": "modules/audit"
+  },
+  "homepage": "https://aspec.tech/modules/aspec/audit",
+  "readme": "README.md",
+  "changelog": "CHANGELOG.md",
+  "languages": ["typescript", "javascript"],
+  "runtimes": [{ "name": "node", "range": ">=22.13.0" }],
+  "frameworks": [
+    {
+      "id": "express",
+      "name": "Express",
+      "range": "^4.18.0 || ^5.0.0",
+      "entrypoint": "@aspec/audit/express",
+      "kind": "backend",
+      "tested": true,
+      "testedVersions": ["4.22.3", "5.2.1"]
+    },
+    {
+      "id": "fastify",
+      "name": "Fastify",
+      "range": "^5.0.0",
+      "entrypoint": "@aspec/audit/fastify",
+      "kind": "backend",
+      "tested": true,
+      "testedVersions": ["5.12.5"]
+    },
+    {
+      "id": "hono",
+      "name": "Hono",
+      "range": "^4.0.0",
+      "entrypoint": "@aspec/audit/hono",
+      "kind": "backend",
+      "tested": true,
+      "testedVersions": ["4.13.10"]
+    },
+    {
+      "id": "fetch",
+      "name": "Fetch",
+      "range": ">=18",
+      "entrypoint": "@aspec/audit/fetch",
+      "kind": "backend",
+      "tested": true,
+      "testedVersions": ["24.16.0"]
+    },
+    {
+      "id": "vitest",
+      "name": "Vitest",
+      "range": "^5.0.0",
+      "entrypoint": "@aspec/audit",
+      "kind": "testing",
+      "tested": true,
+      "testedVersions": ["5.0.2"]
+    }
+  ],
+  "databases": [
+    { "id": "memory", "tested": true },
+    {
+      "id": "postgres",
+      "range": ">=14",
+      "entrypoint": "@aspec/audit/sql",
+      "tested": true,
+      "testedVersions": ["17"]
+    },
+    {
+      "id": "sqlite",
+      "range": ">=3.35",
+      "entrypoint": "@aspec/audit/sql",
+      "tested": true
+    }
+  ],
+  "services": [],
+  "platforms": {
+    "os": ["linux", "darwin", "windows"],
+    "arch": ["x64", "arm64"],
+    "tested": [{ "os": "windows", "arch": "x64", "runtime": "node@24.16.0" }]
+  },
+  "capabilities": [
+    { "id": "audit-record", "summary": "Record normalised, redacted, hash-chained audit events." },
+    { "id": "audit-query", "summary": "Query and count events with cursor pagination." },
+    { "id": "audit-verify", "summary": "Verify hash chains and checkpoints." },
+    { "id": "audit-retention", "summary": "Apply category retention with checkpoints." },
+    {
+      "id": "audit-correlation",
+      "summary": "HTTP correlation middleware for supported frameworks.",
+      "optional": true
+    },
+    {
+      "id": "audit-admin",
+      "summary": "Protected admin query router.",
+      "optional": true
+    }
+  ],
+  "dependencies": {
+    "required": [],
+    "optional": [
+      {
+        "id": "aspec/rbac",
+        "range": "^1.0.0",
+        "reason": "PermissionChecker can authorise the admin query router."
+      },
+      {
+        "id": "aspec/db",
+        "range": "^1.0.0",
+        "reason": "Provides a SqlClient adapter for PostgreSQL and SQLite."
+      }
+    ],
+    "peer": []
+  },
+  "compatibility": { "conflicts": [], "cli": ">=0.1.0" },
+  "packages": {
+    "npm": {
+      "name": "@aspec/audit",
+      "entrypoints": {
+        ".": "Portable core API",
+        "./express": "Express correlation and admin router",
+        "./fastify": "Fastify correlation and admin plugin",
+        "./hono": "Hono correlation and admin app",
+        "./fetch": "Fetch handler wrappers",
+        "./memory": "In-memory audit store",
+        "./sql": "SQL store and migrations",
+        "./console": "Console JSON Lines sink",
+        "./jsonl": "JSON Lines file sink",
+        "./buffered": "Async buffered sink wrapper",
+        "./fanout": "Fan-out sink"
+      },
+      "dependencyType": "prod"
+    }
+  },
+  "install": {
+    "modes": ["package", "vendor"],
+    "defaultMode": "package",
+    "requirements": ["Node.js 22.13 or newer"],
+    "vendor": { "source": "src", "jsSource": "dist" }
+  },
+  "configuration": {
+    "schema": "config.schema.json",
+    "env": {
+      "required": [],
+      "optional": [
+        {
+          "name": "AUDIT_HMAC_KEY",
+          "description": "HMAC key for the audit hash chain (at least 32 bytes).",
+          "secret": true
+        },
+        {
+          "name": "AUDIT_JSONL_PATH",
+          "description": "Path for the JSON Lines audit sink.",
+          "example": "./var/audit.jsonl"
+        },
+        {
+          "name": "DATABASE_URL",
+          "description": "PostgreSQL URL when using the SQL store.",
+          "secret": true,
+          "example": "postgres://user:pass@localhost:5432/app"
+        }
+      ]
+    },
+    "explorer": {
+      "parameters": [
+        {
+          "id": "framework",
+          "label": "Framework",
+          "type": "select",
+          "default": "express",
+          "options": [
+            { "value": "express", "label": "Express" },
+            { "value": "fastify", "label": "Fastify" },
+            { "value": "hono", "label": "Hono" },
+            { "value": "fetch", "label": "Fetch" },
+            { "value": "none", "label": "Core only" }
+          ]
+        },
+        {
+          "id": "storage",
+          "label": "Storage",
+          "type": "select",
+          "default": "memory",
+          "options": [
+            { "value": "memory", "label": "In memory" },
+            { "value": "postgres", "label": "PostgreSQL" },
+            { "value": "sqlite", "label": "SQLite" }
+          ]
+        },
+        {
+          "id": "jsonl",
+          "label": "Also write JSON Lines",
+          "type": "boolean",
+          "default": false
+        },
+        {
+          "id": "hmac",
+          "label": "HMAC chain key from env",
+          "type": "boolean",
+          "default": true
+        }
+      ],
+      "outputs": [
+        {
+          "id": "setup",
+          "label": "audit.setup.ts",
+          "language": "typescript",
+          "filename": "src/aspec/audit.setup.ts",
+          "template": "templates/explorer/setup.ts.tmpl"
+        },
+        {
+          "id": "env",
+          "label": ".env",
+          "language": "dotenv",
+          "template": "templates/explorer/env.tmpl"
+        }
+      ]
+    }
+  },
+  "integration": {
+    "targets": [
+      {
+        "id": "express-typescript",
+        "label": "Express (TypeScript)",
+        "language": "typescript",
+        "framework": "express",
+        "automated": true,
+        "docs": "frameworks/express",
+        "files": [
+          {
+            "template": "templates/express/setup.ts.tmpl",
+            "path": "{{ srcDir }}/aspec/audit.setup.ts",
+            "description": "Creates the audit logger, Express context middleware and admin router."
+          }
+        ],
+        "packages": [{ "name": "express", "range": "^4.18.0 || ^5.0.0" }],
+        "env": [],
+        "steps": [
+          "Import auditContextMiddleware and mount it before your routes.",
+          "Mount auditAdmin under a protected path such as /admin/audit.",
+          "Replace the authorize hook with your real authentication check."
+        ]
+      },
+      {
+        "id": "fastify-typescript",
+        "label": "Fastify (TypeScript)",
+        "language": "typescript",
+        "framework": "fastify",
+        "automated": true,
+        "docs": "frameworks/fastify",
+        "files": [
+          {
+            "template": "templates/fastify/setup.ts.tmpl",
+            "path": "{{ srcDir }}/aspec/audit.setup.ts",
+            "description": "Creates the audit logger and Fastify registration helpers."
+          }
+        ],
+        "packages": [{ "name": "fastify", "range": "^5.0.0" }],
+        "env": [],
+        "steps": [
+          "Call registerAudit(app) after creating the Fastify instance.",
+          "Register auditAdminPlugin with a prefix such as /admin/audit."
+        ]
+      },
+      {
+        "id": "hono-typescript",
+        "label": "Hono (TypeScript)",
+        "language": "typescript",
+        "framework": "hono",
+        "automated": true,
+        "docs": "frameworks/hono",
+        "files": [
+          {
+            "template": "templates/hono/setup.ts.tmpl",
+            "path": "{{ srcDir }}/aspec/audit.setup.ts",
+            "description": "Creates the audit logger, Hono middleware and admin app."
+          }
+        ],
+        "packages": [{ "name": "hono", "range": "^4.0.0" }],
+        "env": [],
+        "steps": [
+          "app.use('*', auditContextMiddleware)",
+          "app.route('/admin/audit', auditAdminApp)"
+        ]
+      },
+      {
+        "id": "fetch-typescript",
+        "label": "Fetch (TypeScript)",
+        "language": "typescript",
+        "framework": "fetch",
+        "automated": true,
+        "docs": "frameworks/fetch",
+        "files": [
+          {
+            "template": "templates/fetch/setup.ts.tmpl",
+            "path": "{{ srcDir }}/aspec/audit.setup.ts",
+            "description": "Creates Fetch wrappers for correlation and admin queries."
+          }
+        ],
+        "packages": [],
+        "env": [],
+        "steps": [
+          "Wrap your Fetch handler with withAudit or route admin traffic to auditAdminHandler."
+        ]
+      },
+      {
+        "id": "generic-typescript",
+        "label": "Any TypeScript project",
+        "language": "typescript",
+        "automated": true,
+        "docs": "integrate",
+        "files": [
+          {
+            "template": "templates/generic/setup.ts.tmpl",
+            "path": "{{ srcDir }}/aspec/audit.setup.ts",
+            "description": "Creates a core audit logger without framework bindings."
+          }
+        ],
+        "steps": ["Import audit from the generated setup file and call audit.record()."]
+      },
+      {
+        "id": "generic-javascript",
+        "label": "Any JavaScript project",
+        "language": "javascript",
+        "automated": true,
+        "docs": "integrate",
+        "files": [
+          {
+            "template": "templates/generic/setup.js.tmpl",
+            "path": "{{ srcDir }}/aspec/audit.setup.js",
+            "description": "Creates a core audit logger without framework bindings."
+          }
+        ],
+        "steps": ["Import audit from the generated setup file and call audit.record()."]
+      }
+    ]
+  },
+  "validation": {
+    "checks": [
+      { "type": "package", "name": "@aspec/audit", "range": "^1.0.0" },
+      { "type": "import", "specifier": "@aspec/audit" }
+    ],
+    "commands": [
+      {
+        "run": ["node", "-e", "import('@aspec/audit')"],
+        "description": "Imports the module entrypoint."
+      }
+    ],
+    "docs": "testing"
+  },
+  "uninstall": {
+    "steps": [
+      "Remove correlation middleware and admin router registrations.",
+      "Drop audit_* tables if you used the SQL store.",
+      "Delete JSON Lines files if present."
+    ],
+    "dataRetention": "SQL tables and JSON Lines files are not dropped automatically.",
+    "docs": "uninstall"
+  },
+  "migrations": {
+    "docs": "migration",
+    "database": {
+      "dialects": ["postgres", "sqlite"],
+      "entrypoint": "@aspec/audit/sql",
+      "tables": [
+        "audit_events",
+        "audit_stream_heads",
+        "audit_checkpoints",
+        "audit_schema_migrations"
+      ]
+    }
+  },
+  "docs": {
+    "sections": {
+      "summary": "docs/summary.md",
+      "install": "docs/install.md",
+      "configure": "docs/configure.md",
+      "integrate": "docs/integrate.md",
+      "frameworks/express": "docs/frameworks/express.md",
+      "frameworks/fastify": "docs/frameworks/fastify.md",
+      "frameworks/hono": "docs/frameworks/hono.md",
+      "frameworks/fetch": "docs/frameworks/fetch.md",
+      "frameworks/vitest": "docs/frameworks/vitest.md",
+      "api": "docs/api.md",
+      "examples": "docs/examples.md",
+      "testing": "docs/testing.md",
+      "migration": "docs/migration.md",
+      "troubleshooting": "docs/troubleshooting.md",
+      "security": "docs/security.md",
+      "uninstall": "docs/uninstall.md",
+      "ai": "docs/ai.md"
+    }
+  },
+  "security": {
+    "contact": "security@aspec.tech",
+    "policy": "https://github.com/ASPEC-RACING-PTY-LTD/aspecdev/security/policy",
+    "sensitiveData": ["secrets", "tokens", "credentials"],
+    "notes": [
+      "Events are redacted before hashing and storage.",
+      "The admin query API requires an authorise hook or PermissionChecker."
+    ],
+    "threatModel": "security"
+  },
+  "ai": {
+    "summary": "Use createAuditLogger with a memory or SQL store; mount framework correlation middleware; protect the admin router.",
+    "useWhen": [
+      "You need tamper-evident audit trails for security or compliance.",
+      "Handlers should record who changed which resource."
+    ],
+    "avoidWhen": ["You only need debug logging.", "You cannot store any audit history."],
+    "keywords": ["audit", "logging", "tamper-evident", "compliance", "security-events"],
+    "entrypoints": [
+      {
+        "name": "createAuditLogger",
+        "import": "@aspec/audit",
+        "description": "Creates the audit logger (AuditSink)."
+      },
+      {
+        "name": "createMemoryAuditStore",
+        "import": "@aspec/audit/memory",
+        "description": "In-memory store for development and tests."
+      },
+      {
+        "name": "createSqlAuditStore",
+        "import": "@aspec/audit/sql",
+        "description": "PostgreSQL or SQLite store."
+      },
+      {
+        "name": "auditContext",
+        "import": "@aspec/audit/express",
+        "description": "Express correlation middleware."
+      }
+    ]
+  }
+}

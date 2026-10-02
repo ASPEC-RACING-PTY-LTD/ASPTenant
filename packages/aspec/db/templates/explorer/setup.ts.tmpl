@@ -1,0 +1,17 @@
+import { createDatabase, createMigrator } from '{{ imports.root }}';
+
+export const db = await createDatabase({
+{{#if dialect == "sqlite"}}
+  url: process.env.DATABASE_URL ?? 'sqlite::memory:',
+  driver: '{{ sqliteDriver }}',
+{{else}}
+  url: process.env.DATABASE_URL as string,
+{{/if}}
+{{#if lazy}}
+  lazy: true,
+{{/if}}
+});
+
+export const migrator = createMigrator(db, {
+  directory: process.env.ASPEC_DB_MIGRATIONS_DIR ?? '{{ migrationsDir }}',
+});

@@ -1,0 +1,467 @@
+{
+  "$schema": "https://aspec.tech/schemas/module-manifest/v1.json",
+  "manifestVersion": 1,
+  "id": "aspec/testing",
+  "name": "Testing Utilities",
+  "summary": "Reusable development testing utilities: scaffolding, API clients, SQL fixtures, factories, auth helpers, HTTP mocks, environment isolation and coverage presets.",
+  "description": "Install as a dev dependency to scaffold Vitest, drive Express/Fastify/Hono/Fetch APIs with a fluent test client, isolate SQLite and PostgreSQL fixtures, build seeded factories, sign test JWTs, mock fetch and local HTTP servers, and gate coverage from CI.",
+  "version": "1.0.0",
+  "category": "developer-tools",
+  "tags": ["testing", "vitest", "fixtures", "factories", "mock", "coverage"],
+  "license": "MIT",
+  "maintainers": [
+    { "name": "ASPEC TECH", "email": "modules@aspec.tech", "url": "https://aspec.tech" }
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ASPEC-RACING-PTY-LTD/aspecdev",
+    "directory": "modules/testing"
+  },
+  "homepage": "https://aspec.tech/modules/aspec/testing",
+  "readme": "README.md",
+  "changelog": "CHANGELOG.md",
+  "languages": ["typescript", "javascript"],
+  "runtimes": [{ "name": "node", "range": ">=22.13.0" }],
+  "frameworks": [
+    {
+      "id": "vitest",
+      "name": "Vitest",
+      "range": "^3.0.0 || ^4.0.0 || ^5.0.0",
+      "entrypoint": "@aspec/testing",
+      "kind": "testing",
+      "tested": true,
+      "testedVersions": ["5.0.2"]
+    },
+    {
+      "id": "express",
+      "name": "Express",
+      "range": "^4.18.0 || ^5.0.0",
+      "entrypoint": "@aspec/testing",
+      "kind": "backend",
+      "tested": true,
+      "testedVersions": ["4.22.3", "5.2.1"]
+    },
+    {
+      "id": "fastify",
+      "name": "Fastify",
+      "range": "^5.0.0",
+      "entrypoint": "@aspec/testing",
+      "kind": "backend",
+      "tested": true,
+      "testedVersions": ["5.12.5"]
+    },
+    {
+      "id": "hono",
+      "name": "Hono",
+      "range": "^4.0.0",
+      "entrypoint": "@aspec/testing",
+      "kind": "backend",
+      "tested": true,
+      "testedVersions": ["4.13.10"]
+    },
+    {
+      "id": "fetch",
+      "name": "Fetch API handler",
+      "range": "*",
+      "entrypoint": "@aspec/testing",
+      "kind": "backend",
+      "tested": true,
+      "testedVersions": ["24.16.0"]
+    }
+  ],
+  "databases": [
+    {
+      "id": "sqlite",
+      "range": ">=3.35",
+      "entrypoint": "@aspec/testing/sql",
+      "tested": true,
+      "testedVersions": ["3.53.0"]
+    },
+    {
+      "id": "postgres",
+      "range": ">=14",
+      "entrypoint": "@aspec/testing/sql",
+      "tested": true,
+      "testedVersions": ["17.11"]
+    }
+  ],
+  "services": [],
+  "platforms": {
+    "os": ["linux", "darwin", "windows"],
+    "arch": ["x64", "arm64"],
+    "tested": [{ "os": "windows", "arch": "x64", "runtime": "node@24.16.0" }]
+  },
+  "capabilities": [
+    {
+      "id": "scaffold",
+      "summary": "Scaffold Vitest config, setup and generate unit, integration or API tests via aspec-testing."
+    },
+    {
+      "id": "api-client",
+      "summary": "Fluent createTestClient for Express, Fastify, Hono and Fetch handlers."
+    },
+    {
+      "id": "sql-fixtures",
+      "summary": "SQLite and PostgreSQL SqlClient fixtures with migrations, truncation and rollback."
+    },
+    {
+      "id": "factories",
+      "summary": "Seeded factories with sequences, traits, associations and persistence adapters."
+    },
+    {
+      "id": "auth-helpers",
+      "summary": "HS256/ES256 test JWTs, session cookies and act-as helpers."
+    },
+    {
+      "id": "authz-helpers",
+      "summary": "Mock PermissionChecker and expectAllowed/expectDenied against any checker."
+    },
+    { "id": "http-mock", "summary": "mockFetch and createMockServer with shared route API." },
+    {
+      "id": "env-isolation",
+      "summary": "withEnv, isolateEnv, temp dirs, controllable Clock and Vitest fake timers."
+    },
+    { "id": "coverage", "summary": "defineAspecVitestConfig and coverageSummary CI gates." }
+  ],
+  "dependencies": {
+    "required": [],
+    "optional": [],
+    "peer": []
+  },
+  "compatibility": { "conflicts": [], "cli": ">=0.1.0" },
+  "packages": {
+    "npm": {
+      "name": "@aspec/testing",
+      "entrypoints": {
+        ".": "Portable testing utilities",
+        "./sql": "SQL fixtures and migrations",
+        "./coverage": "Vitest coverage preset helpers",
+        "./scaffold": "Project detection and scaffolding API"
+      },
+      "dependencyType": "dev"
+    }
+  },
+  "install": {
+    "modes": ["package", "vendor"],
+    "defaultMode": "package",
+    "requirements": ["Node.js 22.13 or newer", "Install as a development dependency"],
+    "vendor": { "source": "src", "jsSource": "dist" }
+  },
+  "configuration": {
+    "schema": "config.schema.json",
+    "env": {
+      "required": [],
+      "optional": [
+        {
+          "name": "ASPEC_TEST_SEED",
+          "description": "Seed for factories and seededRandom.",
+          "example": "aspec-testing"
+        },
+        {
+          "name": "ASPEC_TEST_POSTGRES_URL",
+          "description": "PostgreSQL URL for SQL fixtures (schema-per-test isolation).",
+          "example": "postgres://aspec:aspec@127.0.0.1:5432/aspec_test",
+          "secret": true
+        }
+      ]
+    },
+    "explorer": {
+      "parameters": [
+        {
+          "id": "language",
+          "label": "Language",
+          "type": "select",
+          "default": "typescript",
+          "options": [
+            { "value": "typescript", "label": "TypeScript" },
+            { "value": "javascript", "label": "JavaScript" }
+          ]
+        },
+        {
+          "id": "framework",
+          "label": "API framework under test",
+          "type": "select",
+          "default": "fetch",
+          "options": [
+            { "value": "fetch", "label": "Fetch handler" },
+            { "value": "express", "label": "Express" },
+            { "value": "fastify", "label": "Fastify" },
+            { "value": "hono", "label": "Hono" },
+            { "value": "none", "label": "None (core helpers only)" }
+          ]
+        },
+        {
+          "id": "sql",
+          "label": "SQL fixtures",
+          "type": "select",
+          "default": "sqlite",
+          "options": [
+            { "value": "sqlite", "label": "SQLite (node:sqlite)" },
+            { "value": "postgres", "label": "PostgreSQL" },
+            { "value": "none", "label": "None" }
+          ]
+        },
+        { "id": "includeAuth", "label": "Auth helpers", "type": "boolean", "default": true },
+        { "id": "includeHttpMock", "label": "HTTP mocking", "type": "boolean", "default": true }
+      ],
+      "outputs": [
+        {
+          "id": "setup",
+          "label": "test/setup.ts",
+          "language": "typescript",
+          "filename": "test/aspec-testing.setup.ts",
+          "template": "templates/explorer/setup.ts.tmpl"
+        },
+        {
+          "id": "env",
+          "label": ".env.test",
+          "language": "dotenv",
+          "template": "templates/explorer/env.tmpl"
+        }
+      ]
+    }
+  },
+  "integration": {
+    "targets": [
+      {
+        "id": "vitest-typescript",
+        "label": "Vitest (TypeScript)",
+        "language": "typescript",
+        "framework": "vitest",
+        "automated": true,
+        "docs": "frameworks/vitest",
+        "files": [
+          {
+            "template": "templates/vitest/setup.ts.tmpl",
+            "path": "{{ srcDir }}/aspec/testing.setup.ts",
+            "description": "Vitest setup: seed, sequence reset and cleanupAll."
+          }
+        ],
+        "packages": [{ "name": "vitest", "range": "^5.0.0", "dev": true }],
+        "env": [],
+        "steps": [
+          "Add the generated file to vitest.config.ts setupFiles (or use defineAspecVitestConfig).",
+          "Run aspec-testing init if you want example tests and a coverage preset config."
+        ]
+      },
+      {
+        "id": "express-typescript",
+        "label": "Express API tests (TypeScript)",
+        "language": "typescript",
+        "framework": "express",
+        "automated": true,
+        "docs": "frameworks/express",
+        "files": [
+          {
+            "template": "templates/express/setup.ts.tmpl",
+            "path": "{{ srcDir }}/aspec/testing.setup.ts",
+            "description": "Helpers for Express API tests with createTestClient."
+          }
+        ],
+        "packages": [
+          { "name": "vitest", "range": "^5.0.0", "dev": true },
+          { "name": "express", "range": "^4.18.0 || ^5.0.0" }
+        ],
+        "env": [],
+        "steps": [
+          "Import createAppClient from the generated file in your API tests.",
+          "Pass your Express app (4 or 5) to createAppClient()."
+        ]
+      },
+      {
+        "id": "fastify-typescript",
+        "label": "Fastify API tests (TypeScript)",
+        "language": "typescript",
+        "framework": "fastify",
+        "automated": true,
+        "docs": "frameworks/fastify",
+        "files": [
+          {
+            "template": "templates/fastify/setup.ts.tmpl",
+            "path": "{{ srcDir }}/aspec/testing.setup.ts",
+            "description": "Helpers for Fastify inject-based API tests."
+          }
+        ],
+        "packages": [
+          { "name": "vitest", "range": "^5.0.0", "dev": true },
+          { "name": "fastify", "range": "^5.0.0" }
+        ],
+        "env": [],
+        "steps": ["Await app.ready() then pass the Fastify instance to createAppClient()."]
+      },
+      {
+        "id": "hono-typescript",
+        "label": "Hono API tests (TypeScript)",
+        "language": "typescript",
+        "framework": "hono",
+        "automated": true,
+        "docs": "frameworks/hono",
+        "files": [
+          {
+            "template": "templates/hono/setup.ts.tmpl",
+            "path": "{{ srcDir }}/aspec/testing.setup.ts",
+            "description": "Helpers for Hono app.request-based API tests."
+          }
+        ],
+        "packages": [
+          { "name": "vitest", "range": "^5.0.0", "dev": true },
+          { "name": "hono", "range": "^4.0.0" }
+        ],
+        "env": [],
+        "steps": ["Pass your Hono app to createAppClient()."]
+      },
+      {
+        "id": "fetch-typescript",
+        "label": "Fetch handler tests (TypeScript)",
+        "language": "typescript",
+        "framework": "fetch",
+        "automated": true,
+        "docs": "frameworks/fetch",
+        "files": [
+          {
+            "template": "templates/fetch/setup.ts.tmpl",
+            "path": "{{ srcDir }}/aspec/testing.setup.ts",
+            "description": "Helpers for Web Fetch API handler tests."
+          }
+        ],
+        "packages": [{ "name": "vitest", "range": "^5.0.0", "dev": true }],
+        "env": [],
+        "steps": [
+          "Pass a (request: Request) => Response|Promise<Response> handler to createAppClient()."
+        ]
+      },
+      {
+        "id": "generic-typescript",
+        "label": "Any TypeScript project",
+        "language": "typescript",
+        "automated": true,
+        "docs": "integrate",
+        "files": [
+          {
+            "template": "templates/generic/setup.ts.tmpl",
+            "path": "{{ srcDir }}/aspec/testing.setup.ts",
+            "description": "Core testing setup without a framework adapter."
+          }
+        ],
+        "packages": [{ "name": "vitest", "range": "^5.0.0", "dev": true }],
+        "env": [],
+        "steps": ["Import helpers from the generated setup file or from @aspec/testing directly."]
+      },
+      {
+        "id": "generic-javascript",
+        "label": "Any JavaScript project",
+        "language": "javascript",
+        "automated": true,
+        "docs": "integrate",
+        "files": [
+          {
+            "template": "templates/generic/setup.js.tmpl",
+            "path": "{{ srcDir }}/aspec/testing.setup.js",
+            "description": "Core testing setup (ESM or CommonJS)."
+          }
+        ],
+        "packages": [{ "name": "vitest", "range": "^5.0.0", "dev": true }],
+        "env": [],
+        "steps": ["Add the generated file to Vitest setupFiles."]
+      }
+    ]
+  },
+  "validation": {
+    "checks": [
+      { "type": "package", "name": "@aspec/testing", "range": "^1.0.0" },
+      { "type": "import", "specifier": "@aspec/testing" }
+    ],
+    "commands": [
+      {
+        "run": ["node", "-e", "import('@aspec/testing')"],
+        "description": "Imports the module entrypoint."
+      }
+    ],
+    "docs": "testing"
+  },
+  "uninstall": {
+    "steps": [
+      "Remove @aspec/testing from package.json (devDependencies).",
+      "Remove generated setup files and aspec-testing scaffolded tests if unused.",
+      "Remove defineAspecVitestConfig from vitest.config if you adopted it."
+    ],
+    "dataRetention": "This module has no persistent application state. Temporary directories and PostgreSQL test schemas are cleaned up by fixtures.",
+    "docs": "uninstall"
+  },
+  "migrations": {
+    "docs": "migration"
+  },
+  "docs": {
+    "sections": {
+      "summary": "docs/summary.md",
+      "install": "docs/install.md",
+      "configure": "docs/configure.md",
+      "integrate": "docs/integrate.md",
+      "frameworks/vitest": "docs/frameworks/vitest.md",
+      "frameworks/express": "docs/frameworks/express.md",
+      "frameworks/fastify": "docs/frameworks/fastify.md",
+      "frameworks/hono": "docs/frameworks/hono.md",
+      "frameworks/fetch": "docs/frameworks/fetch.md",
+      "api": "docs/api.md",
+      "examples": "docs/examples.md",
+      "testing": "docs/testing.md",
+      "migration": "docs/migration.md",
+      "troubleshooting": "docs/troubleshooting.md",
+      "security": "docs/security.md",
+      "uninstall": "docs/uninstall.md",
+      "ai": "docs/ai.md"
+    }
+  },
+  "security": {
+    "contact": "security@aspec.tech",
+    "policy": "https://github.com/ASPEC-RACING-PTY-LTD/aspecdev/security/policy",
+    "sensitiveData": ["secrets", "credentials"],
+    "notes": [
+      "Test JWT secrets must never be reused in production.",
+      "Seeded Random is not cryptographic and must not mint secrets.",
+      "mockFetch restores globalThis.fetch; always call restore or cleanupAll."
+    ],
+    "threatModel": "security"
+  },
+  "ai": {
+    "summary": "Use @aspec/testing as a dev dependency for Vitest scaffolding, createTestClient, SQL fixtures, factories, auth/authz helpers, mockFetch and coverage presets.",
+    "useWhen": [
+      "You need fluent API tests against Express, Fastify, Hono or Fetch handlers.",
+      "You need isolated SQLite or PostgreSQL fixtures with rollback.",
+      "You need seeded factories or mock PermissionChecker helpers."
+    ],
+    "avoidWhen": [
+      "Production runtime code paths (install as a development dependency only).",
+      "Cryptographic secret generation (use node:crypto; Random is for fixtures only)."
+    ],
+    "keywords": ["testing", "vitest", "fixtures", "factories", "mockFetch", "createTestClient"],
+    "entrypoints": [
+      {
+        "name": "createTestClient",
+        "import": "@aspec/testing",
+        "description": "Fluent API test client."
+      },
+      {
+        "name": "defineFactory",
+        "import": "@aspec/testing",
+        "description": "Seeded test data factory."
+      },
+      {
+        "name": "createSqliteClient",
+        "import": "@aspec/testing",
+        "description": "In-memory SQLite SqlClient fixture."
+      },
+      { "name": "mockFetch", "import": "@aspec/testing", "description": "Route-based fetch mock." },
+      {
+        "name": "defineAspecVitestConfig",
+        "import": "@aspec/testing",
+        "description": "Vitest coverage preset."
+      },
+      {
+        "name": "scaffoldInit",
+        "import": "@aspec/testing/scaffold",
+        "description": "Programmatic project scaffolding."
+      }
+    ]
+  }
+}

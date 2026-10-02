@@ -1,0 +1,439 @@
+{
+  "$schema": "https://aspec.tech/schemas/module-manifest/v1.json",
+  "manifestVersion": 1,
+  "id": "aspec/api-keys",
+  "name": "API Keys",
+  "summary": "Secure API key generation, hashing, scopes, expiry, rotation, revocation and service accounts.",
+  "description": "Provides secure API key management for Node.js applications: CSPRNG generation with offline CRC32 recognition, HMAC-SHA256 storage, wildcard scopes, expiry and rotation with grace, revocation, batched usage tracking, service accounts, and verification middleware for Express, Fastify, Hono and Fetch.",
+  "version": "1.0.0",
+  "category": "security",
+  "tags": ["api-keys", "authentication", "scopes", "hmac"],
+  "license": "MIT",
+  "maintainers": [
+    { "name": "ASPEC TECH", "email": "modules@aspec.tech", "url": "https://aspec.tech" }
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ASPEC-RACING-PTY-LTD/aspecdev",
+    "directory": "modules/api-keys"
+  },
+  "homepage": "https://aspec.tech/modules/aspec/api-keys",
+  "readme": "README.md",
+  "changelog": "CHANGELOG.md",
+  "languages": ["typescript", "javascript"],
+  "runtimes": [{ "name": "node", "range": ">=22.13.0" }],
+  "frameworks": [
+    {
+      "id": "express",
+      "name": "Express",
+      "range": "^4.18.0 || ^5.0.0",
+      "entrypoint": "@aspec/api-keys/express",
+      "kind": "backend",
+      "tested": true,
+      "testedVersions": ["4.22.3", "5.2.1"]
+    },
+    {
+      "id": "fastify",
+      "name": "Fastify",
+      "range": "^5.0.0",
+      "entrypoint": "@aspec/api-keys/fastify",
+      "kind": "backend",
+      "tested": true,
+      "testedVersions": ["5.12.5"]
+    },
+    {
+      "id": "hono",
+      "name": "Hono",
+      "range": "^4.0.0",
+      "entrypoint": "@aspec/api-keys/hono",
+      "kind": "backend",
+      "tested": true,
+      "testedVersions": ["4.13.10"]
+    },
+    {
+      "id": "fetch",
+      "name": "Fetch API",
+      "range": "*",
+      "entrypoint": "@aspec/api-keys/fetch",
+      "kind": "backend",
+      "tested": true,
+      "testedVersions": ["24.16.0"]
+    }
+  ],
+  "databases": [
+    { "id": "memory", "tested": true },
+    {
+      "id": "postgres",
+      "range": ">=14",
+      "entrypoint": "@aspec/api-keys/sql",
+      "tested": true,
+      "testedVersions": ["17.11"]
+    },
+    {
+      "id": "sqlite",
+      "range": ">=3.35",
+      "entrypoint": "@aspec/api-keys/sql",
+      "tested": true
+    }
+  ],
+  "platforms": {
+    "os": ["linux", "darwin", "windows"],
+    "arch": ["x64", "arm64"],
+    "tested": [{ "os": "windows", "arch": "x64", "runtime": "node@24.16.0" }]
+  },
+  "capabilities": [
+    { "id": "api-key-lifecycle", "summary": "Create, rotate, revoke and verify API keys." },
+    { "id": "service-accounts", "summary": "Service accounts that own keys." },
+    {
+      "id": "http-middleware",
+      "summary": "Verification and admin routers for supported frameworks.",
+      "optional": true
+    }
+  ],
+  "dependencies": {
+    "required": [],
+    "optional": [
+      {
+        "id": "aspec/audit",
+        "range": "^1.0.0",
+        "reason": "Records api_keys.* audit events when an AuditSink is provided."
+      },
+      {
+        "id": "aspec/cache",
+        "range": "^1.0.0",
+        "reason": "Caches key lookup by public ID when a CacheLike is provided."
+      },
+      {
+        "id": "aspec/rate-limit",
+        "range": "^1.0.0",
+        "reason": "Optional per-key rate limits via RateLimiterLike."
+      },
+      {
+        "id": "aspec/rbac",
+        "range": "^1.0.0",
+        "reason": "Admin router authorisation via PermissionChecker."
+      },
+      {
+        "id": "aspec/db",
+        "range": "^1.0.0",
+        "reason": "SqlClient provider for the SQL store."
+      }
+    ],
+    "peer": []
+  },
+  "compatibility": { "conflicts": [], "cli": ">=0.1.0" },
+  "packages": {
+    "npm": {
+      "name": "@aspec/api-keys",
+      "entrypoints": {
+        ".": "Portable core",
+        "./memory": "In-memory store",
+        "./sql": "SQL store and migrations",
+        "./express": "Express adapter",
+        "./fastify": "Fastify adapter",
+        "./hono": "Hono adapter",
+        "./fetch": "Fetch API adapter"
+      },
+      "dependencyType": "prod"
+    }
+  },
+  "install": {
+    "modes": ["package", "vendor"],
+    "defaultMode": "package",
+    "requirements": ["Node.js 22.13 or newer"],
+    "vendor": { "source": "src", "jsSource": "dist" }
+  },
+  "configuration": {
+    "schema": "config.schema.json",
+    "env": {
+      "required": [
+        {
+          "name": "API_KEYS_PEPPER",
+          "description": "HMAC pepper for key hashing (at least 32 bytes).",
+          "secret": true,
+          "example": "replace-with-at-least-32-bytes-of-random"
+        }
+      ],
+      "optional": [
+        {
+          "name": "API_KEYS_PREFIX",
+          "description": "Key prefix ending with underscore.",
+          "example": "ak_live_"
+        }
+      ]
+    },
+    "explorer": {
+      "parameters": [
+        {
+          "id": "framework",
+          "label": "Framework",
+          "type": "select",
+          "default": "express",
+          "options": [
+            { "value": "express", "label": "Express" },
+            { "value": "fastify", "label": "Fastify" },
+            { "value": "hono", "label": "Hono" },
+            { "value": "fetch", "label": "Fetch API" },
+            { "value": "none", "label": "Core only" }
+          ]
+        },
+        {
+          "id": "storage",
+          "label": "Storage",
+          "type": "select",
+          "default": "memory",
+          "options": [
+            { "value": "memory", "label": "In memory" },
+            { "value": "postgres", "label": "PostgreSQL" },
+            { "value": "sqlite", "label": "SQLite" }
+          ]
+        },
+        {
+          "id": "prefix",
+          "label": "Key prefix",
+          "type": "string",
+          "default": "ak_live_"
+        },
+        {
+          "id": "defaultTtlDays",
+          "label": "Default TTL (days)",
+          "type": "number",
+          "default": 90
+        },
+        {
+          "id": "tablePrefix",
+          "label": "SQL table prefix",
+          "type": "string",
+          "default": "api_keys_",
+          "when": { "param": "storage", "equals": "postgres" }
+        }
+      ],
+      "outputs": [
+        {
+          "id": "setup",
+          "label": "api-keys.setup.ts",
+          "language": "typescript",
+          "filename": "src/aspec/api-keys.setup.ts",
+          "template": "templates/explorer/setup.ts.tmpl"
+        },
+        {
+          "id": "env",
+          "label": ".env",
+          "language": "dotenv",
+          "template": "templates/explorer/env.tmpl"
+        }
+      ]
+    }
+  },
+  "integration": {
+    "targets": [
+      {
+        "id": "express-typescript",
+        "label": "Express (TypeScript)",
+        "language": "typescript",
+        "framework": "express",
+        "automated": true,
+        "docs": "frameworks/express",
+        "files": [
+          {
+            "template": "templates/express/setup.ts.tmpl",
+            "path": "{{ srcDir }}/aspec/api-keys.setup.ts",
+            "description": "Creates the API keys service and Express middleware."
+          }
+        ],
+        "packages": [{ "name": "express", "range": "^4.18.0 || ^5.0.0" }],
+        "env": ["API_KEYS_PEPPER"],
+        "steps": [
+          "Set API_KEYS_PEPPER to at least 32 random bytes.",
+          "Import apiKeyMiddleware from the generated file and mount it on protected routes.",
+          "Optionally mount createAdminRouter with resolveActor and authorize."
+        ]
+      },
+      {
+        "id": "fastify-typescript",
+        "label": "Fastify (TypeScript)",
+        "language": "typescript",
+        "framework": "fastify",
+        "automated": true,
+        "docs": "frameworks/fastify",
+        "files": [
+          {
+            "template": "templates/fastify/setup.ts.tmpl",
+            "path": "{{ srcDir }}/aspec/api-keys.setup.ts",
+            "description": "Creates the API keys service and Fastify hooks."
+          }
+        ],
+        "packages": [{ "name": "fastify", "range": "^5.0.0" }],
+        "env": ["API_KEYS_PEPPER"],
+        "steps": [
+          "Use apiKeyPreHandler on protected routes.",
+          "Register apiKeysAdminPlugin with a Fastify prefix for the admin API."
+        ]
+      },
+      {
+        "id": "hono-typescript",
+        "label": "Hono (TypeScript)",
+        "language": "typescript",
+        "framework": "hono",
+        "automated": true,
+        "docs": "frameworks/hono",
+        "files": [
+          {
+            "template": "templates/hono/setup.ts.tmpl",
+            "path": "{{ srcDir }}/aspec/api-keys.setup.ts",
+            "description": "Creates the API keys service and Hono middleware."
+          }
+        ],
+        "packages": [{ "name": "hono", "range": "^4.0.0" }],
+        "env": ["API_KEYS_PEPPER"],
+        "steps": [
+          "Apply verifyApiKey on protected routes.",
+          "Mount createApiKeysAdminApp under an admin path."
+        ]
+      },
+      {
+        "id": "fetch-typescript",
+        "label": "Fetch API (TypeScript)",
+        "language": "typescript",
+        "framework": "fetch",
+        "automated": true,
+        "docs": "frameworks/fetch",
+        "files": [
+          {
+            "template": "templates/fetch/setup.ts.tmpl",
+            "path": "{{ srcDir }}/aspec/api-keys.setup.ts",
+            "description": "Creates the API keys service and Fetch helpers."
+          }
+        ],
+        "packages": [],
+        "env": ["API_KEYS_PEPPER"],
+        "steps": [
+          "Wrap handlers with withApiKeyAuth.",
+          "Optionally expose createApiKeysAdminHandler for admin routes."
+        ]
+      },
+      {
+        "id": "generic-typescript",
+        "label": "Any TypeScript project",
+        "language": "typescript",
+        "automated": true,
+        "docs": "integrate",
+        "files": [
+          {
+            "template": "templates/generic/setup.ts.tmpl",
+            "path": "{{ srcDir }}/aspec/api-keys.setup.ts",
+            "description": "Creates the API keys service without HTTP adapters."
+          }
+        ],
+        "env": ["API_KEYS_PEPPER"],
+        "steps": ["Import apiKeys and call create/verify from your application code."]
+      },
+      {
+        "id": "generic-javascript",
+        "label": "Any JavaScript project",
+        "language": "javascript",
+        "automated": true,
+        "docs": "integrate",
+        "files": [
+          {
+            "template": "templates/generic/setup.js.tmpl",
+            "path": "{{ srcDir }}/aspec/api-keys.setup.js",
+            "description": "Creates the API keys service without HTTP adapters."
+          }
+        ],
+        "env": ["API_KEYS_PEPPER"],
+        "steps": ["Import or require apiKeys and call create/verify from your application code."]
+      }
+    ]
+  },
+  "validation": {
+    "checks": [
+      { "type": "package", "name": "@aspec/api-keys", "range": "^1.0.0" },
+      { "type": "import", "specifier": "@aspec/api-keys" },
+      { "type": "env", "names": ["API_KEYS_PEPPER"] }
+    ],
+    "commands": [
+      {
+        "run": ["node", "-e", "import('@aspec/api-keys')"],
+        "description": "Imports the module entrypoint."
+      }
+    ],
+    "docs": "testing"
+  },
+  "uninstall": {
+    "steps": [
+      "Remove middleware and admin router registration.",
+      "Delete the generated setup file.",
+      "Drop api_keys_ tables if you used the SQL store."
+    ],
+    "dataRetention": "SQL tables are not dropped automatically.",
+    "docs": "uninstall"
+  },
+  "migrations": {
+    "docs": "migration",
+    "database": {
+      "dialects": ["postgres", "sqlite"],
+      "entrypoint": "@aspec/api-keys/sql",
+      "tables": ["api_keys_keys", "api_keys_service_accounts", "api_keys_schema_migrations"]
+    }
+  },
+  "docs": {
+    "sections": {
+      "summary": "docs/summary.md",
+      "install": "docs/install.md",
+      "configure": "docs/configure.md",
+      "integrate": "docs/integrate.md",
+      "frameworks/express": "docs/frameworks/express.md",
+      "frameworks/fastify": "docs/frameworks/fastify.md",
+      "frameworks/hono": "docs/frameworks/hono.md",
+      "frameworks/fetch": "docs/frameworks/fetch.md",
+      "api": "docs/api.md",
+      "examples": "docs/examples.md",
+      "testing": "docs/testing.md",
+      "migration": "docs/migration.md",
+      "troubleshooting": "docs/troubleshooting.md",
+      "security": "docs/security.md",
+      "uninstall": "docs/uninstall.md",
+      "ai": "docs/ai.md"
+    }
+  },
+  "security": {
+    "contact": "security@aspec.tech",
+    "policy": "https://github.com/ASPEC-RACING-PTY-LTD/aspecdev/security/policy",
+    "sensitiveData": ["secrets", "tokens"],
+    "notes": [
+      "Plaintext API keys are returned once at creation or rotation and never stored.",
+      "API_KEYS_PEPPER must be at least 32 bytes in production."
+    ],
+    "threatModel": "security"
+  },
+  "ai": {
+    "summary": "Use createApiKeys with a memory or SQL store; mount framework verification middleware; never log plaintext secrets.",
+    "useWhen": [
+      "You need machine-to-machine API credentials with scopes.",
+      "You need rotation, revocation and usage tracking for API keys."
+    ],
+    "avoidWhen": [
+      "End-user password authentication (use an auth module).",
+      "Short-lived OAuth access tokens (use an auth or OIDC module)."
+    ],
+    "keywords": ["api-key", "hmac", "scopes", "rotation", "service-account"],
+    "entrypoints": [
+      {
+        "name": "createApiKeys",
+        "import": "@aspec/api-keys",
+        "description": "Creates the API keys service."
+      },
+      {
+        "name": "createMemoryStore",
+        "import": "@aspec/api-keys/memory",
+        "description": "In-memory store."
+      },
+      {
+        "name": "createApiKeyMiddleware",
+        "import": "@aspec/api-keys/express",
+        "description": "Express verification middleware."
+      }
+    ]
+  }
+}

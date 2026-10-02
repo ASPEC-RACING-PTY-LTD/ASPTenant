@@ -1,0 +1,28 @@
+{
+  "name": "aspectenant",
+  "private": true,
+  "type": "module",
+  "description": "Open-source, self-hosted business tenant and control plane for identity, administration and organisation-owned mailboxes.",
+  "license": "MIT",
+  "packageManager": "pnpm@10.10.0",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @aspectenant/api dev",
+    "dev:web": "pnpm --filter @aspectenant/web dev",
+    "build": "pnpm -r --filter \"./packages/aspec/*\" build && pnpm --filter @aspectenant/api build && pnpm --filter @aspectenant/web build",
+    "build:modules": "pnpm -r --filter \"./packages/aspec/*\" build",
+    "typecheck": "pnpm -r --filter \"./packages/aspec/*\" typecheck && pnpm --filter @aspectenant/api typecheck && pnpm --filter @aspectenant/web typecheck",
+    "test": "pnpm --filter @aspectenant/api test && pnpm --filter @aspectenant/web test",
+    "test:modules": "pnpm -r --filter \"./packages/aspec/*\" test",
+    "lint": "biome check .",
+    "check": "pnpm typecheck && pnpm lint && pnpm test"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.14",
+    "@types/node": "22.20.4",
+    "typescript": "5.9.3",
+    "vitest": "3.2.4"
+  }
+}

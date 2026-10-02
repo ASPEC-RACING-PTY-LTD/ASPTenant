@@ -1,0 +1,15 @@
+import { afterEach } from 'vitest';
+import { cleanupAll, createTestClient, resetSequences, setSeed, type TestClient, type TestClientOptions } from '{{ imports.root }}';
+import type { FastifyInstance } from 'fastify';
+
+setSeed(process.env.ASPEC_TEST_SEED ?? 'aspec-testing');
+
+afterEach(async () => {
+  resetSequences();
+  await cleanupAll();
+});
+
+/** Creates a fluent API client that uses Fastify inject (no network). Call app.ready() first. */
+export function createAppClient(app: FastifyInstance, options?: TestClientOptions): TestClient {
+  return createTestClient(app, options);
+}

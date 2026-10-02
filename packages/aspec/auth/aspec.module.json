@@ -1,0 +1,522 @@
+{
+  "$schema": "https://aspec.tech/schemas/module-manifest/v1.json",
+  "manifestVersion": 1,
+  "id": "aspec/auth",
+  "name": "Authentication",
+  "summary": "Email and password authentication, sessions, refresh tokens, MFA, OIDC and WebAuthn.",
+  "description": "Reusable authentication for Node.js applications. Provides email and password sign-in with scrypt hashing, password reset, email verification, opaque sessions, JWT access tokens with rotating refresh tokens, login rate limiting, account lockout, security audit events, optional TOTP MFA, OAuth 2.0 and OpenID Connect, and WebAuthn passkeys. Stores are pluggable (memory and SQL). HTTP adapters cover Express, Fastify, Hono and the Fetch API.",
+  "version": "1.0.0",
+  "category": "security",
+  "tags": ["auth", "session", "oidc", "webauthn", "mfa", "jwt"],
+  "license": "MIT",
+  "maintainers": [
+    { "name": "ASPEC TECH", "email": "modules@aspec.tech", "url": "https://aspec.tech" }
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ASPEC-RACING-PTY-LTD/aspecdev",
+    "directory": "modules/auth"
+  },
+  "homepage": "https://aspec.tech/modules/aspec/auth",
+  "readme": "README.md",
+  "changelog": "CHANGELOG.md",
+  "languages": ["typescript", "javascript"],
+  "runtimes": [{ "name": "node", "range": ">=22.13.0" }],
+  "frameworks": [
+    {
+      "id": "express",
+      "name": "Express",
+      "range": "^4.18.0 || ^5.0.0",
+      "entrypoint": "@aspec/auth/express",
+      "kind": "backend",
+      "tested": true,
+      "testedVersions": ["4.22.3", "5.2.1"]
+    },
+    {
+      "id": "fastify",
+      "name": "Fastify",
+      "range": "^5.0.0",
+      "entrypoint": "@aspec/auth/fastify",
+      "kind": "backend",
+      "tested": true,
+      "testedVersions": ["5.12.5"]
+    },
+    {
+      "id": "hono",
+      "name": "Hono",
+      "range": "^4.0.0",
+      "entrypoint": "@aspec/auth/hono",
+      "kind": "backend",
+      "tested": true,
+      "testedVersions": ["4.13.10"]
+    },
+    {
+      "id": "fetch",
+      "name": "Fetch API",
+      "range": "*",
+      "entrypoint": "@aspec/auth/fetch",
+      "kind": "backend",
+      "tested": true,
+      "testedVersions": ["24.16.0"]
+    }
+  ],
+  "databases": [
+    { "id": "memory", "tested": true },
+    {
+      "id": "postgres",
+      "range": ">=14",
+      "entrypoint": "@aspec/auth/sql",
+      "tested": true,
+      "testedVersions": ["17"]
+    },
+    {
+      "id": "sqlite",
+      "range": ">=3.35",
+      "entrypoint": "@aspec/auth/sql",
+      "tested": true
+    }
+  ],
+  "services": [],
+  "platforms": {
+    "os": ["linux", "darwin", "windows"],
+    "arch": ["x64", "arm64"],
+    "tested": [{ "os": "windows", "arch": "x64", "runtime": "node@24.16.0" }]
+  },
+  "capabilities": [
+    {
+      "id": "password-auth",
+      "summary": "Email and password registration and login with scrypt hashing."
+    },
+    {
+      "id": "sessions",
+      "summary": "Opaque sessions with idle and absolute timeouts and revocation."
+    },
+    {
+      "id": "refresh-tokens",
+      "summary": "JWT access tokens and rotating refresh tokens with reuse detection."
+    },
+    { "id": "password-reset", "summary": "Single-use password reset without account enumeration." },
+    {
+      "id": "email-verification",
+      "summary": "Hashed email verification tokens with throttled resend."
+    },
+    { "id": "lockout", "summary": "Login rate limiting and exponential account lockout." },
+    {
+      "id": "mfa-totp",
+      "summary": "TOTP multifactor authentication with recovery codes.",
+      "optional": true
+    },
+    {
+      "id": "oidc",
+      "summary": "OAuth 2.0 and OpenID Connect with PKCE.",
+      "optional": true,
+      "entrypoint": "@aspec/auth/oidc"
+    },
+    {
+      "id": "webauthn",
+      "summary": "Passkey registration and authentication.",
+      "optional": true,
+      "entrypoint": "@aspec/auth/webauthn"
+    },
+    {
+      "id": "express-adapter",
+      "summary": "Express 4 and 5 router and requireAuth middleware.",
+      "optional": true,
+      "entrypoint": "@aspec/auth/express"
+    },
+    {
+      "id": "fastify-adapter",
+      "summary": "Fastify 5 plugin and requireAuth hook.",
+      "optional": true,
+      "entrypoint": "@aspec/auth/fastify"
+    },
+    {
+      "id": "hono-adapter",
+      "summary": "Hono 4 routes and requireAuth middleware.",
+      "optional": true,
+      "entrypoint": "@aspec/auth/hono"
+    },
+    {
+      "id": "fetch-adapter",
+      "summary": "Web Fetch API request handler.",
+      "optional": true,
+      "entrypoint": "@aspec/auth/fetch"
+    }
+  ],
+  "dependencies": {
+    "required": [],
+    "optional": [
+      {
+        "id": "aspec/audit",
+        "range": "^1.0.0",
+        "reason": "Records authentication security events when an AuditSink is provided."
+      },
+      {
+        "id": "aspec/notifications",
+        "range": "^1.0.0",
+        "reason": "Delivers password-reset, verification and lockout emails when a Mailer is provided."
+      },
+      {
+        "id": "aspec/rate-limit",
+        "range": "^1.0.0",
+        "reason": "Shared rate limiter for login throttling; a built-in memory limiter is used otherwise."
+      },
+      {
+        "id": "aspec/db",
+        "range": "^1.0.0",
+        "reason": "Convenient SqlClient adapters for the SQL auth store."
+      },
+      {
+        "id": "aspec/users",
+        "range": "^1.0.0",
+        "reason": "Share account ids with application user profiles."
+      }
+    ],
+    "peer": []
+  },
+  "compatibility": { "conflicts": [], "cli": ">=0.1.0" },
+  "packages": {
+    "npm": {
+      "name": "@aspec/auth",
+      "entrypoints": {
+        ".": "Portable authentication core",
+        "./memory": "In-memory AuthStore",
+        "./sql": "SQL AuthStore and migrations",
+        "./express": "Express 4 and 5 adapter",
+        "./fastify": "Fastify 5 adapter",
+        "./hono": "Hono 4 adapter",
+        "./fetch": "Fetch API handler",
+        "./oidc": "OAuth 2.0 and OpenID Connect",
+        "./webauthn": "WebAuthn passkeys",
+        "./hibp": "Have I Been Pwned password checker"
+      },
+      "dependencyType": "prod"
+    }
+  },
+  "install": {
+    "modes": ["package", "vendor"],
+    "defaultMode": "package",
+    "requirements": ["Node.js 22.13 or newer"],
+    "vendor": { "source": "src", "jsSource": "dist" }
+  },
+  "configuration": {
+    "schema": "config.schema.json",
+    "env": {
+      "required": [],
+      "optional": [
+        {
+          "name": "AUTH_SECRET",
+          "description": "HS256 signing secret (at least 32 bytes) when AUTH_JWT_PRIVATE_KEY is unset.",
+          "secret": true,
+          "example": "openssl-rand-base64-48-value-here-xxxxx"
+        },
+        {
+          "name": "AUTH_ENCRYPTION_KEY",
+          "description": "Base64 32-byte key for encrypting TOTP secrets.",
+          "secret": true
+        },
+        {
+          "name": "AUTH_JWT_PRIVATE_KEY",
+          "description": "PEM or JWK private key for EdDSA or ES256 access tokens.",
+          "secret": true
+        },
+        {
+          "name": "AUTH_ALLOWED_ORIGINS",
+          "description": "Comma-separated browser origins for CSRF checks.",
+          "example": "https://app.example.com"
+        },
+        {
+          "name": "AUTH_APP_URL",
+          "description": "Public application base URL.",
+          "example": "https://app.example.com"
+        },
+        {
+          "name": "AUTH_WEBAUTHN_RP_ID",
+          "description": "WebAuthn relying party ID.",
+          "example": "example.com"
+        },
+        {
+          "name": "AUTH_WEBAUTHN_ORIGIN",
+          "description": "Comma-separated WebAuthn origins.",
+          "example": "https://app.example.com"
+        }
+      ]
+    },
+    "explorer": {
+      "parameters": [
+        {
+          "id": "framework",
+          "label": "Framework",
+          "type": "select",
+          "default": "express",
+          "options": [
+            { "value": "express", "label": "Express" },
+            { "value": "fastify", "label": "Fastify" },
+            { "value": "hono", "label": "Hono" },
+            { "value": "fetch", "label": "Fetch API" },
+            { "value": "none", "label": "Core only" }
+          ]
+        },
+        {
+          "id": "storage",
+          "label": "Storage",
+          "type": "select",
+          "default": "memory",
+          "options": [
+            { "value": "memory", "label": "In memory" },
+            { "value": "postgres", "label": "PostgreSQL" },
+            { "value": "sqlite", "label": "SQLite" }
+          ]
+        },
+        { "id": "hibp", "label": "HIBP password check", "type": "boolean", "default": false }
+      ],
+      "outputs": [
+        {
+          "id": "setup",
+          "label": "auth.setup.ts",
+          "language": "typescript",
+          "filename": "src/aspec/auth.setup.ts",
+          "template": "templates/explorer/setup.ts.tmpl"
+        },
+        {
+          "id": "env",
+          "label": ".env",
+          "language": "dotenv",
+          "template": "templates/explorer/env.tmpl"
+        }
+      ]
+    }
+  },
+  "integration": {
+    "targets": [
+      {
+        "id": "express-typescript",
+        "label": "Express (TypeScript)",
+        "language": "typescript",
+        "framework": "express",
+        "automated": true,
+        "docs": "frameworks/express",
+        "files": [
+          {
+            "template": "templates/setup.ts.tmpl",
+            "path": "{{ srcDir }}/aspec/auth.setup.ts",
+            "description": "Creates the auth service and Express router."
+          }
+        ],
+        "packages": [{ "name": "express", "range": "^4.18.0 || ^5.0.0" }],
+        "env": ["AUTH_ALLOWED_ORIGINS"],
+        "steps": [
+          "Import authRouter from the generated file.",
+          "Mount it with app.use(authRouter).",
+          "Protect routes with authRouter.requireAuth()."
+        ]
+      },
+      {
+        "id": "fastify-typescript",
+        "label": "Fastify (TypeScript)",
+        "language": "typescript",
+        "framework": "fastify",
+        "automated": true,
+        "docs": "frameworks/fastify",
+        "files": [
+          {
+            "template": "templates/setup.ts.tmpl",
+            "path": "{{ srcDir }}/aspec/auth.setup.ts",
+            "description": "Creates the auth service and Fastify plugin."
+          }
+        ],
+        "packages": [{ "name": "fastify", "range": "^5.0.0" }],
+        "env": ["AUTH_ALLOWED_ORIGINS"],
+        "steps": ["Register authPlugin with await app.register(authPlugin)."]
+      },
+      {
+        "id": "hono-typescript",
+        "label": "Hono (TypeScript)",
+        "language": "typescript",
+        "framework": "hono",
+        "automated": true,
+        "docs": "frameworks/hono",
+        "files": [
+          {
+            "template": "templates/setup.ts.tmpl",
+            "path": "{{ srcDir }}/aspec/auth.setup.ts",
+            "description": "Creates the auth service and Hono routes."
+          }
+        ],
+        "packages": [{ "name": "hono", "range": "^4.0.0" }],
+        "env": ["AUTH_ALLOWED_ORIGINS"],
+        "steps": ["Mount with app.route('/', authRoutes.app)."]
+      },
+      {
+        "id": "fetch-typescript",
+        "label": "Fetch handler (TypeScript)",
+        "language": "typescript",
+        "framework": "fetch",
+        "automated": true,
+        "docs": "frameworks/fetch",
+        "files": [
+          {
+            "template": "templates/setup.ts.tmpl",
+            "path": "{{ srcDir }}/aspec/auth.setup.ts",
+            "description": "Creates the auth service and Fetch handler."
+          }
+        ],
+        "packages": [],
+        "env": ["AUTH_ALLOWED_ORIGINS"],
+        "steps": ["Export authHandler from a route module that accepts Request objects."]
+      },
+      {
+        "id": "generic-typescript",
+        "label": "Any TypeScript project",
+        "language": "typescript",
+        "automated": true,
+        "docs": "integrate",
+        "files": [
+          {
+            "template": "templates/setup.ts.tmpl",
+            "path": "{{ srcDir }}/aspec/auth.setup.ts",
+            "description": "Creates the auth service (core only when no framework is selected)."
+          }
+        ],
+        "steps": [
+          "Import auth from the generated file and call register/login in your application code."
+        ]
+      },
+      {
+        "id": "generic-javascript",
+        "label": "Any JavaScript project",
+        "language": "javascript",
+        "automated": true,
+        "docs": "integrate",
+        "files": [
+          {
+            "template": "templates/setup.js.tmpl",
+            "path": "{{ srcDir }}/aspec/auth.setup.js",
+            "description": "Creates the auth service for JavaScript projects."
+          }
+        ],
+        "steps": [
+          "Import auth from the generated file and call register/login in your application code."
+        ]
+      }
+    ]
+  },
+  "validation": {
+    "checks": [
+      { "type": "package", "name": "@aspec/auth", "range": "^1.0.0" },
+      { "type": "import", "specifier": "@aspec/auth" },
+      { "type": "env", "names": ["AUTH_SECRET"] }
+    ],
+    "commands": [
+      {
+        "run": ["node", "-e", "import('@aspec/auth')"],
+        "description": "Imports the module entrypoint."
+      }
+    ],
+    "docs": "testing"
+  },
+  "uninstall": {
+    "steps": [
+      "Remove auth router, plugin or fetch handler registrations.",
+      "Remove AUTH_* environment variables.",
+      "Drop auth_* tables if the SQL store was used and data may be deleted."
+    ],
+    "dataRetention": "SQL tables and in-memory data are not removed automatically.",
+    "docs": "uninstall"
+  },
+  "migrations": {
+    "docs": "migration",
+    "database": {
+      "dialects": ["postgres", "sqlite"],
+      "entrypoint": "@aspec/auth/sql",
+      "tables": [
+        "auth_accounts",
+        "auth_sessions",
+        "auth_refresh_tokens",
+        "auth_one_time_tokens",
+        "auth_recovery_codes",
+        "auth_identities",
+        "auth_webauthn_credentials",
+        "auth_schema_migrations"
+      ]
+    }
+  },
+  "docs": {
+    "sections": {
+      "summary": "docs/summary.md",
+      "install": "docs/install.md",
+      "configure": "docs/configure.md",
+      "integrate": "docs/integrate.md",
+      "frameworks/express": "docs/frameworks/express.md",
+      "frameworks/fastify": "docs/frameworks/fastify.md",
+      "frameworks/hono": "docs/frameworks/hono.md",
+      "frameworks/fetch": "docs/frameworks/fetch.md",
+      "api": "docs/api.md",
+      "examples": "docs/examples.md",
+      "testing": "docs/testing.md",
+      "migration": "docs/migration.md",
+      "troubleshooting": "docs/troubleshooting.md",
+      "security": "docs/security.md",
+      "uninstall": "docs/uninstall.md",
+      "ai": "docs/ai.md"
+    }
+  },
+  "security": {
+    "contact": "security@aspec.tech",
+    "policy": "https://github.com/ASPEC-RACING-PTY-LTD/aspecdev/security/policy",
+    "sensitiveData": ["credentials", "secrets", "tokens", "pii"],
+    "notes": [
+      "Passwords and opaque tokens are stored hashed.",
+      "TOTP secrets are encrypted with AUTH_ENCRYPTION_KEY.",
+      "Audit events never include secrets."
+    ],
+    "threatModel": "security"
+  },
+  "ai": {
+    "summary": "Use createAuth with a memory or SQL store; mount Express/Fastify/Hono/Fetch adapters for HTTP; add OIDC and WebAuthn via subpaths.",
+    "useWhen": [
+      "You need first-party authentication with sessions or JWT access tokens.",
+      "You want optional MFA, OIDC or passkeys without locking to one database."
+    ],
+    "avoidWhen": [
+      "A single external IdP must own every login and local credentials are forbidden.",
+      "You only need API keys."
+    ],
+    "keywords": ["auth", "login", "session", "jwt", "oidc", "webauthn", "mfa", "totp"],
+    "entrypoints": [
+      {
+        "name": "createAuth",
+        "import": "@aspec/auth",
+        "description": "Creates the authentication service."
+      },
+      {
+        "name": "createMemoryAuthStore",
+        "import": "@aspec/auth/memory",
+        "description": "In-memory store."
+      },
+      {
+        "name": "createSqlAuthStore",
+        "import": "@aspec/auth/sql",
+        "description": "SQL store and migrations."
+      },
+      {
+        "name": "createAuthRouter",
+        "import": "@aspec/auth/express",
+        "description": "Express adapter."
+      },
+      {
+        "name": "createAuthPlugin",
+        "import": "@aspec/auth/fastify",
+        "description": "Fastify adapter."
+      },
+      { "name": "createAuthRoutes", "import": "@aspec/auth/hono", "description": "Hono adapter." },
+      {
+        "name": "createAuthFetchHandler",
+        "import": "@aspec/auth/fetch",
+        "description": "Fetch API handler."
+      },
+      { "name": "createOidc", "import": "@aspec/auth/oidc", "description": "OAuth 2.0 / OIDC." },
+      { "name": "createWebAuthn", "import": "@aspec/auth/webauthn", "description": "Passkeys." }
+    ]
+  }
+}

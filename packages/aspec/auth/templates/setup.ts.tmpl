@@ -1,0 +1,82 @@
+{{#if moduleSystem == "commonjs"}}
+const { createAuth, readAuthEnv, signingFromEnv } = require('{{ imports.root }}');
+const { createMemoryAuthStore } = require('{{ imports.memory }}');
+{{#if framework == "express"}}
+const { createAuthRouter } = require('{{ imports.express }}');
+{{/if}}
+{{#if framework == "fastify"}}
+const { createAuthPlugin } = require('{{ imports.fastify }}');
+{{/if}}
+{{#if framework == "hono"}}
+const { createAuthRoutes } = require('{{ imports.hono }}');
+{{/if}}
+{{#if framework == "fetch"}}
+const { createAuthFetchHandler } = require('{{ imports.fetch }}');
+{{/if}}
+{{else}}
+import { createAuth, readAuthEnv, signingFromEnv } from '{{ imports.root }}';
+import { createMemoryAuthStore } from '{{ imports.memory }}';
+{{#if framework == "express"}}
+import { createAuthRouter } from '{{ imports.express }}';
+{{/if}}
+{{#if framework == "fastify"}}
+import { createAuthPlugin } from '{{ imports.fastify }}';
+{{/if}}
+{{#if framework == "hono"}}
+import { createAuthRoutes } from '{{ imports.hono }}';
+{{/if}}
+{{#if framework == "fetch"}}
+import { createAuthFetchHandler } from '{{ imports.fetch }}';
+{{/if}}
+{{/if}}
+
+const env = readAuthEnv(process.env);
+const store = createMemoryAuthStore();
+
+export const auth = createAuth({
+  store,
+  appName: process.env.AUTH_APP_NAME ?? 'Application',
+  ...(env.secret || env.jwtPrivateKey
+    ? {
+        tokens: {
+          signing: signingFromEnv(env),
+          issuer: env.appUrl ?? 'http://localhost:3000',
+          audience: env.appUrl ?? 'http://localhost:3000',
+        },
+      }
+    : {}),
+  ...(env.encryptionKey ? { mfa: { encryptionKey: env.encryptionKey } } : {}),
+  ...(env.appUrl
+    ? {
+        links: {
+          passwordReset: `${env.appUrl}/reset-password`,
+          emailVerification: `${env.appUrl}/verify-email`,
+        },
+      }
+    : {}),
+});
+
+{{#if framework == "express"}}
+export const authRouter = createAuthRouter(auth, {
+  basePath: '/auth',
+  allowedOrigins: env.allowedOrigins,
+});
+{{/if}}
+{{#if framework == "fastify"}}
+export const authPlugin = createAuthPlugin(auth, {
+  basePath: '/auth',
+  allowedOrigins: env.allowedOrigins,
+});
+{{/if}}
+{{#if framework == "hono"}}
+export const authRoutes = createAuthRoutes(auth, {
+  basePath: '/auth',
+  allowedOrigins: env.allowedOrigins,
+});
+{{/if}}
+{{#if framework == "fetch"}}
+export const authHandler = createAuthFetchHandler(auth, {
+  basePath: '/auth',
+  allowedOrigins: env.allowedOrigins,
+});
+{{/if}}

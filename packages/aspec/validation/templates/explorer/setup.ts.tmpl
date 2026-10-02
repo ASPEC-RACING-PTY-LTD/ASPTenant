@@ -1,0 +1,22 @@
+{{#if framework == "express"}}
+import { validateRequest } from '{{ imports.express }}';
+export const validateBody = (schema) => validateRequest({ body: schema }, { status: {{ status }} });
+{{else}}
+{{#if framework == "fastify"}}
+import { validateRequest } from '{{ imports.fastify }}';
+export const validateBody = (schema) => validateRequest({ body: schema }, { status: {{ status }} });
+{{else}}
+{{#if framework == "hono"}}
+import { validateRequest } from '{{ imports.hono }}';
+export const validateBody = (schema) => validateRequest({ body: schema }, { status: {{ status }} });
+{{else}}
+{{#if framework == "fetch"}}
+import { withValidation } from '{{ imports.fetch }}';
+export const withBodyValidation = (schema, handler) => withValidation({ body: schema }, handler, { status: {{ status }} });
+{{else}}
+import { validate, parse } from '{{ imports.root }}';
+export { validate, parse };
+{{/if}}
+{{/if}}
+{{/if}}
+{{/if}}

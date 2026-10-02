@@ -1,0 +1,14 @@
+import { afterEach } from 'vitest';
+import { cleanupAll, createTestClient, resetSequences, setSeed, type FetchHandler, type TestClient, type TestClientOptions } from '{{ imports.root }}';
+
+setSeed(process.env.ASPEC_TEST_SEED ?? 'aspec-testing');
+
+afterEach(async () => {
+  resetSequences();
+  await cleanupAll();
+});
+
+/** Creates a fluent API client for a Web Fetch API handler. */
+export function createAppClient(handler: FetchHandler, options?: TestClientOptions): TestClient {
+  return createTestClient(handler, options);
+}

@@ -1,0 +1,26 @@
+import { createRbac, defineRbac, subjectFromUser } from '{{ imports.root }}';
+import { createMemoryStore } from '{{ imports.memory }}';
+import { createRbacAdminApp, createRbacMiddleware } from '{{ imports.hono }}';
+
+const definition = defineRbac({
+  permissions: ['posts:read', 'posts:write', 'posts:delete'],
+  roles: [
+    { key: 'viewer', permissions: ['posts:read'] },
+    { key: 'editor', permissions: ['posts:write'], parents: ['viewer'] },
+    { key: 'admin', permissions: ['posts:delete', 'rbac:admin'], parents: ['editor'] },
+  ],
+});
+
+export const rbac = createRbac({
+  store: createMemoryStore(),
+  definition,
+});
+
+export const rbacMiddleware = createRbacMiddleware(rbac);
+
+export function getSubject(c: { get: (key: string) => unknown }): ReturnType<typeof subjectFromUser> | null {
+  const user = c.get('user');
+  return user ? subjectFromUser(user) : null;
+}
+
+export const rbacAdminApp = createRbacAdminApp(rbac, { getSubject });

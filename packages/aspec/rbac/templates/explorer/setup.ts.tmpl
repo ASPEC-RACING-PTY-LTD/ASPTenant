@@ -1,0 +1,76 @@
+import { createRbac, defineRbac, subjectFromUser } from '@aspec/rbac';
+{{#if storage == "memory"}}
+import { createMemoryStore } from '@aspec/rbac/memory';
+{{/if}}
+{{#unless storage == "memory"}}
+import { createSqlStore, migrate } from '@aspec/rbac/sql';
+{{/unless}}
+{{#if framework == "express"}}
+import { createRbacAdminRouter, createRbacMiddleware } from '@aspec/rbac/express';
+{{/if}}
+{{#if framework == "fastify"}}
+import { createRbacAdminPlugin, createRbacHooks } from '@aspec/rbac/fastify';
+{{/if}}
+{{#if framework == "hono"}}
+import { createRbacAdminApp, createRbacMiddleware } from '@aspec/rbac/hono';
+{{/if}}
+{{#if framework == "fetch"}}
+import { createRbacAdminFetchHandler, createRbacFetchGuards } from '@aspec/rbac/fetch';
+{{/if}}
+
+const definition = defineRbac({
+  permissions: ['posts:read', 'posts:write', 'posts:delete'],
+  roles: [
+    { key: 'viewer', permissions: ['posts:read']{{#if multiTenant}}, assignableScopes: ['global', 'org', 'team']{{/if}} },
+    { key: 'editor', permissions: ['posts:write'], parents: ['viewer']{{#if multiTenant}}, assignableScopes: ['global', 'org', 'team']{{/if}} },
+    { key: 'admin', permissions: ['posts:delete', 'rbac:admin'], parents: ['editor']{{#if multiTenant}}, assignableScopes: ['global', 'org', 'team']{{/if}} },
+  ],
+});
+
+{{#if storage == "memory"}}
+const store = createMemoryStore();
+{{else}}
+// Provide a SqlClient (from @aspec/db or a short pg / sqlite adapter). Call migrate once at startup.
+declare const sqlClient: import('@aspec/rbac/sql').SqlClient;
+await migrate(sqlClient, { tablePrefix: process.env.RBAC_TABLE_PREFIX ?? 'rbac_' });
+const store = createSqlStore(sqlClient, { tablePrefix: process.env.RBAC_TABLE_PREFIX ?? 'rbac_' });
+{{/if}}
+
+export const rbac = createRbac({
+  store,
+  definition,
+{{#if multiTenant}}
+  orgRolesApplyToTeams: true,
+{{/if}}
+{{#if audit}}
+  // audit: your AuditSink implementing { record(event) },
+{{/if}}
+{{#if cache}}
+  // cache: your CacheLike implementing { get, set, delete },
+{{/if}}
+});
+
+export function getSubject(req: object) {
+  const user = (req as { user?: unknown }).user;
+  return user ? subjectFromUser(user) : null;
+}
+
+{{#if framework == "express"}}
+export const rbacMiddleware = createRbacMiddleware(rbac);
+export const rbacAdminRouter = createRbacAdminRouter(rbac, { getSubject });
+{{/if}}
+{{#if framework == "fastify"}}
+export const rbacHooks = createRbacHooks(rbac);
+export const rbacAdminPlugin = createRbacAdminPlugin(rbac, { getSubject });
+{{/if}}
+{{#if framework == "hono"}}
+export const rbacMiddleware = createRbacMiddleware(rbac);
+export const rbacAdminApp = createRbacAdminApp(rbac, { getSubject });
+{{/if}}
+{{#if framework == "fetch"}}
+export const rbacGuards = createRbacFetchGuards(rbac);
+export const rbacAdminHandler = createRbacAdminFetchHandler(rbac, {
+  getSubject,
+  basePath: '/admin/rbac',
+});
+{{/if}}

@@ -1,0 +1,312 @@
+{
+  "$schema": "https://aspec.tech/schemas/module-manifest/v1.json",
+  "manifestVersion": 1,
+  "id": "aspec/db",
+  "name": "Database utilities",
+  "summary": "PostgreSQL and SQLite clients, pooling, migrations, transactions, health, seeding and query instrumentation.",
+  "description": "Reusable database development utilities for Node.js. Provides the SqlClient port used across ASPEC modules, with PostgreSQL (pg) and SQLite (better-sqlite3 or node:sqlite) drivers, connection pooling, file and programmatic migrations with checksums and locking, transactional helpers with retries, health checks, idempotent seeding, query instrumentation and configuration validation that never leaks passwords.",
+  "version": "1.0.1",
+  "category": "data",
+  "tags": ["database", "postgresql", "sqlite", "migrations", "sql", "pooling"],
+  "license": "MIT",
+  "maintainers": [
+    { "name": "ASPEC TECH", "email": "modules@aspec.tech", "url": "https://aspec.tech" }
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ASPEC-RACING-PTY-LTD/aspecdev",
+    "directory": "modules/db"
+  },
+  "homepage": "https://aspec.tech/modules/aspec/db",
+  "readme": "README.md",
+  "changelog": "CHANGELOG.md",
+  "languages": ["typescript", "javascript"],
+  "runtimes": [{ "name": "node", "range": ">=22.13.0" }],
+  "databases": [
+    {
+      "id": "postgres",
+      "range": ">=14",
+      "entrypoint": "@aspec/db/postgres",
+      "tested": true,
+      "testedVersions": ["17.11"]
+    },
+    {
+      "id": "sqlite",
+      "range": ">=3.35",
+      "entrypoint": "@aspec/db/sqlite",
+      "tested": true,
+      "testedVersions": ["13.0.3"]
+    }
+  ],
+  "platforms": {
+    "os": ["linux", "darwin", "windows"],
+    "arch": ["x64", "arm64"],
+    "tested": [{ "os": "windows", "arch": "x64", "runtime": "node@24.16.0" }]
+  },
+  "capabilities": [
+    { "id": "sql-client", "summary": "SqlClient port with $1 placeholders on every dialect." },
+    { "id": "pooling", "summary": "PostgreSQL connection pooling with timeouts and SSL modes." },
+    {
+      "id": "migrations",
+      "summary": "File and programmatic migrations with checksums and locking."
+    },
+    {
+      "id": "transactions",
+      "summary": "Nested transactions, isolation options and retry helpers."
+    },
+    { "id": "health", "summary": "SELECT 1 health checks with latency and pool stats." },
+    { "id": "seeding", "summary": "Idempotent seeds with a production guard." },
+    {
+      "id": "instrumentation",
+      "summary": "onQuery hooks, slow query logging and optional OpenTelemetry spans."
+    },
+    { "id": "cli", "summary": "aspec-db CLI for migrate, status, rollback, create and seed." }
+  ],
+  "dependencies": {
+    "required": [],
+    "optional": [
+      {
+        "id": "aspec/observability",
+        "range": "^1.0.0",
+        "reason": "HealthCheckable results and LoggerLike are compatible with the observability module."
+      }
+    ],
+    "peer": []
+  },
+  "compatibility": { "conflicts": [], "cli": ">=0.1.0" },
+  "packages": {
+    "npm": {
+      "name": "@aspec/db",
+      "entrypoints": {
+        ".": "Portable core: createDatabase, migrations, seeding, transactions, health",
+        "./postgres": "PostgreSQL driver (pg) and fromPgPool",
+        "./sqlite": "SQLite driver (better-sqlite3)",
+        "./node-sqlite": "SQLite driver (node:sqlite)",
+        "./otel": "Optional OpenTelemetry tracer loader"
+      },
+      "dependencyType": "prod"
+    }
+  },
+  "install": {
+    "modes": ["package", "vendor"],
+    "defaultMode": "package",
+    "requirements": [
+      "Node.js 22.13 or newer",
+      "pg for PostgreSQL or better-sqlite3 / node:sqlite for SQLite"
+    ],
+    "vendor": { "source": "src", "jsSource": "dist" }
+  },
+  "configuration": {
+    "schema": "config.schema.json",
+    "env": {
+      "required": [
+        {
+          "name": "DATABASE_URL",
+          "description": "PostgreSQL or SQLite connection URL (or file path for SQLite).",
+          "example": "postgres://app:secret@localhost:5432/app"
+        }
+      ],
+      "optional": [
+        {
+          "name": "DATABASE_POOL_MAX",
+          "description": "PostgreSQL pool size (mapped in generated setup when used)."
+        }
+      ]
+    },
+    "explorer": {
+      "parameters": [
+        {
+          "id": "dialect",
+          "label": "Database",
+          "type": "select",
+          "default": "postgres",
+          "options": [
+            { "value": "postgres", "label": "PostgreSQL" },
+            { "value": "sqlite", "label": "SQLite" }
+          ]
+        },
+        {
+          "id": "sqliteDriver",
+          "label": "SQLite driver",
+          "type": "select",
+          "default": "better-sqlite3",
+          "options": [
+            { "value": "better-sqlite3", "label": "better-sqlite3" },
+            { "value": "node:sqlite", "label": "node:sqlite" }
+          ],
+          "when": { "param": "dialect", "equals": "sqlite" }
+        },
+        {
+          "id": "lazy",
+          "label": "Lazy connect",
+          "type": "boolean",
+          "default": false
+        },
+        {
+          "id": "migrationsDir",
+          "label": "Migrations directory",
+          "type": "string",
+          "default": "migrations"
+        }
+      ],
+      "outputs": [
+        {
+          "id": "setup",
+          "label": "db.setup.ts",
+          "language": "typescript",
+          "filename": "src/aspec/db.setup.ts",
+          "template": "templates/explorer/setup.ts.tmpl"
+        },
+        {
+          "id": "env",
+          "label": ".env",
+          "language": "dotenv",
+          "template": "templates/explorer/env.tmpl"
+        }
+      ]
+    }
+  },
+  "integration": {
+    "targets": [
+      {
+        "id": "generic-typescript",
+        "label": "Any TypeScript project",
+        "language": "typescript",
+        "automated": true,
+        "docs": "integrate",
+        "files": [
+          {
+            "template": "templates/generic/setup.ts.tmpl",
+            "path": "{{ srcDir }}/aspec/db.setup.ts",
+            "description": "Creates the database client and a migrator from DATABASE_URL."
+          }
+        ],
+        "packages": [{ "name": "pg", "range": "^8.11.0" }],
+        "env": ["DATABASE_URL"],
+        "steps": [
+          "Import { db, migrator } from the generated setup file.",
+          "Call await migrator.up() during application startup (or use the aspec-db CLI).",
+          "Pass db (SqlClient) into other ASPEC modules that need SQL storage."
+        ]
+      },
+      {
+        "id": "generic-javascript",
+        "label": "Any JavaScript project",
+        "language": "javascript",
+        "automated": true,
+        "docs": "integrate",
+        "files": [
+          {
+            "template": "templates/generic/setup.js.tmpl",
+            "path": "{{ srcDir }}/aspec/db.setup.js",
+            "description": "Creates the database client and a migrator from DATABASE_URL."
+          }
+        ],
+        "packages": [{ "name": "pg", "range": "^8.11.0" }],
+        "env": ["DATABASE_URL"],
+        "steps": [
+          "Import { db, migrator } from the generated setup file.",
+          "Call await migrator.up() during application startup (or use the aspec-db CLI).",
+          "Pass db into other ASPEC modules that need SQL storage."
+        ]
+      }
+    ]
+  },
+  "validation": {
+    "checks": [
+      { "type": "package", "name": "@aspec/db", "range": "^1.0.0" },
+      { "type": "import", "specifier": "@aspec/db" },
+      { "type": "env", "names": ["DATABASE_URL"] }
+    ],
+    "commands": [
+      {
+        "run": ["node", "-e", "import('@aspec/db')"],
+        "description": "Imports the module entrypoint."
+      }
+    ],
+    "docs": "testing"
+  },
+  "uninstall": {
+    "steps": [
+      "Remove generated setup imports from application startup.",
+      "Stop using the aspec-db CLI in scripts.",
+      "Optionally drop <prefix>schema_migrations and <prefix>seeds tables if you no longer need migration history."
+    ],
+    "dataRetention": "Application tables and migration tracking tables are not dropped automatically.",
+    "docs": "uninstall"
+  },
+  "migrations": {
+    "docs": "migration",
+    "database": {
+      "dialects": ["postgres", "sqlite"],
+      "entrypoint": "@aspec/db",
+      "tables": ["db_schema_migrations", "db_seeds"]
+    }
+  },
+  "docs": {
+    "sections": {
+      "summary": "docs/summary.md",
+      "install": "docs/install.md",
+      "configure": "docs/configure.md",
+      "integrate": "docs/integrate.md",
+      "api": "docs/api.md",
+      "examples": "docs/examples.md",
+      "testing": "docs/testing.md",
+      "migration": "docs/migration.md",
+      "troubleshooting": "docs/troubleshooting.md",
+      "security": "docs/security.md",
+      "uninstall": "docs/uninstall.md",
+      "ai": "docs/ai.md"
+    }
+  },
+  "security": {
+    "contact": "security@aspec.tech",
+    "policy": "https://github.com/ASPEC-RACING-PTY-LTD/aspecdev/security/policy",
+    "sensitiveData": ["credentials", "secrets"],
+    "notes": [
+      "Passwords are redacted from configuration errors, logs and CLI output.",
+      "Query parameters are redacted from instrumentation events unless logParameters is enabled.",
+      "Use verify-full SSL with a CA in production PostgreSQL deployments."
+    ],
+    "threatModel": "security"
+  },
+  "ai": {
+    "summary": "Use createDatabase({ url }) or createPostgresClient / createSqliteClient for SqlClient. Run migrations with createMigrator or aspec-db CLI.",
+    "useWhen": [
+      "You need a SqlClient for other ASPEC modules.",
+      "You need migrations, seeding, pooling or transaction retries for PostgreSQL or SQLite."
+    ],
+    "avoidWhen": [
+      "You need a full ORM with schema modeling.",
+      "You need MySQL or another dialect (adapter boundary exists but is not implemented yet)."
+    ],
+    "keywords": ["sql", "postgres", "sqlite", "migrations", "pool", "transaction"],
+    "entrypoints": [
+      {
+        "name": "createDatabase",
+        "import": "@aspec/db",
+        "description": "Creates a Database client from a URL or config."
+      },
+      {
+        "name": "createMigrator",
+        "import": "@aspec/db",
+        "description": "Applies and rolls back migrations."
+      },
+      {
+        "name": "createPostgresClient",
+        "import": "@aspec/db/postgres",
+        "description": "PostgreSQL pool client."
+      },
+      {
+        "name": "createSqliteClient",
+        "import": "@aspec/db/sqlite",
+        "description": "better-sqlite3 client."
+      },
+      {
+        "name": "aspec-db",
+        "import": "@aspec/db",
+        "description": "CLI for migrate, status, rollback, create and seed."
+      }
+    ]
+  }
+}

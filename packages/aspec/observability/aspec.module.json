@@ -1,0 +1,351 @@
+{
+  "$schema": "https://aspec.tech/schemas/module-manifest/v1.json",
+  "manifestVersion": 1,
+  "id": "aspec/observability",
+  "name": "Observability",
+  "summary": "Structured logging, metrics, health checks, HTTP instrumentation and OpenTelemetry tracing.",
+  "description": "Zero-dependency core for JSON logging with redaction, request correlation, Prometheus metrics, liveness/readiness/health endpoints, error and performance instrumentation, framework HTTP adapters and optional OpenTelemetry integration. Applications do not need a full monitoring stack to use structured logs.",
+  "version": "1.0.0",
+  "category": "infrastructure",
+  "tags": ["logging", "metrics", "tracing", "health", "opentelemetry", "prometheus"],
+  "license": "MIT",
+  "maintainers": [
+    { "name": "ASPEC TECH", "email": "modules@aspec.tech", "url": "https://aspec.tech" }
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ASPEC-RACING-PTY-LTD/aspecdev",
+    "directory": "modules/observability"
+  },
+  "homepage": "https://aspec.tech/modules/aspec/observability",
+  "readme": "README.md",
+  "changelog": "CHANGELOG.md",
+  "languages": ["typescript", "javascript"],
+  "runtimes": [{ "name": "node", "range": ">=22.13.0" }],
+  "frameworks": [
+    {
+      "id": "express",
+      "name": "Express",
+      "range": "^4.18.0 || ^5.0.0",
+      "entrypoint": "@aspec/observability/express",
+      "kind": "backend",
+      "tested": true,
+      "testedVersions": ["4.22.3", "5.2.1"]
+    },
+    {
+      "id": "fastify",
+      "name": "Fastify",
+      "range": "^5.0.0",
+      "entrypoint": "@aspec/observability/fastify",
+      "kind": "backend",
+      "tested": true,
+      "testedVersions": ["5.12.5"]
+    },
+    {
+      "id": "hono",
+      "name": "Hono",
+      "range": "^4.0.0",
+      "entrypoint": "@aspec/observability/hono",
+      "kind": "backend",
+      "tested": true,
+      "testedVersions": ["4.13.10"]
+    },
+    {
+      "id": "fetch",
+      "name": "Fetch API",
+      "range": "*",
+      "entrypoint": "@aspec/observability/fetch",
+      "kind": "backend",
+      "tested": true,
+      "testedVersions": ["24.16.0"]
+    }
+  ],
+  "databases": [],
+  "services": [],
+  "platforms": {
+    "os": ["linux", "darwin", "windows"],
+    "arch": ["x64", "arm64"],
+    "tested": [{ "os": "windows", "arch": "x64", "runtime": "node@24.16.0" }]
+  },
+  "capabilities": [
+    { "id": "logging", "summary": "Structured JSON logging with redaction and request context." },
+    {
+      "id": "metrics",
+      "summary": "Counters, gauges and histograms with Prometheus text exposition."
+    },
+    { "id": "health", "summary": "Liveness, readiness and health checks with draining." },
+    {
+      "id": "http-instrumentation",
+      "summary": "HTTP metrics, correlation IDs and access logs for supported frameworks."
+    },
+    {
+      "id": "otel",
+      "summary": "OpenTelemetry spans and log correlation.",
+      "optional": true,
+      "entrypoint": "@aspec/observability/otel"
+    }
+  ],
+  "dependencies": {
+    "required": [],
+    "optional": [],
+    "peer": []
+  },
+  "compatibility": { "conflicts": [], "cli": ">=0.1.0" },
+  "packages": {
+    "npm": {
+      "name": "@aspec/observability",
+      "entrypoints": {
+        ".": "Logger, metrics, health, correlation and instrumentation",
+        "./express": "Express middleware",
+        "./fastify": "Fastify plugin",
+        "./hono": "Hono middleware",
+        "./fetch": "Fetch handler wrapper",
+        "./otel": "OpenTelemetry tracing helpers"
+      },
+      "dependencyType": "prod"
+    }
+  },
+  "install": {
+    "modes": ["package", "vendor"],
+    "defaultMode": "package",
+    "requirements": ["Node.js 22.13 or newer"],
+    "vendor": { "source": "src", "jsSource": "dist" }
+  },
+  "configuration": {
+    "schema": "config.schema.json",
+    "env": {
+      "required": [],
+      "optional": [
+        { "name": "LOG_LEVEL", "description": "Minimum log level.", "example": "info" },
+        {
+          "name": "OTEL_SERVICE_NAME",
+          "description": "Service name when using OpenTelemetry (configured by the app SDK)."
+        }
+      ]
+    },
+    "explorer": {
+      "parameters": [
+        {
+          "id": "framework",
+          "label": "Framework",
+          "type": "select",
+          "default": "express",
+          "options": [
+            { "value": "express", "label": "Express" },
+            { "value": "fastify", "label": "Fastify" },
+            { "value": "hono", "label": "Hono" },
+            { "value": "fetch", "label": "Fetch" },
+            { "value": "none", "label": "Core only" }
+          ]
+        },
+        { "id": "pretty", "label": "Pretty logs", "type": "boolean", "default": false },
+        { "id": "processMetrics", "label": "Process metrics", "type": "boolean", "default": true }
+      ],
+      "outputs": [
+        {
+          "id": "setup",
+          "label": "observability.setup.ts",
+          "language": "typescript",
+          "filename": "src/aspec/observability.setup.ts",
+          "template": "templates/explorer/setup.ts.tmpl"
+        },
+        {
+          "id": "env",
+          "label": ".env",
+          "language": "dotenv",
+          "template": "templates/explorer/env.tmpl"
+        }
+      ]
+    }
+  },
+  "integration": {
+    "targets": [
+      {
+        "id": "express-typescript",
+        "label": "Express (TypeScript)",
+        "language": "typescript",
+        "framework": "express",
+        "automated": true,
+        "docs": "frameworks/express",
+        "files": [
+          {
+            "template": "templates/express/setup.ts.tmpl",
+            "path": "{{ srcDir }}/aspec/observability.setup.ts",
+            "description": "Creates logger, metrics, health and Express middleware."
+          }
+        ],
+        "packages": [{ "name": "express", "range": "^4.18.0 || ^5.0.0" }],
+        "steps": [
+          "Mount httpInstrumentation early and observabilityEndpoints for /livez, /readyz, /healthz and /metrics."
+        ]
+      },
+      {
+        "id": "fastify-typescript",
+        "label": "Fastify (TypeScript)",
+        "language": "typescript",
+        "framework": "fastify",
+        "automated": true,
+        "docs": "frameworks/fastify",
+        "files": [
+          {
+            "template": "templates/fastify/setup.ts.tmpl",
+            "path": "{{ srcDir }}/aspec/observability.setup.ts",
+            "description": "Creates logger, metrics, health and Fastify plugin."
+          }
+        ],
+        "packages": [{ "name": "fastify", "range": "^5.0.0" }],
+        "steps": ["Register fastifyObservability before routes."]
+      },
+      {
+        "id": "hono-typescript",
+        "label": "Hono (TypeScript)",
+        "language": "typescript",
+        "framework": "hono",
+        "automated": true,
+        "docs": "frameworks/hono",
+        "files": [
+          {
+            "template": "templates/hono/setup.ts.tmpl",
+            "path": "{{ srcDir }}/aspec/observability.setup.ts",
+            "description": "Creates logger, metrics, health and Hono middleware."
+          }
+        ],
+        "packages": [{ "name": "hono", "range": "^4.0.0" }],
+        "steps": ["Use observability() middleware on your Hono app."]
+      },
+      {
+        "id": "fetch-typescript",
+        "label": "Fetch handler (TypeScript)",
+        "language": "typescript",
+        "framework": "fetch",
+        "automated": true,
+        "docs": "frameworks/fetch",
+        "files": [
+          {
+            "template": "templates/fetch/setup.ts.tmpl",
+            "path": "{{ srcDir }}/aspec/observability.setup.ts",
+            "description": "Creates logger, metrics, health and Fetch wrapper."
+          }
+        ],
+        "steps": ["Wrap your Fetch handler with withObservability."]
+      },
+      {
+        "id": "generic-typescript",
+        "label": "Any TypeScript project",
+        "language": "typescript",
+        "automated": true,
+        "docs": "integrate",
+        "files": [
+          {
+            "template": "templates/generic-typescript/setup.ts.tmpl",
+            "path": "{{ srcDir }}/aspec/observability.setup.ts",
+            "description": "Creates logger, metrics and health."
+          }
+        ],
+        "steps": ["Import logger and registry from the generated file."]
+      },
+      {
+        "id": "generic-javascript",
+        "label": "Any JavaScript project",
+        "language": "javascript",
+        "automated": true,
+        "docs": "integrate",
+        "files": [
+          {
+            "template": "templates/generic-javascript/setup.js.tmpl",
+            "path": "{{ srcDir }}/aspec/observability.setup.js",
+            "description": "Creates logger, metrics and health."
+          }
+        ],
+        "steps": ["Import logger and registry from the generated file."]
+      }
+    ]
+  },
+  "validation": {
+    "checks": [
+      { "type": "package", "name": "@aspec/observability", "range": "^1.0.0" },
+      { "type": "import", "specifier": "@aspec/observability" }
+    ],
+    "commands": [
+      {
+        "run": ["node", "-e", "import('@aspec/observability')"],
+        "description": "Imports the module entrypoint."
+      }
+    ],
+    "docs": "testing"
+  },
+  "uninstall": {
+    "steps": ["Remove middleware and endpoint mounts.", "Remove LOG_LEVEL if unused."],
+    "dataRetention": "No persistent state.",
+    "docs": "uninstall"
+  },
+  "migrations": {
+    "docs": "migration"
+  },
+  "docs": {
+    "sections": {
+      "summary": "docs/summary.md",
+      "install": "docs/install.md",
+      "configure": "docs/configure.md",
+      "integrate": "docs/integrate.md",
+      "frameworks/express": "docs/frameworks/express.md",
+      "frameworks/fastify": "docs/frameworks/fastify.md",
+      "frameworks/hono": "docs/frameworks/hono.md",
+      "frameworks/fetch": "docs/frameworks/fetch.md",
+      "api": "docs/api.md",
+      "examples": "docs/examples.md",
+      "testing": "docs/testing.md",
+      "migration": "docs/migration.md",
+      "troubleshooting": "docs/troubleshooting.md",
+      "security": "docs/security.md",
+      "uninstall": "docs/uninstall.md",
+      "ai": "docs/ai.md"
+    }
+  },
+  "security": {
+    "contact": "security@aspec.tech",
+    "policy": "https://github.com/ASPEC-RACING-PTY-LTD/aspecdev/security/policy",
+    "sensitiveData": ["secrets", "pii"],
+    "notes": [
+      "Default redaction covers passwords and tokens.",
+      "Restrict /metrics and detailed /healthz with bearer tokens when exposed."
+    ],
+    "threatModel": "security"
+  },
+  "ai": {
+    "summary": "Use createLogger, createMetricsRegistry and createHealth for core observability; mount framework adapters for HTTP metrics and /livez /readyz /healthz /metrics.",
+    "useWhen": [
+      "You need structured logs, Prometheus metrics or health probes.",
+      "You want OpenTelemetry-compatible HTTP spans without bundling a full stack."
+    ],
+    "avoidWhen": ["You already have a complete Observability SDK and only need a thin adapter."],
+    "keywords": ["logging", "metrics", "prometheus", "health", "opentelemetry"],
+    "entrypoints": [
+      {
+        "name": "createLogger",
+        "import": "@aspec/observability",
+        "description": "Structured JSON logger."
+      },
+      {
+        "name": "createMetricsRegistry",
+        "import": "@aspec/observability",
+        "description": "Prometheus metrics registry."
+      },
+      {
+        "name": "createHealth",
+        "import": "@aspec/observability",
+        "description": "Health, readiness and liveness."
+      },
+      {
+        "name": "httpInstrumentation",
+        "import": "@aspec/observability/express",
+        "description": "Express HTTP instrumentation."
+      },
+      {
+        "name": "createOtelHttpTracing",
+        "import": "@aspec/observability/otel",
+        "description": "OpenTelemetry HTTP tracing."
+      }
+    ]
+  }
+}

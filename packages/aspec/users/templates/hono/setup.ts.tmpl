@@ -1,0 +1,27 @@
+import { createUsers } from '{{ imports.root }}';
+import { createUsersAdminApp, createUsersSelfServiceApp } from '{{ imports.hono }}';
+import { createMemoryUsersStore } from '{{ imports.memory }}';
+
+export const users = createUsers({
+  store: createMemoryUsersStore(),
+  // Admin routes deny every request until this delegates to your authorisation layer.
+  permissions: { can: async () => false },
+  invitations: {
+    acceptUrl: process.env.USERS_ACCEPT_URL,
+    appName: process.env.USERS_APP_NAME ?? 'our application',
+  },
+});
+
+export const adminApp = createUsersAdminApp(users, {
+  async resolveActor(c) {
+    void c;
+    return null;
+  },
+});
+
+export const selfServiceApp = createUsersSelfServiceApp(users, {
+  async resolveActor(c) {
+    void c;
+    return null;
+  },
+});

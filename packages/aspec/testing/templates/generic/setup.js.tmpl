@@ -1,0 +1,25 @@
+{{#if moduleSystem == "commonjs"}}
+const { afterEach } = require('vitest');
+const { cleanupAll, resetSequences, setSeed, createTestClient, defineFactory, mockFetch, createSqliteClient } = require('{{ imports.root }}');
+
+setSeed(process.env.ASPEC_TEST_SEED ?? 'aspec-testing');
+
+afterEach(async () => {
+  resetSequences();
+  await cleanupAll();
+});
+
+module.exports = { cleanupAll, createTestClient, defineFactory, mockFetch, createSqliteClient };
+{{else}}
+import { afterEach } from 'vitest';
+import { cleanupAll, resetSequences, setSeed } from '{{ imports.root }}';
+
+setSeed(process.env.ASPEC_TEST_SEED ?? 'aspec-testing');
+
+afterEach(async () => {
+  resetSequences();
+  await cleanupAll();
+});
+
+export { cleanupAll, createTestClient, defineFactory, mockFetch, createSqliteClient } from '{{ imports.root }}';
+{{/if}}

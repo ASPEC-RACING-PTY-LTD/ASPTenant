@@ -1,0 +1,427 @@
+{
+  "$schema": "https://aspec.tech/schemas/module-manifest/v1.json",
+  "manifestVersion": 1,
+  "id": "aspec/validation",
+  "name": "Validation",
+  "summary": "Standard Schema validation with structured issues, custom rules and HTTP middleware.",
+  "description": "Validates data and requests through Standard Schema v1 (zod 4, valibot 1, Ajv JSON Schema). Provides structured issues, refine rules, configuration validation, ValidationError problem details and middleware for Express, Fastify, Hono and Fetch.",
+  "version": "1.0.0",
+  "category": "api",
+  "tags": ["validation", "schema", "zod", "valibot", "ajv"],
+  "license": "MIT",
+  "maintainers": [
+    {
+      "name": "ASPEC TECH",
+      "email": "modules@aspec.tech",
+      "url": "https://aspec.tech"
+    }
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ASPEC-RACING-PTY-LTD/aspecdev",
+    "directory": "modules/validation"
+  },
+  "homepage": "https://aspec.tech/modules/aspec/validation",
+  "readme": "README.md",
+  "changelog": "CHANGELOG.md",
+  "languages": ["typescript", "javascript"],
+  "runtimes": [
+    {
+      "name": "node",
+      "range": ">=22.13.0"
+    }
+  ],
+  "frameworks": [
+    {
+      "id": "express",
+      "name": "Express",
+      "range": "^4.18.0 || ^5.0.0",
+      "entrypoint": "@aspec/validation/express",
+      "kind": "backend",
+      "tested": true,
+      "testedVersions": ["4.22.3", "5.2.1"]
+    },
+    {
+      "id": "fastify",
+      "name": "Fastify",
+      "range": "^5.0.0",
+      "entrypoint": "@aspec/validation/fastify",
+      "kind": "backend",
+      "tested": true,
+      "testedVersions": ["5.12.5"]
+    },
+    {
+      "id": "hono",
+      "name": "Hono",
+      "range": "^4.0.0",
+      "entrypoint": "@aspec/validation/hono",
+      "kind": "backend",
+      "tested": true,
+      "testedVersions": ["4.13.10"]
+    },
+    {
+      "id": "fetch",
+      "name": "Fetch API",
+      "range": ">=0.0.0",
+      "entrypoint": "@aspec/validation/fetch",
+      "kind": "backend",
+      "tested": true,
+      "testedVersions": ["24.16.0"]
+    }
+  ],
+  "platforms": {
+    "os": ["linux", "darwin", "windows"],
+    "arch": ["x64", "arm64"],
+    "tested": [
+      {
+        "os": "windows",
+        "arch": "x64",
+        "runtime": "node@24.16.0"
+      }
+    ]
+  },
+  "capabilities": [
+    {
+      "id": "standard-schema",
+      "summary": "validate/validateSync over Standard Schema v1."
+    },
+    {
+      "id": "custom-rules",
+      "summary": "refine with sync/async rules."
+    },
+    {
+      "id": "request-middleware",
+      "summary": "Framework request validation middleware.",
+      "optional": true
+    },
+    {
+      "id": "json-schema",
+      "summary": "Ajv JSON Schema 2020-12 adapter.",
+      "optional": true,
+      "entrypoint": "@aspec/validation/ajv"
+    }
+  ],
+  "dependencies": {
+    "required": [],
+    "optional": [],
+    "peer": []
+  },
+  "compatibility": {
+    "conflicts": [],
+    "cli": ">=0.1.0"
+  },
+  "packages": {
+    "npm": {
+      "name": "@aspec/validation",
+      "entrypoints": {
+        ".": "Portable core",
+        "./express": "Express middleware",
+        "./fastify": "Fastify preHandler",
+        "./hono": "Hono middleware",
+        "./fetch": "Fetch helpers",
+        "./ajv": "JSON Schema via Ajv"
+      },
+      "dependencyType": "prod"
+    }
+  },
+  "install": {
+    "modes": ["package", "vendor"],
+    "defaultMode": "package",
+    "requirements": ["Node.js 22.13 or newer"],
+    "vendor": {
+      "source": "src",
+      "jsSource": "dist"
+    }
+  },
+  "configuration": {
+    "schema": "config.schema.json",
+    "env": {
+      "required": [],
+      "optional": [
+        {
+          "name": "VALIDATION_STATUS",
+          "description": "400 or 422 for ValidationError.",
+          "example": "400"
+        }
+      ]
+    },
+    "explorer": {
+      "parameters": [
+        {
+          "id": "framework",
+          "label": "Framework",
+          "type": "select",
+          "default": "express",
+          "options": [
+            {
+              "value": "express",
+              "label": "Express"
+            },
+            {
+              "value": "fastify",
+              "label": "Fastify"
+            },
+            {
+              "value": "hono",
+              "label": "Hono"
+            },
+            {
+              "value": "fetch",
+              "label": "Fetch"
+            },
+            {
+              "value": "none",
+              "label": "Core only"
+            }
+          ]
+        },
+        {
+          "id": "status",
+          "label": "Error status",
+          "type": "select",
+          "default": "400",
+          "options": [
+            {
+              "value": "400",
+              "label": "400"
+            },
+            {
+              "value": "422",
+              "label": "422"
+            }
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "id": "setup",
+          "label": "validation.setup.ts",
+          "language": "typescript",
+          "filename": "src/aspec/validation.setup.ts",
+          "template": "templates/explorer/setup.ts.tmpl"
+        },
+        {
+          "id": "env",
+          "label": ".env",
+          "language": "dotenv",
+          "template": "templates/explorer/env.tmpl"
+        }
+      ]
+    }
+  },
+  "integration": {
+    "targets": [
+      {
+        "id": "express-typescript",
+        "label": "Express (TypeScript)",
+        "language": "typescript",
+        "framework": "express",
+        "automated": true,
+        "docs": "frameworks/express",
+        "files": [
+          {
+            "template": "templates/express/setup.ts.tmpl",
+            "path": "{{ srcDir }}/aspec/validation.setup.ts",
+            "description": "Exports validateRequest helper wiring."
+          }
+        ],
+        "packages": [
+          {
+            "name": "express",
+            "range": "^4.18.0 || ^5.0.0"
+          },
+          {
+            "name": "zod",
+            "range": "^4.0.0"
+          }
+        ],
+        "env": [],
+        "steps": [
+          "Import validateBody from the setup file and mount it on routes after express.json()."
+        ]
+      },
+      {
+        "id": "fastify-typescript",
+        "label": "Fastify (TypeScript)",
+        "language": "typescript",
+        "framework": "fastify",
+        "automated": true,
+        "docs": "frameworks/fastify",
+        "files": [
+          {
+            "template": "templates/fastify/setup.ts.tmpl",
+            "path": "{{ srcDir }}/aspec/validation.setup.ts",
+            "description": "Exports Fastify preHandler factory."
+          }
+        ],
+        "packages": [
+          {
+            "name": "fastify",
+            "range": "^5.0.0"
+          },
+          {
+            "name": "zod",
+            "range": "^4.0.0"
+          }
+        ],
+        "env": [],
+        "steps": ["Pass validateBody(schema) as route preHandler."]
+      },
+      {
+        "id": "hono-typescript",
+        "label": "Hono (TypeScript)",
+        "language": "typescript",
+        "framework": "hono",
+        "automated": true,
+        "docs": "frameworks/hono",
+        "files": [
+          {
+            "template": "templates/hono/setup.ts.tmpl",
+            "path": "{{ srcDir }}/aspec/validation.setup.ts",
+            "description": "Exports Hono middleware factory."
+          }
+        ],
+        "packages": [
+          {
+            "name": "hono",
+            "range": "^4.0.0"
+          },
+          {
+            "name": "zod",
+            "range": "^4.0.0"
+          }
+        ],
+        "env": [],
+        "steps": ["Mount validateBody(schema) before the route handler."]
+      },
+      {
+        "id": "fetch-typescript",
+        "label": "Fetch (TypeScript)",
+        "language": "typescript",
+        "framework": "fetch",
+        "automated": true,
+        "docs": "frameworks/fetch",
+        "files": [
+          {
+            "template": "templates/fetch/setup.ts.tmpl",
+            "path": "{{ srcDir }}/aspec/validation.setup.ts",
+            "description": "Exports withValidation helper."
+          }
+        ],
+        "packages": [
+          {
+            "name": "zod",
+            "range": "^4.0.0"
+          }
+        ],
+        "env": [],
+        "steps": ["Wrap your Fetch handler with withBodyValidation."]
+      },
+      {
+        "id": "generic-typescript",
+        "label": "Any TypeScript project",
+        "language": "typescript",
+        "automated": true,
+        "docs": "integrate",
+        "files": [
+          {
+            "template": "templates/generic-ts/setup.ts.tmpl",
+            "path": "{{ srcDir }}/aspec/validation.setup.ts",
+            "description": "Core validate helpers."
+          }
+        ],
+        "steps": ["Call validate/parse with your Standard Schema."]
+      },
+      {
+        "id": "generic-javascript",
+        "label": "Any JavaScript project",
+        "language": "javascript",
+        "automated": true,
+        "docs": "integrate",
+        "files": [
+          {
+            "template": "templates/generic-js/setup.js.tmpl",
+            "path": "{{ srcDir }}/aspec/validation.setup.js",
+            "description": "Core validate helpers."
+          }
+        ],
+        "steps": ["Call validate/parse with your Standard Schema."]
+      }
+    ]
+  },
+  "validation": {
+    "checks": [
+      {
+        "type": "package",
+        "name": "@aspec/validation",
+        "range": "^1.0.0"
+      },
+      {
+        "type": "import",
+        "specifier": "@aspec/validation"
+      }
+    ],
+    "commands": [
+      {
+        "run": ["node", "-e", "import('@aspec/validation')"],
+        "description": "Imports the module entrypoint."
+      }
+    ],
+    "docs": "testing"
+  },
+  "uninstall": {
+    "steps": ["Remove validation middleware.", "Remove @aspec/validation from dependencies."],
+    "dataRetention": "No persistent data.",
+    "docs": "uninstall"
+  },
+  "migrations": {
+    "docs": "migration"
+  },
+  "docs": {
+    "sections": {
+      "summary": "docs/summary.md",
+      "install": "docs/install.md",
+      "configure": "docs/configure.md",
+      "integrate": "docs/integrate.md",
+      "api": "docs/api.md",
+      "examples": "docs/examples.md",
+      "testing": "docs/testing.md",
+      "migration": "docs/migration.md",
+      "troubleshooting": "docs/troubleshooting.md",
+      "security": "docs/security.md",
+      "uninstall": "docs/uninstall.md",
+      "ai": "docs/ai.md",
+      "frameworks/express": "docs/frameworks/express.md",
+      "frameworks/fastify": "docs/frameworks/fastify.md",
+      "frameworks/hono": "docs/frameworks/hono.md",
+      "frameworks/fetch": "docs/frameworks/fetch.md"
+    }
+  },
+  "security": {
+    "contact": "security@aspec.tech",
+    "policy": "https://github.com/ASPEC-RACING-PTY-LTD/aspecdev/security/policy",
+    "sensitiveData": ["none"],
+    "notes": [
+      "Issue messages may be returned to clients; avoid echoing secrets in custom messages."
+    ],
+    "threatModel": "security"
+  },
+  "ai": {
+    "summary": "Use validate/parse and framework validateRequest middleware with Standard Schema libraries.",
+    "useWhen": ["Validating HTTP input or configuration with zod, valibot or JSON Schema."],
+    "avoidWhen": ["You need full OpenAPI routing (use @aspec/api)."],
+    "keywords": ["validation", "zod", "valibot", "ajv"],
+    "entrypoints": [
+      {
+        "name": "validate",
+        "import": "@aspec/validation",
+        "description": "Async Standard Schema validation."
+      },
+      {
+        "name": "validateRequest",
+        "import": "@aspec/validation/express",
+        "description": "Express validation middleware."
+      }
+    ]
+  }
+}

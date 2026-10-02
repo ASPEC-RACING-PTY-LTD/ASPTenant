@@ -1,0 +1,27 @@
+import { createRbac, defineRbac, subjectFromUser } from '{{ imports.root }}';
+import { createMemoryStore } from '{{ imports.memory }}';
+import { createRbacAdminPlugin, createRbacHooks } from '{{ imports.fastify }}';
+import type { FastifyRequest } from 'fastify';
+
+const definition = defineRbac({
+  permissions: ['posts:read', 'posts:write', 'posts:delete'],
+  roles: [
+    { key: 'viewer', permissions: ['posts:read'] },
+    { key: 'editor', permissions: ['posts:write'], parents: ['viewer'] },
+    { key: 'admin', permissions: ['posts:delete', 'rbac:admin'], parents: ['editor'] },
+  ],
+});
+
+export const rbac = createRbac({
+  store: createMemoryStore(),
+  definition,
+});
+
+export const rbacHooks = createRbacHooks(rbac);
+
+export function getSubject(req: FastifyRequest): ReturnType<typeof subjectFromUser> | null {
+  const user = (req as FastifyRequest & { user?: unknown }).user;
+  return user ? subjectFromUser(user) : null;
+}
+
+export const rbacAdminPlugin = createRbacAdminPlugin(rbac, { getSubject });

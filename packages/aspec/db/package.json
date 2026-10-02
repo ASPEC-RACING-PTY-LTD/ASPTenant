@@ -1,0 +1,93 @@
+{
+  "name": "@aspec/db",
+  "version": "1.0.1",
+  "description": "Database utilities for PostgreSQL and SQLite: connections, pooling, migrations, transactions, health checks, seeding, instrumentation and configuration validation.",
+  "type": "module",
+  "license": "MIT",
+  "author": "ASPEC TECH",
+  "homepage": "https://aspec.tech/modules/aspec/db",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ASPEC-RACING-PTY-LTD/aspecdev",
+    "directory": "modules/db"
+  },
+  "keywords": [
+    "aspec",
+    "db",
+    "database",
+    "postgresql",
+    "sqlite",
+    "migrations",
+    "transactions",
+    "connection-pool",
+    "sql"
+  ],
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "sideEffects": false,
+  "bin": {
+    "aspec-db": "./dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./postgres": {
+      "types": "./dist/drivers/postgres.d.ts",
+      "default": "./dist/drivers/postgres.js"
+    },
+    "./sqlite": {
+      "types": "./dist/drivers/better-sqlite3.d.ts",
+      "default": "./dist/drivers/better-sqlite3.js"
+    },
+    "./node-sqlite": {
+      "types": "./dist/drivers/node-sqlite.d.ts",
+      "default": "./dist/drivers/node-sqlite.js"
+    },
+    "./otel": {
+      "types": "./dist/otel.d.ts",
+      "default": "./dist/otel.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "docs",
+    "templates",
+    "aspec.module.json",
+    "config.schema.json",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "lint": "biome check ."
+  },
+  "peerDependencies": {
+    "@opentelemetry/api": "^1.0.0",
+    "better-sqlite3": ">=11.0.0",
+    "pg": "^8.11.0"
+  },
+  "peerDependenciesMeta": {
+    "@opentelemetry/api": {
+      "optional": true
+    },
+    "better-sqlite3": {
+      "optional": true
+    },
+    "pg": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/pg": "^8.23.1",
+    "better-sqlite3": "^13.0.3",
+    "pg": "^8.23.0"
+  }
+}

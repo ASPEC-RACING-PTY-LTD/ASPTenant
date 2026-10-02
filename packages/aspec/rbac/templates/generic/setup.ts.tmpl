@@ -1,0 +1,16 @@
+import { createRbac, defineRbac } from '{{ imports.root }}';
+import { createMemoryStore } from '{{ imports.memory }}';
+
+const definition = defineRbac({
+  permissions: ['posts:read', 'posts:write', 'posts:delete'],
+  roles: [
+    { key: 'viewer', permissions: ['posts:read'] },
+    { key: 'editor', permissions: ['posts:write'], parents: ['viewer'] },
+    { key: 'admin', permissions: ['posts:delete', 'rbac:admin'], parents: ['editor'] },
+  ],
+});
+
+export const rbac = createRbac({
+  store: createMemoryStore(),
+  definition,
+});

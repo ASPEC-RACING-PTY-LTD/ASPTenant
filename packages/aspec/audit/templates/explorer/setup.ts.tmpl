@@ -1,0 +1,70 @@
+import { createAuditLogger{{#if storage == "memory"}}, createMemoryAuditStore{{/if}}{{#if storage == "postgres"}}, createSqlAuditStore, migrate{{/if}}{{#if storage == "sqlite"}}, createSqlAuditStore, migrate{{/if}} } from '{{ imports.root }}';
+{{#if jsonl}}
+import { createJsonlFileSink } from '{{ imports.jsonl }}';
+{{/if}}
+{{#if framework == "express"}}
+import { auditContext, auditAdminRouter } from '{{ imports.express }}';
+{{/if}}
+{{#if framework == "fastify"}}
+import { registerAuditContext, auditAdminPlugin } from '{{ imports.fastify }}';
+{{/if}}
+{{#if framework == "hono"}}
+import { auditContext, createAuditAdminApp } from '{{ imports.hono }}';
+{{/if}}
+{{#if framework == "fetch"}}
+import { withAuditContext, createAuditAdminFetchHandler } from '{{ imports.fetch }}';
+{{/if}}
+
+{{#if storage == "memory"}}
+const store = createMemoryAuditStore();
+{{/if}}
+{{#if storage == "postgres"}}
+// Provide a SqlClient (for example from @aspec/db or an inline pg adapter).
+import type { SqlClient } from '{{ imports.root }}';
+declare const sqlClient: SqlClient;
+await migrate(sqlClient);
+const store = createSqlAuditStore(sqlClient);
+{{/if}}
+{{#if storage == "sqlite"}}
+import type { SqlClient } from '{{ imports.root }}';
+declare const sqlClient: SqlClient;
+await migrate(sqlClient);
+const store = createSqlAuditStore(sqlClient);
+{{/if}}
+
+const sinks = [store{{#if jsonl}}, createJsonlFileSink({ path: process.env.AUDIT_JSONL_PATH ?? './var/audit.jsonl' }){{/if}}];
+
+export const audit = createAuditLogger({
+  sinks,
+{{#if hmac}}
+  chain: process.env.AUDIT_HMAC_KEY ? { hmacKey: process.env.AUDIT_HMAC_KEY } : undefined,
+{{/if}}
+  retention: { defaultDays: 90, categories: { security: 365 } },
+});
+
+{{#if framework == "express"}}
+export const auditContextMiddleware = auditContext({
+  resolveActor: () => undefined,
+});
+export const auditAdmin = auditAdminRouter(audit, {
+  authorize: async () => false,
+});
+{{/if}}
+{{#if framework == "fastify"}}
+export function registerAudit(app: Parameters<typeof registerAuditContext>[0]) {
+  registerAuditContext(app, { resolveActor: () => undefined });
+}
+export { auditAdminPlugin };
+{{/if}}
+{{#if framework == "hono"}}
+export const auditContextMiddleware = auditContext({ resolveActor: () => undefined });
+export const auditAdminApp = createAuditAdminApp(audit, { authorize: async () => false });
+{{/if}}
+{{#if framework == "fetch"}}
+export const withAudit = (handler: (req: Request) => Promise<Response>) =>
+  withAuditContext(handler, { resolveActor: () => undefined });
+export const auditAdminHandler = createAuditAdminFetchHandler(audit, {
+  basePath: '/admin/audit',
+  authorize: async () => false,
+});
+{{/if}}

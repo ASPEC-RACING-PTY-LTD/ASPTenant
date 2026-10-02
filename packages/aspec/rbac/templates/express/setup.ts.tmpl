@@ -1,0 +1,28 @@
+import { createRbac, defineRbac, subjectFromUser } from '{{ imports.root }}';
+import { createMemoryStore } from '{{ imports.memory }}';
+import { createRbacAdminRouter, createRbacMiddleware } from '{{ imports.express }}';
+import type { Request } from 'express';
+
+const definition = defineRbac({
+  permissions: ['posts:read', 'posts:write', 'posts:delete'],
+  roles: [
+    { key: 'viewer', permissions: ['posts:read'] },
+    { key: 'editor', permissions: ['posts:write'], parents: ['viewer'] },
+    { key: 'admin', permissions: ['posts:delete', 'rbac:admin'], parents: ['editor'] },
+  ],
+});
+
+export const rbac = createRbac({
+  store: createMemoryStore(),
+  definition,
+});
+
+export const rbacMiddleware = createRbacMiddleware(rbac);
+
+/** Resolve the subject from your authentication layer (Passport, session or JWT). */
+export function getSubject(req: Request): ReturnType<typeof subjectFromUser> | null {
+  const user = (req as Request & { user?: unknown }).user;
+  return user ? subjectFromUser(user) : null;
+}
+
+export const rbacAdminRouter = createRbacAdminRouter(rbac, { getSubject });

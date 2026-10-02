@@ -1,0 +1,487 @@
+{
+  "$schema": "https://aspec.tech/schemas/module-manifest/v1.json",
+  "manifestVersion": 1,
+  "id": "aspec/api",
+  "name": "API",
+  "summary": "Typed REST routes, OpenAPI 3.1, pagination, filtering, versioning, docs and client generation.",
+  "description": "Defines typed routes and resources, generates OpenAPI 3.1 and HTML docs, validates requests via @aspec/validation, maps errors via @aspec/errors, and provides pagination, filter/sort SQL builders, versioning, contract testing and client generation with Express, Fastify, Hono and Fetch adapters.",
+  "version": "1.0.0",
+  "category": "api",
+  "tags": ["api", "openapi", "rest", "pagination"],
+  "license": "MIT",
+  "maintainers": [
+    {
+      "name": "ASPEC TECH",
+      "email": "modules@aspec.tech",
+      "url": "https://aspec.tech"
+    }
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ASPEC-RACING-PTY-LTD/aspecdev",
+    "directory": "modules/api"
+  },
+  "homepage": "https://aspec.tech/modules/aspec/api",
+  "readme": "README.md",
+  "changelog": "CHANGELOG.md",
+  "languages": ["typescript", "javascript"],
+  "runtimes": [
+    {
+      "name": "node",
+      "range": ">=22.13.0"
+    }
+  ],
+  "frameworks": [
+    {
+      "id": "express",
+      "name": "Express",
+      "range": "^4.18.0 || ^5.0.0",
+      "entrypoint": "@aspec/api/express",
+      "kind": "backend",
+      "tested": true,
+      "testedVersions": ["4.22.3", "5.2.1"]
+    },
+    {
+      "id": "fastify",
+      "name": "Fastify",
+      "range": "^5.0.0",
+      "entrypoint": "@aspec/api/fastify",
+      "kind": "backend",
+      "tested": true,
+      "testedVersions": ["5.12.5"]
+    },
+    {
+      "id": "hono",
+      "name": "Hono",
+      "range": "^4.0.0",
+      "entrypoint": "@aspec/api/hono",
+      "kind": "backend",
+      "tested": true,
+      "testedVersions": ["4.13.10"]
+    },
+    {
+      "id": "fetch",
+      "name": "Fetch API",
+      "range": ">=0.0.0",
+      "entrypoint": "@aspec/api/fetch",
+      "kind": "backend",
+      "tested": true,
+      "testedVersions": ["24.16.0"]
+    }
+  ],
+  "databases": [
+    {
+      "id": "sqlite",
+      "range": ">=3.35",
+      "tested": true
+    },
+    {
+      "id": "postgres",
+      "range": ">=14",
+      "tested": true,
+      "testedVersions": ["17"]
+    }
+  ],
+  "platforms": {
+    "os": ["linux", "darwin", "windows"],
+    "arch": ["x64", "arm64"],
+    "tested": [
+      {
+        "os": "windows",
+        "arch": "x64",
+        "runtime": "node@24.16.0"
+      }
+    ]
+  },
+  "capabilities": [
+    {
+      "id": "route-definition",
+      "summary": "defineRoute and createApi with inferred types."
+    },
+    {
+      "id": "openapi",
+      "summary": "OpenAPI 3.1 generation and HTML docs."
+    },
+    {
+      "id": "pagination-filter-sort",
+      "summary": "Offset/cursor pagination and whitelist filter/sort."
+    },
+    {
+      "id": "contract-testing",
+      "summary": "Ajv-backed OpenAPI response tester.",
+      "optional": true,
+      "entrypoint": "@aspec/api/testing"
+    }
+  ],
+  "dependencies": {
+    "required": [
+      {
+        "id": "aspec/errors",
+        "range": "^1.0.0",
+        "reason": "Maps handler failures to RFC 9457 problem responses."
+      },
+      {
+        "id": "aspec/validation",
+        "range": "^1.0.0",
+        "reason": "Validates request params, query, headers and body."
+      }
+    ],
+    "optional": [],
+    "peer": []
+  },
+  "compatibility": {
+    "conflicts": [],
+    "cli": ">=0.1.0"
+  },
+  "packages": {
+    "npm": {
+      "name": "@aspec/api",
+      "entrypoints": {
+        ".": "Portable core",
+        "./express": "Express adapter",
+        "./fastify": "Fastify adapter",
+        "./hono": "Hono adapter",
+        "./fetch": "Fetch adapter",
+        "./testing": "Contract tester"
+      },
+      "dependencyType": "prod"
+    }
+  },
+  "install": {
+    "modes": ["package", "vendor"],
+    "defaultMode": "package",
+    "requirements": ["Node.js 22.13 or newer", "@aspec/errors", "@aspec/validation"],
+    "vendor": {
+      "source": "src",
+      "jsSource": "dist"
+    }
+  },
+  "configuration": {
+    "schema": "config.schema.json",
+    "env": {
+      "required": [
+        {
+          "name": "API_TITLE",
+          "description": "OpenAPI info.title",
+          "example": "My API"
+        },
+        {
+          "name": "API_VERSION",
+          "description": "OpenAPI info.version",
+          "example": "1.0.0"
+        }
+      ],
+      "optional": [
+        {
+          "name": "API_CURSOR_SECRET",
+          "description": "HMAC secret for signed cursors.",
+          "secret": true
+        },
+        {
+          "name": "API_BASE_PATH",
+          "description": "Mount prefix.",
+          "example": "/api"
+        }
+      ]
+    },
+    "explorer": {
+      "parameters": [
+        {
+          "id": "framework",
+          "label": "Framework",
+          "type": "select",
+          "default": "fetch",
+          "options": [
+            {
+              "value": "express",
+              "label": "Express"
+            },
+            {
+              "value": "fastify",
+              "label": "Fastify"
+            },
+            {
+              "value": "hono",
+              "label": "Hono"
+            },
+            {
+              "value": "fetch",
+              "label": "Fetch"
+            },
+            {
+              "value": "none",
+              "label": "Core only"
+            }
+          ]
+        },
+        {
+          "id": "versioning",
+          "label": "Versioning",
+          "type": "select",
+          "default": "url",
+          "options": [
+            {
+              "value": "url",
+              "label": "URL prefix"
+            },
+            {
+              "value": "header",
+              "label": "API-Version header"
+            },
+            {
+              "value": "both",
+              "label": "URL and header"
+            },
+            {
+              "value": "none",
+              "label": "None"
+            }
+          ]
+        },
+        {
+          "id": "signedCursors",
+          "label": "Signed cursors",
+          "type": "boolean",
+          "default": true
+        }
+      ],
+      "outputs": [
+        {
+          "id": "setup",
+          "label": "api.setup.ts",
+          "language": "typescript",
+          "filename": "src/aspec/api.setup.ts",
+          "template": "templates/explorer/setup.ts.tmpl"
+        },
+        {
+          "id": "env",
+          "label": ".env",
+          "language": "dotenv",
+          "template": "templates/explorer/env.tmpl"
+        }
+      ]
+    }
+  },
+  "integration": {
+    "targets": [
+      {
+        "id": "express-typescript",
+        "label": "Express (TypeScript)",
+        "language": "typescript",
+        "framework": "express",
+        "automated": true,
+        "docs": "frameworks/express",
+        "files": [
+          {
+            "template": "templates/express/setup.ts.tmpl",
+            "path": "{{ srcDir }}/aspec/api.setup.ts",
+            "description": "Creates and mounts the API."
+          }
+        ],
+        "packages": [
+          {
+            "name": "express",
+            "range": "^4.18.0 || ^5.0.0"
+          },
+          {
+            "name": "zod",
+            "range": "^4.0.0"
+          }
+        ],
+        "env": ["API_TITLE", "API_VERSION"],
+        "steps": ["Import apiMiddleware from the setup file and app.use(apiMiddleware)."]
+      },
+      {
+        "id": "fastify-typescript",
+        "label": "Fastify (TypeScript)",
+        "language": "typescript",
+        "framework": "fastify",
+        "automated": true,
+        "docs": "frameworks/fastify",
+        "files": [
+          {
+            "template": "templates/fastify/setup.ts.tmpl",
+            "path": "{{ srcDir }}/aspec/api.setup.ts",
+            "description": "Creates the API and Fastify plugin."
+          }
+        ],
+        "packages": [
+          {
+            "name": "fastify",
+            "range": "^5.0.0"
+          },
+          {
+            "name": "zod",
+            "range": "^4.0.0"
+          }
+        ],
+        "env": ["API_TITLE", "API_VERSION"],
+        "steps": ["Await app.register(apiPlugin)."]
+      },
+      {
+        "id": "hono-typescript",
+        "label": "Hono (TypeScript)",
+        "language": "typescript",
+        "framework": "hono",
+        "automated": true,
+        "docs": "frameworks/hono",
+        "files": [
+          {
+            "template": "templates/hono/setup.ts.tmpl",
+            "path": "{{ srcDir }}/aspec/api.setup.ts",
+            "description": "Creates a Hono app for the API."
+          }
+        ],
+        "packages": [
+          {
+            "name": "hono",
+            "range": "^4.0.0"
+          },
+          {
+            "name": "zod",
+            "range": "^4.0.0"
+          }
+        ],
+        "env": ["API_TITLE", "API_VERSION"],
+        "steps": ["Export or mount the Hono app from the setup file."]
+      },
+      {
+        "id": "fetch-typescript",
+        "label": "Fetch (TypeScript)",
+        "language": "typescript",
+        "framework": "fetch",
+        "automated": true,
+        "docs": "frameworks/fetch",
+        "files": [
+          {
+            "template": "templates/fetch/setup.ts.tmpl",
+            "path": "{{ srcDir }}/aspec/api.setup.ts",
+            "description": "Creates a Fetch handler."
+          }
+        ],
+        "packages": [
+          {
+            "name": "zod",
+            "range": "^4.0.0"
+          }
+        ],
+        "env": ["API_TITLE", "API_VERSION"],
+        "steps": ["Export fetchHandler from the setup file as your route handler."]
+      },
+      {
+        "id": "generic-typescript",
+        "label": "Any TypeScript project",
+        "language": "typescript",
+        "automated": true,
+        "docs": "integrate",
+        "files": [
+          {
+            "template": "templates/generic-ts/setup.ts.tmpl",
+            "path": "{{ srcDir }}/aspec/api.setup.ts",
+            "description": "Creates the Api instance."
+          }
+        ],
+        "env": ["API_TITLE", "API_VERSION"],
+        "steps": ["Call api.handle(request) from your HTTP layer."]
+      },
+      {
+        "id": "generic-javascript",
+        "label": "Any JavaScript project",
+        "language": "javascript",
+        "automated": true,
+        "docs": "integrate",
+        "files": [
+          {
+            "template": "templates/generic-js/setup.js.tmpl",
+            "path": "{{ srcDir }}/aspec/api.setup.js",
+            "description": "Creates the Api instance."
+          }
+        ],
+        "env": ["API_TITLE", "API_VERSION"],
+        "steps": ["Call api.handle(request) from your HTTP layer."]
+      }
+    ]
+  },
+  "validation": {
+    "checks": [
+      {
+        "type": "package",
+        "name": "@aspec/api",
+        "range": "^1.0.0"
+      },
+      {
+        "type": "import",
+        "specifier": "@aspec/api"
+      },
+      {
+        "type": "env",
+        "names": ["API_TITLE", "API_VERSION"]
+      }
+    ],
+    "commands": [
+      {
+        "run": ["node", "-e", "import('@aspec/api')"],
+        "description": "Imports the module entrypoint."
+      }
+    ],
+    "docs": "testing"
+  },
+  "uninstall": {
+    "steps": ["Remove API mount.", "Remove @aspec/api from dependencies."],
+    "dataRetention": "No tables owned by this module.",
+    "docs": "uninstall"
+  },
+  "migrations": {
+    "docs": "migration"
+  },
+  "docs": {
+    "sections": {
+      "summary": "docs/summary.md",
+      "install": "docs/install.md",
+      "configure": "docs/configure.md",
+      "integrate": "docs/integrate.md",
+      "api": "docs/api.md",
+      "examples": "docs/examples.md",
+      "testing": "docs/testing.md",
+      "migration": "docs/migration.md",
+      "troubleshooting": "docs/troubleshooting.md",
+      "security": "docs/security.md",
+      "uninstall": "docs/uninstall.md",
+      "ai": "docs/ai.md",
+      "frameworks/express": "docs/frameworks/express.md",
+      "frameworks/fastify": "docs/frameworks/fastify.md",
+      "frameworks/hono": "docs/frameworks/hono.md",
+      "frameworks/fetch": "docs/frameworks/fetch.md"
+    }
+  },
+  "security": {
+    "contact": "security@aspec.tech",
+    "policy": "https://github.com/ASPEC-RACING-PTY-LTD/aspecdev/security/policy",
+    "sensitiveData": ["secrets"],
+    "notes": ["Store API_CURSOR_SECRET outside source control. Whitelist filter/sort fields."],
+    "threatModel": "security"
+  },
+  "ai": {
+    "summary": "Use defineRoute and createApi for typed REST APIs with OpenAPI and validation.",
+    "useWhen": ["Building multi-route HTTP APIs that need OpenAPI and standard responses."],
+    "avoidWhen": ["Single-purpose handlers that do not need routing or OpenAPI."],
+    "keywords": ["api", "openapi", "rest", "pagination"],
+    "entrypoints": [
+      {
+        "name": "createApi",
+        "import": "@aspec/api",
+        "description": "Creates the API runtime."
+      },
+      {
+        "name": "defineRoute",
+        "import": "@aspec/api",
+        "description": "Defines a typed route."
+      },
+      {
+        "name": "createFetchApi",
+        "import": "@aspec/api/fetch",
+        "description": "Fetch adapter."
+      }
+    ]
+  }
+}

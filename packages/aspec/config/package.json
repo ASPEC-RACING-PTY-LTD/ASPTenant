@@ -1,0 +1,68 @@
+{
+  "name": "@aspec/config",
+  "version": "1.0.0",
+  "description": "Typed configuration and secrets: environment loading, schemas, validation, defaults, environment files, secret redaction, documentation generation and secret providers.",
+  "type": "module",
+  "license": "MIT",
+  "author": "ASPEC TECH",
+  "homepage": "https://aspec.tech/modules/aspec/config",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ASPEC-RACING-PTY-LTD/aspecdev",
+    "directory": "modules/config"
+  },
+  "keywords": [
+    "aspec",
+    "config",
+    "secrets",
+    "dotenv",
+    "env"
+  ],
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "sideEffects": false,
+  "bin": {
+    "aspec-config": "./bin/aspec-config.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./vault": {
+      "types": "./dist/vault.d.ts",
+      "default": "./dist/vault.js"
+    },
+    "./aws": {
+      "types": "./dist/aws.d.ts",
+      "default": "./dist/aws.js"
+    },
+    "./file": {
+      "types": "./dist/file.d.ts",
+      "default": "./dist/file.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "bin",
+    "docs",
+    "templates",
+    "aspec.module.json",
+    "config.schema.json",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "lint": "biome check ."
+  },
+  "devDependencies": {
+    "valibot": "^1.5.0",
+    "zod": "^4.6.5"
+  }
+}

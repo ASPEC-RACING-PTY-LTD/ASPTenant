@@ -1,0 +1,9 @@
+import type { FastifyInstance } from 'fastify';
+import { registerErrorHandling } from '{{ imports.fastify }}';
+
+export async function setupErrors(app: FastifyInstance): Promise<void> {
+  await registerErrorHandling(app, {
+    typeBaseUri: process.env.ERRORS_TYPE_BASE_URI ?? 'about:blank',
+    environment: process.env.NODE_ENV,
+  });
+}

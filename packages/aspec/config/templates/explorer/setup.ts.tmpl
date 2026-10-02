@@ -1,0 +1,36 @@
+import { defineConfig, env } from '{{ imports.root }}';
+{{#if includeVault}}
+import { createVaultKvV2Provider } from '{{ imports.vault }}';
+import { loadConfig } from '{{ imports.root }}';
+{{/if}}
+
+export const shape = {
+  port: env.port('PORT').default(3000).description('HTTP listen port'),
+  logLevel: env.enum('LOG_LEVEL', ['debug', 'info', 'warn', 'error']).default('info'),
+{{#if includeDatabase}}
+  databaseUrl: env.url('DATABASE_URL').secret().description('Primary database URL'),
+{{/if}}
+  features: {
+    signup: env.boolean('FEATURE_SIGNUP').default(true),
+  },
+};
+
+{{#if includeVault}}
+const vault = createVaultKvV2Provider({
+  address: process.env.VAULT_ADDR ?? 'http://127.0.0.1:8200',
+  token: process.env.VAULT_TOKEN,
+});
+
+export const config = await loadConfig({
+  shape,
+  secrets: {
+{{#if includeDatabase}}
+    DATABASE_URL: { provider: vault, id: 'app/db#url' },
+{{/if}}
+  },
+});
+{{else}}
+export const config = defineConfig(shape);
+{{/if}}
+
+export { shape as configShape };

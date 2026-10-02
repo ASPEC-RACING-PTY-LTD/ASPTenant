@@ -1,0 +1,17 @@
+'use client';
+
+import { PermissionProvider, Can, useCan } from '@aspec/rbac/react';
+import type { PermissionSnapshot } from '@aspec/rbac';
+import type { ReactNode } from 'react';
+
+export function RbacProvider({
+  snapshot,
+  children,
+}: {
+  snapshot: PermissionSnapshot;
+  children?: ReactNode;
+}) {
+  return <PermissionProvider snapshot={snapshot}>{children}</PermissionProvider>;
+}
+
+export { Can, useCan };

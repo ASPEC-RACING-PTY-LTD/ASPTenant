@@ -1,0 +1,17 @@
+import { createRateLimiter, keys } from '{{ imports.root }}';
+import { createMemoryStore } from '{{ imports.memory }}';
+import { rateLimit } from '{{ imports.express }}';
+
+const store = createMemoryStore();
+
+export const limiter = createRateLimiter({
+  store,
+  policy: { name: 'api', limit: 100, windowMs: 60_000 },
+});
+
+/** Mount early: `app.use(rateLimitMiddleware)`. */
+export const rateLimitMiddleware = rateLimit({
+  limiter,
+  key: keys.ip(),
+  trustProxy: 1,
+});

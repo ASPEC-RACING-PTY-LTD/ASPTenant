@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ASPEC testing module configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "seed": {
+      "type": "string",
+      "description": "Default seed for factories and seededRandom (overridable with ASPEC_TEST_SEED).",
+      "default": "aspec-testing"
+    },
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "lines": { "type": "number", "minimum": 0, "maximum": 100, "default": 80 },
+        "statements": { "type": "number", "minimum": 0, "maximum": 100, "default": 80 },
+        "functions": { "type": "number", "minimum": 0, "maximum": 100, "default": 80 },
+        "branches": { "type": "number", "minimum": 0, "maximum": 100, "default": 75 }
+      }
+    },
+    "sql": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "dialect": { "enum": ["sqlite", "postgres"], "default": "sqlite" },
+        "postgresUrlEnv": {
+          "type": "string",
+          "default": "ASPEC_TEST_POSTGRES_URL",
+          "description": "Environment variable holding the PostgreSQL connection string for fixtures."
+        }
+      }
+    }
+  }
+}

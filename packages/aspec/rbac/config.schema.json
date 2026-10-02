@@ -1,0 +1,117 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RBAC module configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+    "permissions": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          { "type": "string", "minLength": 1 },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["key"],
+            "properties": {
+              "key": { "type": "string", "minLength": 1 },
+              "description": { "type": "string", "maxLength": 500 }
+            }
+          }
+        ]
+      }
+    },
+    "roles": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["key"],
+        "properties": {
+          "key": { "type": "string", "minLength": 1 },
+          "name": { "type": "string", "maxLength": 120 },
+          "description": { "type": "string", "maxLength": 500 },
+          "permissions": { "type": "array", "items": { "type": "string" } },
+          "denies": { "type": "array", "items": { "type": "string" } },
+          "parents": { "type": "array", "items": { "type": "string" } },
+          "assignableScopes": {
+            "type": "array",
+            "items": { "enum": ["global", "org", "team"] },
+            "minItems": 1,
+            "uniqueItems": true
+          }
+        }
+      }
+    },
+    "ownership": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["resourceType", "permissions"],
+        "properties": {
+          "id": { "type": "string" },
+          "resourceType": { "type": "string" },
+          "permissions": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+          "description": { "type": "string", "maxLength": 500 }
+        }
+      }
+    },
+    "policies": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "effect", "permissions", "condition"],
+        "properties": {
+          "id": { "type": "string" },
+          "description": { "type": "string", "maxLength": 500 },
+          "effect": { "enum": ["allow", "deny"] },
+          "permissions": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+          "resourceTypes": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+          "roles": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+          "condition": { "type": "object" }
+        }
+      }
+    },
+    "options": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "adminPermission": { "type": "string" },
+        "adminReadPermission": { "type": "string" },
+        "orgRolesApplyToTeams": { "type": "boolean", "default": true },
+        "staticRoles": { "enum": ["auto", "global", "ignore"], "default": "auto" },
+        "catalogTtlMs": { "type": "integer", "minimum": 0 },
+        "cacheTtlMs": { "type": "integer", "minimum": 0 },
+        "cacheKeyPrefix": { "type": "string", "maxLength": 64 },
+        "auditDenied": {
+          "oneOf": [
+            { "type": "boolean" },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["sampleRate"],
+              "properties": { "sampleRate": { "type": "number", "minimum": 0, "maximum": 1 } }
+            }
+          ]
+        },
+        "requireRegisteredPermissions": { "type": "boolean", "default": true },
+        "preventEscalation": { "type": "boolean", "default": true },
+        "timeZone": { "type": "string" }
+      }
+    },
+    "sql": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "tablePrefix": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]{0,30}$",
+          "default": "rbac_"
+        }
+      }
+    }
+  }
+}

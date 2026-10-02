@@ -1,0 +1,15 @@
+import { afterEach } from 'vitest';
+import { cleanupAll, createTestClient, resetSequences, setSeed, type TestClient, type TestClientOptions } from '{{ imports.root }}';
+import type { Hono } from 'hono';
+
+setSeed(process.env.ASPEC_TEST_SEED ?? 'aspec-testing');
+
+afterEach(async () => {
+  resetSequences();
+  await cleanupAll();
+});
+
+/** Creates a fluent API client that uses Hono app.request (no network). */
+export function createAppClient(app: Hono, options?: TestClientOptions): TestClient {
+  return createTestClient(app, options);
+}

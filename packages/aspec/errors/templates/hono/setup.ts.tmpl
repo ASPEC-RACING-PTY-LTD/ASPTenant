@@ -1,0 +1,6 @@
+import { createHonoErrorHandling } from '{{ imports.hono }}';
+
+export const errors = createHonoErrorHandling({
+  typeBaseUri: process.env.ERRORS_TYPE_BASE_URI ?? 'about:blank',
+  environment: process.env.NODE_ENV,
+});

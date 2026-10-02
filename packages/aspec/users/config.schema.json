@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ASPEC users module configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "storage": {
+      "enum": ["memory", "postgres", "sqlite"],
+      "default": "memory",
+      "description": "Persistence backend. SQL backends need a SqlClient at runtime."
+    },
+    "tablePrefix": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*_$",
+      "default": "users_",
+      "description": "SQL table name prefix (must end with underscore)."
+    },
+    "defaultStatus": {
+      "enum": ["pending", "active"],
+      "default": "active",
+      "description": "Status assigned to createUser when none is supplied."
+    },
+    "deletionGracePeriodMs": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 2592000000,
+      "description": "Soft-delete grace period before purge (default 30 days)."
+    },
+    "deletionPolicy": {
+      "enum": ["anonymise", "hard-delete"],
+      "default": "anonymise",
+      "description": "How purgeExpired removes accounts after the grace period."
+    },
+    "invitationTtlMs": {
+      "type": "integer",
+      "minimum": 1000,
+      "default": 604800000,
+      "description": "Invitation token lifetime (default 7 days)."
+    },
+    "activationTokenTtlMs": {
+      "type": "integer",
+      "minimum": 1000,
+      "default": 259200000,
+      "description": "Activation token lifetime (default 72 hours)."
+    },
+    "activityRetentionMs": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 31536000000,
+      "description": "Activity history retention used by pruneActivity (default 365 days)."
+    },
+    "acceptUrl": {
+      "type": "string",
+      "description": "Invitation accept URL template. Use {token} or append ?token=."
+    },
+    "appName": {
+      "type": "string",
+      "default": "our application",
+      "description": "Name used in default invitation emails."
+    }
+  }
+}

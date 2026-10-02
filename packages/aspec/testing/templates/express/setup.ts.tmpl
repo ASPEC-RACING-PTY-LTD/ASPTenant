@@ -1,0 +1,15 @@
+import { afterEach } from 'vitest';
+import { cleanupAll, createTestClient, resetSequences, setSeed, type TestClient, type TestClientOptions } from '{{ imports.root }}';
+import type { Express } from 'express';
+
+setSeed(process.env.ASPEC_TEST_SEED ?? 'aspec-testing');
+
+afterEach(async () => {
+  resetSequences();
+  await cleanupAll();
+});
+
+/** Creates a fluent API client for an Express 4 or 5 app (ephemeral loopback server). */
+export function createAppClient(app: Express, options?: TestClientOptions): TestClient {
+  return createTestClient(app, options);
+}

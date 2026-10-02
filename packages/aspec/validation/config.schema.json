@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ASPEC validation configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "status": {
+      "enum": [400, 422],
+      "default": 400,
+      "description": "HTTP status for ValidationError responses."
+    },
+    "bodyLimit": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 1048576,
+      "description": "Maximum JSON body size in bytes for Fetch/Hono parsers."
+    },
+    "property": {
+      "type": "string",
+      "default": "validated",
+      "description": "Request property that receives validated parts."
+    }
+  }
+}

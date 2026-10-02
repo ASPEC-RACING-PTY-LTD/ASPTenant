@@ -1,0 +1,39 @@
+import {
+  createLogger,
+  createMetricsRegistry,
+  createHealth,
+  type LogLevelSetting,
+  registerProcessMetrics,
+} from '{{ imports.root }}';
+
+export const log = createLogger({
+  // createLogger rejects values other than trace, debug, info, warn, error, fatal and silent.
+  level: (process.env.LOG_LEVEL ?? 'info') as LogLevelSetting,
+  pretty: {{ pretty }},
+});
+export const registry = createMetricsRegistry();
+{{#if processMetrics}}
+registerProcessMetrics(registry);
+{{/if}}
+export const health = createHealth({ checks: { self: async () => ({ ok: true }) } });
+
+{{#if framework == "express"}}
+import { httpInstrumentation, observabilityEndpoints } from '{{ imports.express }}';
+export const observEndpoints = observabilityEndpoints({ health, registry });
+export const observHttp = httpInstrumentation({ registry, logger: log, ignorePaths: ['/livez', '/readyz', '/healthz', '/metrics'] });
+{{/if}}
+{{#if framework == "fastify"}}
+import { fastifyObservability } from '{{ imports.fastify }}';
+export const observPluginOptions = { registry, logger: log, endpoints: { health, registry } };
+export { fastifyObservability };
+{{/if}}
+{{#if framework == "hono"}}
+import { observability } from '{{ imports.hono }}';
+export const observMiddleware = observability({ registry, logger: log, endpoints: { health, registry } });
+{{/if}}
+{{#if framework == "fetch"}}
+import { withObservability } from '{{ imports.fetch }}';
+export function wrapHandler(handler: (request: Request) => Response | Promise<Response>) {
+  return withObservability(handler, { registry, logger: log, endpoints: { health, registry } });
+}
+{{/if}}

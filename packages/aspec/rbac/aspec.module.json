@@ -1,0 +1,581 @@
+{
+  "$schema": "https://aspec.tech/schemas/module-manifest/v1.json",
+  "manifestVersion": 1,
+  "id": "aspec/rbac",
+  "name": "RBAC",
+  "summary": "Standalone authorisation engine with roles, hierarchy, scopes, grants, ownership and ABAC policies.",
+  "description": "Complete role-based access control for Node.js applications. Custom roles and permissions, DAG hierarchy with inheritance, organisation and team scopes, resource grants, ownership rules, optional attribute policies, admin HTTP API, framework middleware and React permission guards. Independent of any authentication module; integrate through a Subject resolver.",
+  "version": "1.0.0",
+  "category": "security",
+  "tags": ["rbac", "authorisation", "authorization", "permissions", "roles", "abac"],
+  "license": "MIT",
+  "maintainers": [
+    {
+      "name": "ASPEC TECH",
+      "email": "modules@aspec.tech",
+      "url": "https://aspec.tech"
+    }
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ASPEC-RACING-PTY-LTD/aspecdev",
+    "directory": "modules/rbac"
+  },
+  "homepage": "https://aspec.tech/modules/aspec/rbac",
+  "readme": "README.md",
+  "changelog": "CHANGELOG.md",
+  "languages": ["typescript", "javascript"],
+  "runtimes": [
+    {
+      "name": "node",
+      "range": ">=22.13.0"
+    }
+  ],
+  "frameworks": [
+    {
+      "id": "express",
+      "name": "Express",
+      "range": "^4.18.0 || ^5.0.0",
+      "entrypoint": "@aspec/rbac/express",
+      "kind": "backend",
+      "tested": true,
+      "testedVersions": ["4.22.3", "5.2.1"]
+    },
+    {
+      "id": "fastify",
+      "name": "Fastify",
+      "range": "^5.0.0",
+      "entrypoint": "@aspec/rbac/fastify",
+      "kind": "backend",
+      "tested": true,
+      "testedVersions": ["5.12.5"]
+    },
+    {
+      "id": "hono",
+      "name": "Hono",
+      "range": "^4.0.0",
+      "entrypoint": "@aspec/rbac/hono",
+      "kind": "backend",
+      "tested": true,
+      "testedVersions": ["4.13.10"]
+    },
+    {
+      "id": "fetch",
+      "name": "Fetch API",
+      "range": "*",
+      "entrypoint": "@aspec/rbac/fetch",
+      "kind": "backend",
+      "tested": true,
+      "testedVersions": ["24.16.0"]
+    },
+    {
+      "id": "react",
+      "name": "React",
+      "range": "^19.0.0",
+      "entrypoint": "@aspec/rbac/react",
+      "kind": "frontend",
+      "tested": true,
+      "testedVersions": ["19.3.0"]
+    },
+    {
+      "id": "vitest",
+      "name": "Vitest",
+      "range": "^5.0.0",
+      "entrypoint": "@aspec/rbac",
+      "kind": "testing",
+      "tested": true,
+      "testedVersions": ["5.0.2"]
+    }
+  ],
+  "databases": [
+    {
+      "id": "memory",
+      "tested": true
+    },
+    {
+      "id": "postgres",
+      "range": ">=14",
+      "entrypoint": "@aspec/rbac/sql",
+      "tested": true,
+      "testedVersions": ["17"]
+    },
+    {
+      "id": "sqlite",
+      "range": ">=3.35",
+      "entrypoint": "@aspec/rbac/sql",
+      "tested": true
+    }
+  ],
+  "services": [],
+  "platforms": {
+    "os": ["linux", "darwin", "windows"],
+    "arch": ["x64", "arm64"],
+    "tested": [
+      {
+        "os": "windows",
+        "arch": "x64",
+        "runtime": "node@24.16.0"
+      }
+    ]
+  },
+  "capabilities": [
+    {
+      "id": "rbac-engine",
+      "summary": "Evaluate permissions with roles, hierarchy, scopes, grants, ownership and policies."
+    },
+    {
+      "id": "admin-api",
+      "summary": "Administrative API and HTTP routers for roles, assignments, grants and policies."
+    },
+    {
+      "id": "http-middleware",
+      "summary": "requirePermission, requireRole, requireAny and requireAll for Express, Fastify, Hono and Fetch.",
+      "optional": true
+    },
+    {
+      "id": "react-guards",
+      "summary": "PermissionProvider, Can, useCan and usePermissions from a server snapshot (UX only).",
+      "optional": true,
+      "entrypoint": "@aspec/rbac/react"
+    },
+    {
+      "id": "sql-store",
+      "summary": "PostgreSQL and SQLite persistence with migrations.",
+      "optional": true,
+      "entrypoint": "@aspec/rbac/sql"
+    }
+  ],
+  "dependencies": {
+    "required": [],
+    "optional": [
+      {
+        "id": "aspec/audit",
+        "range": "^1.0.0",
+        "reason": "Records rbac.* admin and optional denied-access events when an AuditSink is provided."
+      },
+      {
+        "id": "aspec/cache",
+        "range": "^1.0.0",
+        "reason": "Caches subject assignment lookups when a CacheLike is provided."
+      }
+    ],
+    "peer": []
+  },
+  "compatibility": {
+    "conflicts": [],
+    "cli": ">=0.1.0"
+  },
+  "packages": {
+    "npm": {
+      "name": "@aspec/rbac",
+      "entrypoints": {
+        ".": "Portable core (createRbac, defineRbac, subject helpers, errors)",
+        "./memory": "In-memory store",
+        "./sql": "SQL store and migrations for PostgreSQL and SQLite",
+        "./express": "Express 4 and 5 middleware and admin router",
+        "./fastify": "Fastify hooks and admin plugin",
+        "./hono": "Hono middleware and admin app",
+        "./fetch": "Fetch guards and admin handler",
+        "./react": "React PermissionProvider, Can and hooks"
+      },
+      "dependencyType": "prod"
+    }
+  },
+  "install": {
+    "modes": ["package", "vendor"],
+    "defaultMode": "package",
+    "requirements": ["Node.js 22.13 or newer"],
+    "vendor": {
+      "source": "src",
+      "jsSource": "dist"
+    }
+  },
+  "configuration": {
+    "schema": "config.schema.json",
+    "env": {
+      "required": [],
+      "optional": [
+        {
+          "name": "RBAC_DATABASE_URL",
+          "description": "PostgreSQL connection URL when using the SQL store.",
+          "example": "postgres://localhost:5432/app",
+          "secret": true
+        },
+        {
+          "name": "RBAC_TABLE_PREFIX",
+          "description": "SQL table prefix. Default rbac_.",
+          "example": "rbac_"
+        }
+      ]
+    },
+    "explorer": {
+      "parameters": [
+        {
+          "id": "framework",
+          "label": "Framework",
+          "type": "select",
+          "default": "express",
+          "options": [
+            {
+              "value": "express",
+              "label": "Express"
+            },
+            {
+              "value": "fastify",
+              "label": "Fastify"
+            },
+            {
+              "value": "hono",
+              "label": "Hono"
+            },
+            {
+              "value": "fetch",
+              "label": "Fetch API"
+            },
+            {
+              "value": "none",
+              "label": "Core only"
+            }
+          ]
+        },
+        {
+          "id": "storage",
+          "label": "Storage",
+          "type": "select",
+          "default": "memory",
+          "options": [
+            {
+              "value": "memory",
+              "label": "In memory"
+            },
+            {
+              "value": "postgres",
+              "label": "PostgreSQL"
+            },
+            {
+              "value": "sqlite",
+              "label": "SQLite"
+            }
+          ]
+        },
+        {
+          "id": "multiTenant",
+          "label": "Organisation and team scopes",
+          "type": "boolean",
+          "default": true
+        },
+        {
+          "id": "audit",
+          "label": "Audit sink wiring",
+          "type": "boolean",
+          "default": false
+        },
+        {
+          "id": "cache",
+          "label": "Assignment cache wiring",
+          "type": "boolean",
+          "default": false
+        },
+        {
+          "id": "reactGuards",
+          "label": "React permission guards",
+          "type": "boolean",
+          "default": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "setup",
+          "label": "rbac.setup.ts",
+          "language": "typescript",
+          "filename": "src/aspec/rbac.setup.ts",
+          "template": "templates/explorer/setup.ts.tmpl"
+        },
+        {
+          "id": "env",
+          "label": ".env",
+          "language": "dotenv",
+          "template": "templates/explorer/env.tmpl"
+        },
+        {
+          "id": "client",
+          "label": "PermissionProvider.tsx",
+          "language": "typescript",
+          "filename": "src/aspec/rbac.client.tsx",
+          "template": "templates/explorer/client.tsx.tmpl"
+        }
+      ]
+    }
+  },
+  "integration": {
+    "targets": [
+      {
+        "id": "express-typescript",
+        "label": "Express (TypeScript)",
+        "language": "typescript",
+        "framework": "express",
+        "automated": true,
+        "docs": "frameworks/express",
+        "files": [
+          {
+            "template": "templates/express/setup.ts.tmpl",
+            "path": "{{ srcDir }}/aspec/rbac.setup.ts",
+            "description": "Creates the RBAC engine, middleware and admin router."
+          }
+        ],
+        "packages": [
+          {
+            "name": "express",
+            "range": "^4.18.0 || ^5.0.0"
+          }
+        ],
+        "steps": [
+          "Import rbac, createRbacMiddleware and createRbacAdminRouter from the generated file.",
+          "Resolve subjects from your authentication layer (session, JWT or Passport user).",
+          "Mount requirePermission on protected routes and the admin router under /admin/rbac."
+        ],
+        "env": []
+      },
+      {
+        "id": "fastify-typescript",
+        "label": "Fastify (TypeScript)",
+        "language": "typescript",
+        "framework": "fastify",
+        "automated": true,
+        "docs": "frameworks/fastify",
+        "files": [
+          {
+            "template": "templates/fastify/setup.ts.tmpl",
+            "path": "{{ srcDir }}/aspec/rbac.setup.ts",
+            "description": "Creates the RBAC engine, hooks and admin plugin."
+          }
+        ],
+        "packages": [
+          {
+            "name": "fastify",
+            "range": "^5.0.0"
+          }
+        ],
+        "steps": [
+          "Register createRbacAdminPlugin with a prefix such as /admin/rbac.",
+          "Attach requirePermission as a preHandler on protected routes."
+        ],
+        "env": []
+      },
+      {
+        "id": "hono-typescript",
+        "label": "Hono (TypeScript)",
+        "language": "typescript",
+        "framework": "hono",
+        "automated": true,
+        "docs": "frameworks/hono",
+        "files": [
+          {
+            "template": "templates/hono/setup.ts.tmpl",
+            "path": "{{ srcDir }}/aspec/rbac.setup.ts",
+            "description": "Creates the RBAC engine, middleware and admin app."
+          }
+        ],
+        "packages": [
+          {
+            "name": "hono",
+            "range": "^4.0.0"
+          }
+        ],
+        "steps": [
+          "Mount createRbacAdminApp with app.route('/admin/rbac', adminApp).",
+          "Use requirePermission middleware on protected routes."
+        ],
+        "env": []
+      },
+      {
+        "id": "fetch-typescript",
+        "label": "Fetch API (TypeScript)",
+        "language": "typescript",
+        "framework": "fetch",
+        "automated": true,
+        "docs": "frameworks/fetch",
+        "files": [
+          {
+            "template": "templates/fetch/setup.ts.tmpl",
+            "path": "{{ srcDir }}/aspec/rbac.setup.ts",
+            "description": "Creates the RBAC engine, Fetch guards and admin handler."
+          }
+        ],
+        "steps": [
+          "Call createRbacFetchGuards before handling protected requests.",
+          "Forward /admin/rbac/* to createRbacAdminFetchHandler."
+        ],
+        "env": []
+      },
+      {
+        "id": "react-typescript",
+        "label": "React (TypeScript)",
+        "language": "typescript",
+        "framework": "react",
+        "automated": true,
+        "docs": "frameworks/react",
+        "files": [
+          {
+            "template": "templates/react/provider.tsx.tmpl",
+            "path": "{{ srcDir }}/aspec/rbac.client.tsx",
+            "description": "PermissionProvider wrapper for client components."
+          }
+        ],
+        "packages": [
+          {
+            "name": "react",
+            "range": "^19.0.0"
+          }
+        ],
+        "steps": [
+          "Produce a PermissionSnapshot on the server with createPermissionSnapshot.",
+          "Wrap the client tree with PermissionProvider. Frontend guards are UX only."
+        ],
+        "env": []
+      },
+      {
+        "id": "generic-typescript",
+        "label": "Any TypeScript project",
+        "language": "typescript",
+        "automated": true,
+        "docs": "integrate",
+        "files": [
+          {
+            "template": "templates/generic/setup.ts.tmpl",
+            "path": "{{ srcDir }}/aspec/rbac.setup.ts",
+            "description": "Creates the RBAC engine without a framework adapter."
+          }
+        ],
+        "steps": ["Call rbac.can or rbac.check from your application code."],
+        "env": []
+      },
+      {
+        "id": "generic-javascript",
+        "label": "Any JavaScript project",
+        "language": "javascript",
+        "automated": true,
+        "docs": "integrate",
+        "files": [
+          {
+            "template": "templates/generic/setup.js.tmpl",
+            "path": "{{ srcDir }}/aspec/rbac.setup.js",
+            "description": "Creates the RBAC engine without a framework adapter."
+          }
+        ],
+        "steps": ["Call rbac.can or rbac.check from your application code."],
+        "env": []
+      }
+    ]
+  },
+  "validation": {
+    "checks": [
+      {
+        "type": "package",
+        "name": "@aspec/rbac",
+        "range": "^1.0.0"
+      },
+      {
+        "type": "import",
+        "specifier": "@aspec/rbac"
+      }
+    ],
+    "commands": [
+      {
+        "run": ["node", "-e", "import('@aspec/rbac')"],
+        "description": "Imports the module entrypoint."
+      }
+    ],
+    "docs": "testing"
+  },
+  "uninstall": {
+    "steps": [
+      "Remove middleware and admin router registrations.",
+      "Drop the rbac_ tables if you used the SQL store."
+    ],
+    "dataRetention": "SQL tables are not dropped automatically.",
+    "docs": "uninstall"
+  },
+  "migrations": {
+    "docs": "migration",
+    "database": {
+      "dialects": ["postgres", "sqlite"],
+      "entrypoint": "@aspec/rbac/sql",
+      "tables": [
+        "rbac_permissions",
+        "rbac_roles",
+        "rbac_assignments",
+        "rbac_grants",
+        "rbac_ownership_rules",
+        "rbac_policies",
+        "rbac_meta",
+        "rbac_schema_migrations"
+      ]
+    }
+  },
+  "docs": {
+    "sections": {
+      "summary": "docs/summary.md",
+      "install": "docs/install.md",
+      "configure": "docs/configure.md",
+      "integrate": "docs/integrate.md",
+      "frameworks/express": "docs/frameworks/express.md",
+      "frameworks/fastify": "docs/frameworks/fastify.md",
+      "frameworks/hono": "docs/frameworks/hono.md",
+      "frameworks/fetch": "docs/frameworks/fetch.md",
+      "frameworks/react": "docs/frameworks/react.md",
+      "api": "docs/api.md",
+      "examples": "docs/examples.md",
+      "testing": "docs/testing.md",
+      "migration": "docs/migration.md",
+      "troubleshooting": "docs/troubleshooting.md",
+      "security": "docs/security.md",
+      "uninstall": "docs/uninstall.md",
+      "ai": "docs/ai.md",
+      "frameworks/vitest": "docs/frameworks/vitest.md"
+    }
+  },
+  "security": {
+    "contact": "security@aspec.tech",
+    "policy": "https://github.com/ASPEC-RACING-PTY-LTD/aspecdev/security/policy",
+    "sensitiveData": ["none"],
+    "notes": [
+      "Frontend guards are UX only; every sensitive action must be authorised on the server.",
+      "Admin HTTP authorisation is evaluated in the request scope; missing records may answer 403 to avoid leaking existence."
+    ],
+    "threatModel": "security"
+  },
+  "ai": {
+    "summary": "Use createRbac with a store and defineRbac definition; mount framework middleware for guards and the admin API. Resolve Subject from your auth layer.",
+    "useWhen": [
+      "You need role-based authorisation independent of authentication.",
+      "You need organisation or team scoped roles, resource grants or ownership rules."
+    ],
+    "avoidWhen": [
+      "You only need a static allow-list of a few permissions with no hierarchy or scopes."
+    ],
+    "keywords": ["rbac", "permissions", "roles", "authorisation", "authorization", "abac"],
+    "entrypoints": [
+      {
+        "name": "createRbac",
+        "import": "@aspec/rbac",
+        "description": "Creates the authorisation engine."
+      },
+      {
+        "name": "defineRbac",
+        "import": "@aspec/rbac",
+        "description": "Validates a code-defined role and permission catalogue."
+      },
+      {
+        "name": "createRbacMiddleware",
+        "import": "@aspec/rbac/express",
+        "description": "Express permission guards."
+      },
+      {
+        "name": "PermissionProvider",
+        "import": "@aspec/rbac/react",
+        "description": "React snapshot provider (UX only)."
+      }
+    ]
+  }
+}

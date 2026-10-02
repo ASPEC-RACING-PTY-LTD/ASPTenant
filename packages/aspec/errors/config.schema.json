@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ASPEC errors configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "format": {
+      "enum": ["problem", "envelope"],
+      "default": "problem",
+      "description": "Client error response format."
+    },
+    "typeBaseUri": {
+      "type": "string",
+      "format": "uri",
+      "default": "about:blank",
+      "description": "Base URI for RFC 9457 problem type."
+    },
+    "debug": {
+      "type": "boolean",
+      "default": false,
+      "description": "Include debug fields in responses when not in production."
+    },
+    "environment": { "type": "string", "description": "Environment name. Defaults to NODE_ENV." },
+    "clientErrorLevel": { "enum": ["debug", "info", "warn", "error"], "default": "info" },
+    "correlationHeader": {
+      "type": "string",
+      "default": "x-request-id",
+      "description": "Incoming/outgoing correlation ID header."
+    },
+    "dedupeClientErrors": { "type": "boolean", "default": false }
+  }
+}

@@ -1,0 +1,31 @@
+import { createRbac, defineRbac, subjectFromClaims } from '{{ imports.root }}';
+import { createMemoryStore } from '{{ imports.memory }}';
+import { createRbacAdminFetchHandler, createRbacFetchGuards } from '{{ imports.fetch }}';
+
+const definition = defineRbac({
+  permissions: ['posts:read', 'posts:write', 'posts:delete'],
+  roles: [
+    { key: 'viewer', permissions: ['posts:read'] },
+    { key: 'editor', permissions: ['posts:write'], parents: ['viewer'] },
+    { key: 'admin', permissions: ['posts:delete', 'rbac:admin'], parents: ['editor'] },
+  ],
+});
+
+export const rbac = createRbac({
+  store: createMemoryStore(),
+  definition,
+});
+
+export const rbacGuards = createRbacFetchGuards(rbac);
+
+export function getSubject(req: Request): ReturnType<typeof subjectFromClaims> | null {
+  // Replace with your JWT or session claims.
+  const raw = req.headers.get('x-user-claims');
+  if (!raw) return null;
+  return subjectFromClaims(JSON.parse(raw));
+}
+
+export const rbacAdminHandler = createRbacAdminFetchHandler(rbac, {
+  getSubject,
+  basePath: '/admin/rbac',
+});

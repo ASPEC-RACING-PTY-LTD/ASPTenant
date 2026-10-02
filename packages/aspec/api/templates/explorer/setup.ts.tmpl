@@ -1,0 +1,44 @@
+import { createApi, defineRoute, ok } from '{{ imports.root }}';
+{{#if framework == "express"}}
+import { createExpressApi } from '{{ imports.express }}';
+{{else}}
+{{#if framework == "fastify"}}
+import { fastifyApi } from '{{ imports.fastify }}';
+{{else}}
+{{#if framework == "hono"}}
+import { createHonoApi } from '{{ imports.hono }}';
+{{else}}
+{{#if framework == "fetch"}}
+import { createFetchApi } from '{{ imports.fetch }}';
+{{/if}}
+{{/if}}
+{{/if}}
+{{/if}}
+
+export const api = createApi({
+  info: {
+    title: process.env.API_TITLE ?? 'API',
+    version: process.env.API_VERSION ?? '1.0.0',
+  },
+{{#if versioning != "none"}}
+  versioning: { style: '{{ versioning }}', versions: ['1'], defaultVersion: '1' },
+{{/if}}
+  routes: [defineRoute({ method: 'get', path: '/health', handler: async () => ok({ ok: true }) })],
+});
+
+{{#if framework == "express"}}
+export const apiMiddleware = createExpressApi(api);
+{{else}}
+{{#if framework == "fastify"}}
+export const apiPlugin = fastifyApi;
+export const apiPluginOpts = { api };
+{{else}}
+{{#if framework == "hono"}}
+export const app = createHonoApi(api);
+{{else}}
+{{#if framework == "fetch"}}
+export const fetchHandler = createFetchApi(api);
+{{/if}}
+{{/if}}
+{{/if}}
+{{/if}}

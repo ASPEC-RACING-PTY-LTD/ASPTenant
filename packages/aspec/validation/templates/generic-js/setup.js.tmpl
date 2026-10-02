@@ -1,0 +1,6 @@
+{{#if moduleSystem == "commonjs"}}
+const { validate, parse, validateConfig } = require('{{ imports.root }}');
+module.exports = { validate, parse, validateConfig };
+{{else}}
+export { validate, parse, validateConfig } from '{{ imports.root }}';
+{{/if}}

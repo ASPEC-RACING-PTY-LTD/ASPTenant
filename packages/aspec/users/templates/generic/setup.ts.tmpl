@@ -1,0 +1,10 @@
+import { createUsers } from '{{ imports.root }}';
+import { createMemoryUsersStore } from '{{ imports.memory }}';
+
+export const users = createUsers({
+  store: createMemoryUsersStore(),
+  invitations: {
+    acceptUrl: process.env.USERS_ACCEPT_URL,
+    appName: process.env.USERS_APP_NAME ?? 'our application',
+  },
+});

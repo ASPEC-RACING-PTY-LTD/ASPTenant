@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ASPEC db configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "url": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Connection URL (postgres://, postgresql://, sqlite:, file: or a SQLite file path)."
+    },
+    "dialect": { "enum": ["postgres", "sqlite"] },
+    "host": { "type": "string" },
+    "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+    "user": { "type": "string" },
+    "password": { "type": "string" },
+    "database": { "type": "string" },
+    "filename": { "type": "string", "description": "SQLite file path or :memory:." },
+    "ssl": {
+      "oneOf": [
+        { "enum": ["disable", "require", "verify-ca", "verify-full"] },
+        { "type": "boolean" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "mode": { "enum": ["disable", "require", "verify-ca", "verify-full"] },
+            "caFile": { "type": "string" },
+            "certFile": { "type": "string" },
+            "keyFile": { "type": "string" },
+            "servername": { "type": "string" }
+          }
+        }
+      ]
+    },
+    "pool": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "max": { "type": "integer", "minimum": 1, "maximum": 1000, "default": 10 },
+        "idleTimeoutMs": { "type": "integer", "minimum": 0, "default": 10000 },
+        "connectionTimeoutMs": { "type": "integer", "minimum": 0, "default": 10000 },
+        "maxLifetimeSeconds": { "type": "integer", "minimum": 0, "default": 0 }
+      }
+    },
+    "statementTimeoutMs": { "type": "integer", "minimum": 0 },
+    "applicationName": { "type": "string", "maxLength": 63 },
+    "searchPath": {
+      "oneOf": [{ "type": "string" }, { "type": "array", "items": { "type": "string" } }]
+    },
+    "driver": { "enum": ["better-sqlite3", "node:sqlite"] },
+    "busyTimeoutMs": { "type": "integer", "minimum": 0, "default": 5000 },
+    "journalMode": { "enum": ["wal", "delete", "truncate", "persist", "memory", "off"] },
+    "foreignKeys": { "type": "boolean", "default": true },
+    "readonly": { "type": "boolean", "default": false },
+    "lazy": { "type": "boolean", "default": false },
+    "migrationsDirectory": { "type": "string", "default": "migrations" },
+    "tablePrefix": { "type": "string", "default": "db_" }
+  }
+}

@@ -1,0 +1,101 @@
+export {
+  AppError,
+  type AppErrorOptions,
+  BadRequestError,
+  ConflictError,
+  categoryForStatus,
+  type DefinedError,
+  type DefinedErrorClass,
+  type DefinedErrorOptions,
+  type DefineErrorOptions,
+  DependencyFailureError,
+  defineError,
+  ERROR_CATEGORIES,
+  type ErrorCategory,
+  ForbiddenError,
+  GoneError,
+  hasCode,
+  InternalError,
+  isAppError,
+  isErrorCode,
+  isErrorLike,
+  isErrorStatus,
+  NotFoundError,
+  NotImplementedError,
+  PayloadTooLargeError,
+  RateLimitedError,
+  ServiceUnavailableError,
+  TimeoutError,
+  type TypedErrorOptions,
+  UnauthorizedError,
+  type UnauthorizedErrorOptions,
+  UnprocessableError,
+} from './app-error.js';
+export {
+  CORRELATION_ID_PATTERN,
+  type CorrelationContext,
+  type CorrelationOptions,
+  createCorrelationContext,
+  isValidCorrelationId,
+} from './correlation.js';
+export {
+  type DebugInfo,
+  type DebugOptions,
+  parseStack,
+  type StackFrame,
+  toDebugJSON,
+} from './debug.js';
+export {
+  createErrorHandler,
+  type ErrorFormat,
+  type ErrorHandler,
+  type ErrorHandlerOptions,
+  type ErrorRequestInfo,
+  type ErrorResponse,
+  ErrorsConfigError,
+} from './handler.js';
+export {
+  createErrorLogger,
+  type DedupeOptions,
+  type ErrorLogContext,
+  type ErrorLogger,
+  type ErrorLoggerOptions,
+  LOG_LEVELS,
+  type LogLevel,
+  noopLogger,
+} from './logging.js';
+export {
+  classifyError,
+  codeForStatus,
+  type ErrorClassification,
+  type MappedError,
+  type MappingRule,
+  mapError,
+  titleForStatus,
+} from './map.js';
+export type { Clock, ErrorLike, IdGenerator, LoggerLike } from './ports.js';
+export {
+  type ErrorEnvelope,
+  isDebugAllowed,
+  PROBLEM_CONTENT_TYPE,
+  type ProblemDetails,
+  problemType,
+  type SerializeOptions,
+  toErrorEnvelope,
+  toProblemDetails,
+} from './problem.js';
+export {
+  type FatalEvent,
+  installProcessHandlers,
+  type ProcessHandlerOptions,
+  type ProcessLike,
+} from './process.js';
+export {
+  createRedactor,
+  DEFAULT_SENSITIVE_EXACT_KEYS,
+  DEFAULT_SENSITIVE_KEY_FRAGMENTS,
+  REDACTED,
+  type RedactOptions,
+  type Redactor,
+  redact,
+} from './redact.js';

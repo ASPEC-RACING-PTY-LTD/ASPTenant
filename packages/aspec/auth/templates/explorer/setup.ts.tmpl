@@ -1,0 +1,75 @@
+import { createAuth, readAuthEnv, signingFromEnv } from '{{ imports.root }}';
+{{#if storage == "memory"}}
+import { createMemoryAuthStore } from '{{ imports.memory }}';
+{{else}}
+import { createSqlAuthStore, migrate } from '{{ imports.sql }}';
+{{/if}}
+{{#if framework == "express"}}
+import { createAuthRouter } from '{{ imports.express }}';
+{{/if}}
+{{#if framework == "fastify"}}
+import { createAuthPlugin } from '{{ imports.fastify }}';
+{{/if}}
+{{#if framework == "hono"}}
+import { createAuthRoutes } from '{{ imports.hono }}';
+{{/if}}
+{{#if framework == "fetch"}}
+import { createAuthFetchHandler } from '{{ imports.fetch }}';
+{{/if}}
+{{#if hibp}}
+import { createHibpChecker } from '{{ imports.hibp }}';
+{{/if}}
+
+const env = readAuthEnv(process.env);
+{{#if storage == "memory"}}
+const store = createMemoryAuthStore();
+{{else}}
+// await migrate(sqlClient);
+const store = createSqlAuthStore(sqlClient);
+{{/if}}
+
+export const auth = createAuth({
+  store,
+  appName: 'Application',
+{{#if hibp}}
+  passwordPolicy: { isPasswordCompromised: createHibpChecker() },
+{{/if}}
+  ...(env.secret || env.jwtPrivateKey
+    ? {
+        tokens: {
+          signing: signingFromEnv(env),
+          issuer: env.appUrl ?? 'http://localhost:3000',
+          audience: env.appUrl ?? 'http://localhost:3000',
+        },
+      }
+    : {}),
+  ...(env.encryptionKey ? { mfa: { encryptionKey: env.encryptionKey } } : {}),
+});
+
+{{#if framework == "express"}}
+export const authRouter = createAuthRouter(auth, {
+  basePath: '/auth',
+  allowedOrigins: env.allowedOrigins.length > 0 ? env.allowedOrigins : ['http://localhost:3000'],
+});
+{{/if}}
+{{#if framework == "fastify"}}
+export const authPlugin = createAuthPlugin(auth, {
+  basePath: '/auth',
+  allowedOrigins: env.allowedOrigins.length > 0 ? env.allowedOrigins : ['http://localhost:3000'],
+});
+{{/if}}
+{{#if framework == "hono"}}
+export const authRoutes = createAuthRoutes(auth, {
+  basePath: '/auth',
+  allowedOrigins: env.allowedOrigins.length > 0 ? env.allowedOrigins : ['http://localhost:3000'],
+});
+{{/if}}
+{{#if framework == "fetch"}}
+export const authHandler = createAuthFetchHandler(auth, {
+  basePath: '/auth',
+  allowedOrigins: env.allowedOrigins.length > 0 ? env.allowedOrigins : ['http://localhost:3000'],
+});
+{{/if}}
+{{#if framework == "none"}}
+export { auth };
+{{/if}}

@@ -1,0 +1,9 @@
+import { afterEach } from 'vitest';
+import { cleanupAll, resetSequences, setSeed } from '{{ imports.root }}';
+
+setSeed(process.env.ASPEC_TEST_SEED ?? 'aspec-testing');
+
+afterEach(async () => {
+  resetSequences();
+  await cleanupAll();
+});

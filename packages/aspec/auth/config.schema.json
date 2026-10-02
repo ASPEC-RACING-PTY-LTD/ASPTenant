@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ASPEC auth configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "appName": { "type": "string", "minLength": 1, "default": "Application" },
+    "storage": { "enum": ["memory", "postgres", "sqlite"], "default": "memory" },
+    "tablePrefix": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{0,30}$",
+      "default": "auth_"
+    },
+    "session": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "idleTimeoutMs": { "type": "integer", "minimum": 60000, "default": 86400000 },
+        "absoluteTimeoutMs": { "type": "integer", "minimum": 60000, "default": 2592000000 },
+        "touchIntervalMs": { "type": "integer", "minimum": 0, "default": 60000 }
+      }
+    },
+    "tokens": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "issuer": { "type": "string", "minLength": 1 },
+        "audience": { "type": "string", "minLength": 1 },
+        "accessTokenTtlMs": { "type": "integer", "minimum": 10000, "default": 600000 },
+        "refreshTokenTtlMs": { "type": "integer", "minimum": 60000, "default": 2592000000 }
+      }
+    },
+    "cookie": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "secure": { "type": "boolean", "default": true },
+        "sameSite": { "enum": ["lax", "strict", "none"], "default": "lax" }
+      }
+    },
+    "passwordPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "minLength": { "type": "integer", "minimum": 8, "default": 12 },
+        "maxLength": { "type": "integer", "minimum": 8, "maximum": 1024, "default": 128 },
+        "hibp": { "type": "boolean", "default": false }
+      }
+    },
+    "lockout": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean", "default": true },
+        "maxFailures": { "type": "integer", "minimum": 1, "default": 5 },
+        "baseDurationMs": { "type": "integer", "minimum": 1000, "default": 300000 },
+        "factor": { "type": "number", "minimum": 1, "maximum": 10, "default": 2 },
+        "maxDurationMs": { "type": "integer", "minimum": 1000, "default": 3600000 },
+        "revealLockedState": {
+          "enum": ["after-valid-password", "always", "never"],
+          "default": "after-valid-password"
+        }
+      }
+    },
+    "mfa": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean", "default": false },
+        "recoveryCodeCount": { "type": "integer", "minimum": 1, "default": 10 }
+      }
+    },
+    "oidc": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean", "default": false },
+        "allowSignup": { "type": "boolean", "default": true },
+        "autoLinkByEmail": { "type": "boolean", "default": false }
+      }
+    },
+    "webauthn": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean", "default": false },
+        "rpID": { "type": "string" },
+        "rpName": { "type": "string" }
+      }
+    },
+    "http": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "basePath": { "type": "string", "default": "/auth" },
+        "csrf": { "type": "boolean", "default": true }
+      }
+    }
+  }
+}

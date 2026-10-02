@@ -1,0 +1,541 @@
+import { randomUUID } from 'node:crypto';
+import type { SqlClient } from '@aspec/db';
+import type {
+  DirectoryApplication,
+  DirectoryCounts,
+  DirectoryDomain,
+  DirectoryGroup,
+  DirectoryGroupMember,
+  DirectoryMailbox,
+  DomainStatus,
+  GroupKind,
+  MailboxKind,
+} from './types.js';
+
+type Row = Record<string, unknown>;
+
+const num = (value: unknown): number => (typeof value === 'number' ? value : Number(value));
+const numOrNull = (value: unknown): number | null =>
+  value === null || value === undefined ? null : num(value);
+const strOrNull = (value: unknown): string | null =>
+  value === null || value === undefined ? null : String(value);
+
+function toGroup(row: Row, memberCount: number): DirectoryGroup {
+  return {
+    id: String(row.id),
+    tenantId: String(row.tenant_id),
+    name: String(row.name),
+    slug: String(row.slug),
+    kind: String(row.kind) as GroupKind,
+    description: strOrNull(row.description),
+    memberCount,
+    createdAt: num(row.created_at),
+    updatedAt: num(row.updated_at),
+  };
+}
+
+function toDomain(row: Row): DirectoryDomain {
+  return {
+    id: String(row.id),
+    tenantId: String(row.tenant_id),
+    hostname: String(row.hostname),
+    status: String(row.status) as DomainStatus,
+    primary: num(row.is_primary) === 1,
+    createdAt: num(row.created_at),
+    updatedAt: num(row.updated_at),
+    verifiedAt: numOrNull(row.verified_at),
+  };
+}
+
+function toMailbox(row: Row, aliases: string[]): DirectoryMailbox {
+  return {
+    id: String(row.id),
+    tenantId: String(row.tenant_id),
+    userId: strOrNull(row.user_id),
+    primaryAddress: String(row.primary_address),
+    kind: String(row.kind) as MailboxKind,
+    displayName: strOrNull(row.display_name),
+    quotaBytes: numOrNull(row.quota_bytes),
+    aliases,
+    createdAt: num(row.created_at),
+    updatedAt: num(row.updated_at),
+  };
+}
+
+function toApplication(row: Row): DirectoryApplication {
+  const raw = row.redirect_uris;
+  const redirectUris = typeof raw === 'string' ? (JSON.parse(raw) as string[]) : (raw as string[]);
+  return {
+    id: String(row.id),
+    tenantId: String(row.tenant_id),
+    name: String(row.name),
+    clientId: String(row.client_id),
+    redirectUris,
+    createdAt: num(row.created_at),
+    updatedAt: num(row.updated_at),
+  };
+}
+
+export class DirectoryStore {
+  private readonly db: SqlClient;
+
+  constructor(db: SqlClient) {
+    this.db = db;
+  }
+
+  async listGroups(tenantId: string): Promise<DirectoryGroup[]> {
+    const groups = await this.db.query(
+      `SELECT * FROM aspectenant_groups WHERE tenant_id = $1 ORDER BY name ASC`,
+      [tenantId],
+    );
+    const counts = await this.db.query<{ group_id: string; n: unknown }>(
+      `SELECT group_id, COUNT(*) AS n FROM aspectenant_group_members
+       WHERE group_id IN (SELECT id FROM aspectenant_groups WHERE tenant_id = $1)
+       GROUP BY group_id`,
+      [tenantId],
+    );
+    const countById = new Map(counts.rows.map((row) => [String(row.group_id), num(row.n)]));
+    return groups.rows.map((row) => toGroup(row, countById.get(String(row.id)) ?? 0));
+  }
+
+  async getGroup(tenantId: string, id: string): Promise<DirectoryGroup | null> {
+    const result = await this.db.query(
+      `SELECT * FROM aspectenant_groups WHERE id = $1 AND tenant_id = $2`,
+      [id, tenantId],
+    );
+    const row = result.rows[0];
+    if (!row) return null;
+    const count = await this.db.query<{ n: unknown }>(
+      `SELECT COUNT(*) AS n FROM aspectenant_group_members WHERE group_id = $1`,
+      [id],
+    );
+    return toGroup(row, num(count.rows[0]?.n ?? 0));
+  }
+
+  async findGroupBySlug(tenantId: string, slug: string): Promise<DirectoryGroup | null> {
+    const result = await this.db.query(
+      `SELECT * FROM aspectenant_groups WHERE tenant_id = $1 AND slug = $2`,
+      [tenantId, slug],
+    );
+    const row = result.rows[0];
+    return row ? toGroup(row, 0) : null;
+  }
+
+  async insertGroup(input: {
+    tenantId: string;
+    name: string;
+    slug: string;
+    kind: GroupKind;
+    description: string | null;
+  }): Promise<DirectoryGroup> {
+    const now = Date.now();
+    const id = randomUUID();
+    await this.db.query(
+      `INSERT INTO aspectenant_groups (id, tenant_id, name, slug, kind, description, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [id, input.tenantId, input.name, input.slug, input.kind, input.description, now, now],
+    );
+    return {
+      id,
+      tenantId: input.tenantId,
+      name: input.name,
+      slug: input.slug,
+      kind: input.kind,
+      description: input.description,
+      memberCount: 0,
+      createdAt: now,
+      updatedAt: now,
+    };
+  }
+
+  async updateGroup(
+    tenantId: string,
+    id: string,
+    patch: { name?: string; description?: string | null; kind?: GroupKind },
+  ): Promise<DirectoryGroup | null> {
+    const current = await this.getGroup(tenantId, id);
+    if (!current) return null;
+    const now = Date.now();
+    const name = patch.name ?? current.name;
+    const description = patch.description === undefined ? current.description : patch.description;
+    const kind = patch.kind ?? current.kind;
+    await this.db.query(
+      `UPDATE aspectenant_groups SET name = $1, description = $2, kind = $3, updated_at = $4
+       WHERE id = $5 AND tenant_id = $6`,
+      [name, description, kind, now, id, tenantId],
+    );
+    return { ...current, name, description, kind, updatedAt: now };
+  }
+
+  async deleteGroup(tenantId: string, id: string): Promise<boolean> {
+    await this.db.query(`DELETE FROM aspectenant_group_members WHERE group_id = $1`, [id]);
+    const result = await this.db.query(
+      `DELETE FROM aspectenant_groups WHERE id = $1 AND tenant_id = $2`,
+      [id, tenantId],
+    );
+    return result.rowCount > 0;
+  }
+
+  async listGroupMembers(groupId: string): Promise<DirectoryGroupMember[]> {
+    const result = await this.db.query(
+      `SELECT group_id, user_id, added_at FROM aspectenant_group_members
+       WHERE group_id = $1 ORDER BY added_at ASC`,
+      [groupId],
+    );
+    return result.rows.map((row) => ({
+      groupId: String(row.group_id),
+      userId: String(row.user_id),
+      addedAt: num(row.added_at),
+    }));
+  }
+
+  async addGroupMember(groupId: string, userId: string): Promise<DirectoryGroupMember> {
+    const addedAt = Date.now();
+    await this.db.query(
+      `INSERT INTO aspectenant_group_members (group_id, user_id, added_at) VALUES ($1, $2, $3)`,
+      [groupId, userId, addedAt],
+    );
+    return { groupId, userId, addedAt };
+  }
+
+  async hasGroupMember(groupId: string, userId: string): Promise<boolean> {
+    const result = await this.db.query(
+      `SELECT 1 FROM aspectenant_group_members WHERE group_id = $1 AND user_id = $2`,
+      [groupId, userId],
+    );
+    return result.rows.length > 0;
+  }
+
+  async removeGroupMember(groupId: string, userId: string): Promise<boolean> {
+    const result = await this.db.query(
+      `DELETE FROM aspectenant_group_members WHERE group_id = $1 AND user_id = $2`,
+      [groupId, userId],
+    );
+    return result.rowCount > 0;
+  }
+
+  async listDomains(tenantId: string): Promise<DirectoryDomain[]> {
+    const result = await this.db.query(
+      `SELECT * FROM aspectenant_domains WHERE tenant_id = $1 ORDER BY is_primary DESC, hostname ASC`,
+      [tenantId],
+    );
+    return result.rows.map(toDomain);
+  }
+
+  async getDomain(tenantId: string, id: string): Promise<DirectoryDomain | null> {
+    const result = await this.db.query(
+      `SELECT * FROM aspectenant_domains WHERE id = $1 AND tenant_id = $2`,
+      [id, tenantId],
+    );
+    const row = result.rows[0];
+    return row ? toDomain(row) : null;
+  }
+
+  async findDomainByHostname(tenantId: string, hostname: string): Promise<DirectoryDomain | null> {
+    const result = await this.db.query(
+      `SELECT * FROM aspectenant_domains WHERE tenant_id = $1 AND hostname = $2`,
+      [tenantId, hostname],
+    );
+    const row = result.rows[0];
+    return row ? toDomain(row) : null;
+  }
+
+  async insertDomain(input: {
+    tenantId: string;
+    hostname: string;
+    primary: boolean;
+  }): Promise<DirectoryDomain> {
+    const now = Date.now();
+    const id = randomUUID();
+    await this.db.query(
+      `INSERT INTO aspectenant_domains
+        (id, tenant_id, hostname, status, is_primary, created_at, updated_at, verified_at)
+       VALUES ($1, $2, $3, 'pending', $4, $5, $6, NULL)`,
+      [id, input.tenantId, input.hostname, input.primary ? 1 : 0, now, now],
+    );
+    return {
+      id,
+      tenantId: input.tenantId,
+      hostname: input.hostname,
+      status: 'pending',
+      primary: input.primary,
+      createdAt: now,
+      updatedAt: now,
+      verifiedAt: null,
+    };
+  }
+
+  async updateDomain(
+    tenantId: string,
+    id: string,
+    patch: { status?: DomainStatus; primary?: boolean; verifiedAt?: number | null },
+  ): Promise<DirectoryDomain | null> {
+    const current = await this.getDomain(tenantId, id);
+    if (!current) return null;
+    const now = Date.now();
+    const status = patch.status ?? current.status;
+    const primary = patch.primary ?? current.primary;
+    const verifiedAt = patch.verifiedAt === undefined ? current.verifiedAt : patch.verifiedAt;
+    await this.db.query(
+      `UPDATE aspectenant_domains
+       SET status = $1, is_primary = $2, verified_at = $3, updated_at = $4
+       WHERE id = $5 AND tenant_id = $6`,
+      [status, primary ? 1 : 0, verifiedAt, now, id, tenantId],
+    );
+    return { ...current, status, primary, verifiedAt, updatedAt: now };
+  }
+
+  async clearPrimaryDomain(tenantId: string): Promise<void> {
+    await this.db.query(
+      `UPDATE aspectenant_domains SET is_primary = 0, updated_at = $1 WHERE tenant_id = $2 AND is_primary = 1`,
+      [Date.now(), tenantId],
+    );
+  }
+
+  async deleteDomain(tenantId: string, id: string): Promise<boolean> {
+    const result = await this.db.query(
+      `DELETE FROM aspectenant_domains WHERE id = $1 AND tenant_id = $2`,
+      [id, tenantId],
+    );
+    return result.rowCount > 0;
+  }
+
+  async listMailboxes(tenantId: string): Promise<DirectoryMailbox[]> {
+    const result = await this.db.query(
+      `SELECT * FROM aspectenant_mailboxes WHERE tenant_id = $1 ORDER BY primary_address ASC`,
+      [tenantId],
+    );
+    return Promise.all(result.rows.map((row) => this.hydrateMailbox(row)));
+  }
+
+  async getMailbox(tenantId: string, id: string): Promise<DirectoryMailbox | null> {
+    const result = await this.db.query(
+      `SELECT * FROM aspectenant_mailboxes WHERE id = $1 AND tenant_id = $2`,
+      [id, tenantId],
+    );
+    const row = result.rows[0];
+    return row ? this.hydrateMailbox(row) : null;
+  }
+
+  async findMailboxByAddress(tenantId: string, address: string): Promise<DirectoryMailbox | null> {
+    const result = await this.db.query(
+      `SELECT * FROM aspectenant_mailboxes WHERE tenant_id = $1 AND primary_address = $2`,
+      [tenantId, address],
+    );
+    const row = result.rows[0];
+    if (row) return this.hydrateMailbox(row);
+    const alias = await this.db.query(
+      `SELECT m.* FROM aspectenant_mailboxes m
+       INNER JOIN aspectenant_mailbox_aliases a ON a.mailbox_id = m.id
+       WHERE m.tenant_id = $1 AND a.alias = $2`,
+      [tenantId, address],
+    );
+    const aliasRow = alias.rows[0];
+    return aliasRow ? this.hydrateMailbox(aliasRow) : null;
+  }
+
+  async findMailboxByUser(tenantId: string, userId: string): Promise<DirectoryMailbox | null> {
+    const result = await this.db.query(
+      `SELECT * FROM aspectenant_mailboxes WHERE tenant_id = $1 AND user_id = $2 AND kind = 'user'`,
+      [tenantId, userId],
+    );
+    const row = result.rows[0];
+    return row ? this.hydrateMailbox(row) : null;
+  }
+
+  async insertMailbox(input: {
+    tenantId: string;
+    userId: string | null;
+    primaryAddress: string;
+    kind: MailboxKind;
+    displayName: string | null;
+    quotaBytes: number | null;
+  }): Promise<DirectoryMailbox> {
+    const now = Date.now();
+    const id = randomUUID();
+    await this.db.query(
+      `INSERT INTO aspectenant_mailboxes
+        (id, tenant_id, user_id, primary_address, kind, display_name, quota_bytes, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+      [
+        id,
+        input.tenantId,
+        input.userId,
+        input.primaryAddress,
+        input.kind,
+        input.displayName,
+        input.quotaBytes,
+        now,
+        now,
+      ],
+    );
+    return {
+      id,
+      tenantId: input.tenantId,
+      userId: input.userId,
+      primaryAddress: input.primaryAddress,
+      kind: input.kind,
+      displayName: input.displayName,
+      quotaBytes: input.quotaBytes,
+      aliases: [],
+      createdAt: now,
+      updatedAt: now,
+    };
+  }
+
+  async updateMailbox(
+    tenantId: string,
+    id: string,
+    patch: { displayName?: string | null; quotaBytes?: number | null },
+  ): Promise<DirectoryMailbox | null> {
+    const current = await this.getMailbox(tenantId, id);
+    if (!current) return null;
+    const now = Date.now();
+    const displayName = patch.displayName === undefined ? current.displayName : patch.displayName;
+    const quotaBytes = patch.quotaBytes === undefined ? current.quotaBytes : patch.quotaBytes;
+    await this.db.query(
+      `UPDATE aspectenant_mailboxes SET display_name = $1, quota_bytes = $2, updated_at = $3
+       WHERE id = $4 AND tenant_id = $5`,
+      [displayName, quotaBytes, now, id, tenantId],
+    );
+    return { ...current, displayName, quotaBytes, updatedAt: now };
+  }
+
+  async deleteMailbox(tenantId: string, id: string): Promise<boolean> {
+    await this.db.query(`DELETE FROM aspectenant_mailbox_aliases WHERE mailbox_id = $1`, [id]);
+    const result = await this.db.query(
+      `DELETE FROM aspectenant_mailboxes WHERE id = $1 AND tenant_id = $2`,
+      [id, tenantId],
+    );
+    return result.rowCount > 0;
+  }
+
+  async addAlias(mailboxId: string, alias: string): Promise<void> {
+    await this.db.query(
+      `INSERT INTO aspectenant_mailbox_aliases (mailbox_id, alias, created_at) VALUES ($1, $2, $3)`,
+      [mailboxId, alias, Date.now()],
+    );
+  }
+
+  async removeAlias(mailboxId: string, alias: string): Promise<boolean> {
+    const result = await this.db.query(
+      `DELETE FROM aspectenant_mailbox_aliases WHERE mailbox_id = $1 AND alias = $2`,
+      [mailboxId, alias],
+    );
+    return result.rowCount > 0;
+  }
+
+  async listApplications(tenantId: string): Promise<DirectoryApplication[]> {
+    const result = await this.db.query(
+      `SELECT * FROM aspectenant_applications WHERE tenant_id = $1 ORDER BY name ASC`,
+      [tenantId],
+    );
+    return result.rows.map(toApplication);
+  }
+
+  async getApplication(tenantId: string, id: string): Promise<DirectoryApplication | null> {
+    const result = await this.db.query(
+      `SELECT * FROM aspectenant_applications WHERE id = $1 AND tenant_id = $2`,
+      [id, tenantId],
+    );
+    const row = result.rows[0];
+    return row ? toApplication(row) : null;
+  }
+
+  async insertApplication(input: {
+    tenantId: string;
+    name: string;
+    clientId: string;
+    redirectUris: string[];
+  }): Promise<DirectoryApplication> {
+    const now = Date.now();
+    const id = randomUUID();
+    await this.db.query(
+      `INSERT INTO aspectenant_applications
+        (id, tenant_id, name, client_id, redirect_uris, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [
+        id,
+        input.tenantId,
+        input.name,
+        input.clientId,
+        JSON.stringify(input.redirectUris),
+        now,
+        now,
+      ],
+    );
+    return {
+      id,
+      tenantId: input.tenantId,
+      name: input.name,
+      clientId: input.clientId,
+      redirectUris: input.redirectUris,
+      createdAt: now,
+      updatedAt: now,
+    };
+  }
+
+  async updateApplication(
+    tenantId: string,
+    id: string,
+    patch: { name?: string; redirectUris?: string[] },
+  ): Promise<DirectoryApplication | null> {
+    const current = await this.getApplication(tenantId, id);
+    if (!current) return null;
+    const now = Date.now();
+    const name = patch.name ?? current.name;
+    const redirectUris = patch.redirectUris ?? current.redirectUris;
+    await this.db.query(
+      `UPDATE aspectenant_applications SET name = $1, redirect_uris = $2, updated_at = $3
+       WHERE id = $4 AND tenant_id = $5`,
+      [name, JSON.stringify(redirectUris), now, id, tenantId],
+    );
+    return { ...current, name, redirectUris, updatedAt: now };
+  }
+
+  async deleteApplication(tenantId: string, id: string): Promise<boolean> {
+    const result = await this.db.query(
+      `DELETE FROM aspectenant_applications WHERE id = $1 AND tenant_id = $2`,
+      [id, tenantId],
+    );
+    return result.rowCount > 0;
+  }
+
+  async counts(tenantId: string): Promise<DirectoryCounts> {
+    const [groups, domains, mailboxes, applications] = await Promise.all([
+      this.db.query<{ n: unknown }>(
+        `SELECT COUNT(*) AS n FROM aspectenant_groups WHERE tenant_id = $1`,
+        [tenantId],
+      ),
+      this.db.query<{ n: unknown }>(
+        `SELECT COUNT(*) AS n FROM aspectenant_domains WHERE tenant_id = $1`,
+        [tenantId],
+      ),
+      this.db.query<{ n: unknown }>(
+        `SELECT COUNT(*) AS n FROM aspectenant_mailboxes WHERE tenant_id = $1`,
+        [tenantId],
+      ),
+      this.db.query<{ n: unknown }>(
+        `SELECT COUNT(*) AS n FROM aspectenant_applications WHERE tenant_id = $1`,
+        [tenantId],
+      ),
+    ]);
+    return {
+      groups: num(groups.rows[0]?.n ?? 0),
+      domains: num(domains.rows[0]?.n ?? 0),
+      mailboxes: num(mailboxes.rows[0]?.n ?? 0),
+      applications: num(applications.rows[0]?.n ?? 0),
+    };
+  }
+
+  private async hydrateMailbox(row: Row): Promise<DirectoryMailbox> {
+    const aliases = await this.db.query<{ alias: string }>(
+      `SELECT alias FROM aspectenant_mailbox_aliases WHERE mailbox_id = $1 ORDER BY alias ASC`,
+      [String(row.id)],
+    );
+    return toMailbox(
+      row,
+      aliases.rows.map((item) => String(item.alias)),
+    );
+  }
+}

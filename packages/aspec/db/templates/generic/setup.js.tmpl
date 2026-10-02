@@ -1,0 +1,31 @@
+{{#if moduleSystem == "commonjs"}}
+const { createDatabase, createMigrator } = require('{{ imports.root }}');
+
+const url = process.env.DATABASE_URL;
+if (!url) {
+  throw new Error('DATABASE_URL is required');
+}
+
+async function create() {
+  const db = await createDatabase({ url });
+  const migrator = createMigrator(db, {
+    directory: process.env.ASPEC_DB_MIGRATIONS_DIR ?? 'migrations',
+  });
+  return { db, migrator };
+}
+
+module.exports = create();
+{{else}}
+import { createDatabase, createMigrator } from '{{ imports.root }}';
+
+const url = process.env.DATABASE_URL;
+if (!url) {
+  throw new Error('DATABASE_URL is required');
+}
+
+export const db = await createDatabase({ url });
+
+export const migrator = createMigrator(db, {
+  directory: process.env.ASPEC_DB_MIGRATIONS_DIR ?? 'migrations',
+});
+{{/if}}

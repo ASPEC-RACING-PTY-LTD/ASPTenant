@@ -1,0 +1,26 @@
+import { createOrgs } from '{{ imports.root }}';
+import { createOrgsAdminRouter, createOrgsMemberRouter } from '{{ imports.express }}';
+import { createMemoryOrgsStore } from '{{ imports.memory }}';
+
+export const orgs = createOrgs({
+  mode: (process.env.ORGS_MODE === 'single' ? 'single' : 'multi'),
+  store: createMemoryOrgsStore(),
+  invitations: {
+    acceptUrl: process.env.ORGS_ACCEPT_URL,
+    appName: process.env.ORGS_APP_NAME ?? 'our application',
+  },
+});
+
+export const adminRouter = createOrgsAdminRouter(orgs, {
+  async resolveActor(req) {
+    void req;
+    return null;
+  },
+});
+
+export const memberRouter = createOrgsMemberRouter(orgs, {
+  async resolveActor(req) {
+    void req;
+    return null;
+  },
+});

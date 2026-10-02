@@ -1,0 +1,105 @@
+import { createUsers } from '{{ imports.root }}';
+{{#if storage == "memory"}}
+import { createMemoryUsersStore } from '{{ imports.memory }}';
+{{else}}
+import { createSqlUsersStore, migrate } from '{{ imports.sql }}';
+{{/if}}
+{{#if framework == "express"}}
+import { createUsersAdminRouter, createUsersSelfServiceRouter } from '{{ imports.express }}';
+{{/if}}
+{{#if framework == "fastify"}}
+import { createUsersAdminPlugin, createUsersSelfServicePlugin } from '{{ imports.fastify }}';
+{{/if}}
+{{#if framework == "hono"}}
+import { createUsersAdminApp, createUsersSelfServiceApp } from '{{ imports.hono }}';
+{{/if}}
+{{#if framework == "fetch"}}
+import { createUsersAdminHandler, createUsersSelfServiceHandler } from '{{ imports.fetch }}';
+{{/if}}
+
+{{#if storage == "memory"}}
+const store = createMemoryUsersStore();
+{{else}}
+// Provide a SqlClient (dialect "{{ storage }}") from @aspec/db or an inline adapter.
+const client = /* your SqlClient */ null as never;
+await migrate(client);
+const store = createSqlUsersStore(client);
+{{/if}}
+
+export const users = createUsers({
+  store,
+{{#if mailer}}
+  // mailer: notificationsMailer,
+{{/if}}
+{{#if permissions}}
+  // Delegate users:* permission checks to your authorisation layer (for example @aspec/rbac).
+  permissions: { can: async () => false },
+{{else}}
+{{#if framework != "none"}}
+  // Admin routes deny every request until this delegates to your authorisation layer.
+  permissions: { can: async () => false },
+{{/if}}
+{{/if}}
+  invitations: {
+    acceptUrl: process.env.USERS_ACCEPT_URL,
+    appName: process.env.USERS_APP_NAME ?? 'our application',
+  },
+});
+
+{{#if framework == "express"}}
+export const adminRouter = createUsersAdminRouter(users, {
+  async resolveActor(req) {
+    // Return { id, type?, roles? } from your auth layer, or null when unauthenticated.
+    void req;
+    return null;
+  },
+});
+export const selfServiceRouter = createUsersSelfServiceRouter(users, {
+  async resolveActor(req) {
+    void req;
+    return null;
+  },
+});
+{{/if}}
+{{#if framework == "fastify"}}
+export const adminPlugin = createUsersAdminPlugin(users, {
+  async resolveActor(req) {
+    void req;
+    return null;
+  },
+});
+export const selfServicePlugin = createUsersSelfServicePlugin(users, {
+  async resolveActor(req) {
+    void req;
+    return null;
+  },
+});
+{{/if}}
+{{#if framework == "hono"}}
+export const adminApp = createUsersAdminApp(users, {
+  async resolveActor(c) {
+    void c;
+    return null;
+  },
+});
+export const selfServiceApp = createUsersSelfServiceApp(users, {
+  async resolveActor(c) {
+    void c;
+    return null;
+  },
+});
+{{/if}}
+{{#if framework == "fetch"}}
+export const adminHandler = createUsersAdminHandler(users, {
+  async resolveActor(req) {
+    void req;
+    return null;
+  },
+});
+export const selfServiceHandler = createUsersSelfServiceHandler(users, {
+  async resolveActor(req) {
+    void req;
+    return null;
+  },
+});
+{{/if}}

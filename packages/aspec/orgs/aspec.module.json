@@ -1,0 +1,473 @@
+{
+  "$schema": "https://aspec.tech/schemas/module-manifest/v1.json",
+  "manifestVersion": 1,
+  "id": "aspec/orgs",
+  "name": "Organisations",
+  "summary": "Organisations, teams, memberships, invitations and tenant isolation.",
+  "description": "Provide organisation, team and tenant management for single-tenant and multi-tenant applications: membership lifecycle, invitations, org-scoped settings and permissions, tenant provisioning strategies, and AsyncLocalStorage isolation with PostgreSQL RLS helpers.",
+  "version": "1.0.0",
+  "category": "identity",
+  "tags": ["orgs", "tenancy", "teams", "memberships", "multi-tenant"],
+  "license": "MIT",
+  "maintainers": [
+    { "name": "ASPEC TECH", "email": "modules@aspec.tech", "url": "https://aspec.tech" }
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ASPEC-RACING-PTY-LTD/aspecdev",
+    "directory": "modules/orgs"
+  },
+  "homepage": "https://aspec.tech/modules/aspec/orgs",
+  "readme": "README.md",
+  "changelog": "CHANGELOG.md",
+  "languages": ["typescript", "javascript"],
+  "runtimes": [{ "name": "node", "range": ">=22.13.0" }],
+  "frameworks": [
+    {
+      "id": "express",
+      "name": "Express",
+      "range": "^4.18.0 || ^5.0.0",
+      "entrypoint": "@aspec/orgs/express",
+      "kind": "backend",
+      "tested": true,
+      "testedVersions": ["4.22.3", "5.2.1"]
+    },
+    {
+      "id": "fastify",
+      "name": "Fastify",
+      "range": "^5.0.0",
+      "entrypoint": "@aspec/orgs/fastify",
+      "kind": "backend",
+      "tested": true,
+      "testedVersions": ["5.12.5"]
+    },
+    {
+      "id": "hono",
+      "name": "Hono",
+      "range": "^4.0.0",
+      "entrypoint": "@aspec/orgs/hono",
+      "kind": "backend",
+      "tested": true,
+      "testedVersions": ["4.13.10"]
+    },
+    {
+      "id": "fetch",
+      "name": "Fetch API handler",
+      "range": "*",
+      "entrypoint": "@aspec/orgs/fetch",
+      "kind": "backend",
+      "tested": true,
+      "testedVersions": ["24.16.0"]
+    },
+    {
+      "id": "vitest",
+      "name": "Vitest",
+      "range": "^5.0.0",
+      "entrypoint": "@aspec/orgs",
+      "kind": "testing",
+      "tested": true,
+      "testedVersions": ["5.0.2"]
+    }
+  ],
+  "databases": [
+    { "id": "memory", "tested": true },
+    {
+      "id": "postgres",
+      "range": ">=14",
+      "entrypoint": "@aspec/orgs/sql",
+      "tested": true,
+      "testedVersions": ["17.11"]
+    },
+    {
+      "id": "sqlite",
+      "range": ">=3.35",
+      "entrypoint": "@aspec/orgs/sql",
+      "tested": true
+    }
+  ],
+  "services": [],
+  "platforms": {
+    "os": ["linux", "darwin", "windows"],
+    "arch": ["x64", "arm64"],
+    "tested": [{ "os": "windows", "arch": "x64", "runtime": "node@24.16.0" }]
+  },
+  "capabilities": [
+    { "id": "organisations", "summary": "Create, update, archive and delete organisations." },
+    { "id": "memberships-teams", "summary": "Membership lifecycle, teams and invitations." },
+    { "id": "tenant-isolation", "summary": "Tenant provisioning, ALS context and RLS helpers." },
+    {
+      "id": "http-admin",
+      "summary": "Admin and member HTTP routers.",
+      "optional": true,
+      "entrypoint": "@aspec/orgs/express"
+    }
+  ],
+  "dependencies": {
+    "required": [],
+    "optional": [
+      {
+        "id": "aspec/audit",
+        "range": "^1.0.0",
+        "reason": "Records orgs.* audit events when an AuditSink is provided."
+      },
+      {
+        "id": "aspec/notifications",
+        "range": "^1.0.0",
+        "reason": "Sends invitation emails when a Mailer is provided."
+      },
+      {
+        "id": "aspec/rbac",
+        "range": "^1.0.0",
+        "reason": "Delegates org-scoped permission checks when a PermissionChecker is provided."
+      },
+      {
+        "id": "aspec/db",
+        "range": "^1.0.0",
+        "reason": "Supplies a SqlClient for the SQL store and tenantScope."
+      }
+    ],
+    "peer": []
+  },
+  "compatibility": { "conflicts": [], "cli": ">=0.1.0" },
+  "packages": {
+    "npm": {
+      "name": "@aspec/orgs",
+      "entrypoints": {
+        ".": "Portable core API",
+        "./express": "Express 4/5 routers and tenant middleware",
+        "./fastify": "Fastify admin and member plugins",
+        "./hono": "Hono admin and member apps",
+        "./fetch": "Web Fetch API handlers",
+        "./memory": "In-memory store",
+        "./sql": "SQL store and migrations (PostgreSQL, SQLite)"
+      },
+      "dependencyType": "prod"
+    }
+  },
+  "install": {
+    "modes": ["package", "vendor"],
+    "defaultMode": "package",
+    "requirements": ["Node.js 22.13 or newer"],
+    "vendor": { "source": "src", "jsSource": "dist" }
+  },
+  "configuration": {
+    "schema": "config.schema.json",
+    "env": {
+      "required": [],
+      "optional": [
+        {
+          "name": "ORGS_DATABASE_URL",
+          "description": "PostgreSQL connection string when using the SQL store.",
+          "secret": true,
+          "example": "postgres://user:pass@localhost:5432/app"
+        },
+        {
+          "name": "ORGS_ACCEPT_URL",
+          "description": "Invitation accept URL template.",
+          "example": "https://app.example.com/org-invite"
+        },
+        {
+          "name": "ORGS_APP_NAME",
+          "description": "Application name in invitation emails.",
+          "example": "Acme App"
+        },
+        {
+          "name": "ORGS_MODE",
+          "description": "single or multi.",
+          "example": "multi"
+        }
+      ]
+    },
+    "explorer": {
+      "parameters": [
+        {
+          "id": "mode",
+          "label": "Tenancy mode",
+          "type": "select",
+          "default": "multi",
+          "options": [
+            { "value": "multi", "label": "Multi-tenant" },
+            { "value": "single", "label": "Single-tenant" }
+          ]
+        },
+        {
+          "id": "isolation",
+          "label": "Isolation strategy",
+          "type": "select",
+          "default": "shared",
+          "options": [
+            { "value": "shared", "label": "Shared schema (tenant_id)" },
+            { "value": "schema", "label": "PostgreSQL schema per tenant" },
+            { "value": "database", "label": "Database per tenant" }
+          ],
+          "when": { "param": "mode", "equals": "multi" }
+        },
+        {
+          "id": "resolution",
+          "label": "Tenant resolution",
+          "type": "select",
+          "default": "header",
+          "options": [
+            { "value": "header", "label": "Header" },
+            { "value": "subdomain", "label": "Subdomain" },
+            { "value": "path", "label": "Path prefix" }
+          ],
+          "when": { "param": "mode", "equals": "multi" }
+        },
+        {
+          "id": "framework",
+          "label": "Framework",
+          "type": "select",
+          "default": "express",
+          "options": [
+            { "value": "express", "label": "Express" },
+            { "value": "fastify", "label": "Fastify" },
+            { "value": "hono", "label": "Hono" },
+            { "value": "fetch", "label": "Fetch handler" },
+            { "value": "none", "label": "Core only" }
+          ]
+        },
+        {
+          "id": "storage",
+          "label": "Storage",
+          "type": "select",
+          "default": "memory",
+          "options": [
+            { "value": "memory", "label": "In memory" },
+            { "value": "postgres", "label": "PostgreSQL" },
+            { "value": "sqlite", "label": "SQLite" }
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "id": "setup",
+          "label": "orgs.setup.ts",
+          "language": "typescript",
+          "filename": "src/aspec/orgs.setup.ts",
+          "template": "templates/explorer/setup.ts.tmpl"
+        },
+        {
+          "id": "env",
+          "label": ".env",
+          "language": "dotenv",
+          "template": "templates/explorer/env.tmpl"
+        }
+      ]
+    }
+  },
+  "integration": {
+    "targets": [
+      {
+        "id": "express-typescript",
+        "label": "Express (TypeScript)",
+        "language": "typescript",
+        "framework": "express",
+        "automated": true,
+        "docs": "frameworks/express",
+        "files": [
+          {
+            "template": "templates/express/setup.ts.tmpl",
+            "path": "{{ srcDir }}/aspec/orgs.setup.ts",
+            "description": "Creates the orgs service and Express routers."
+          }
+        ],
+        "packages": [{ "name": "express", "range": "^4.18.0 || ^5.0.0" }],
+        "env": [],
+        "steps": [
+          "Import orgs, adminRouter and memberRouter from the generated file.",
+          "Mount the routers and wire resolveActor to your authentication layer.",
+          "For multi-tenant apps, mount createTenantMiddleware or call enterTenant."
+        ]
+      },
+      {
+        "id": "fastify-typescript",
+        "label": "Fastify (TypeScript)",
+        "language": "typescript",
+        "framework": "fastify",
+        "automated": true,
+        "docs": "frameworks/fastify",
+        "files": [
+          {
+            "template": "templates/fastify/setup.ts.tmpl",
+            "path": "{{ srcDir }}/aspec/orgs.setup.ts",
+            "description": "Creates the orgs service and Fastify plugins."
+          }
+        ],
+        "packages": [{ "name": "fastify", "range": "^5.0.0" }],
+        "env": [],
+        "steps": ["Register adminPlugin and memberPlugin on your Fastify instance."]
+      },
+      {
+        "id": "hono-typescript",
+        "label": "Hono (TypeScript)",
+        "language": "typescript",
+        "framework": "hono",
+        "automated": true,
+        "docs": "frameworks/hono",
+        "files": [
+          {
+            "template": "templates/hono/setup.ts.tmpl",
+            "path": "{{ srcDir }}/aspec/orgs.setup.ts",
+            "description": "Creates the orgs service and Hono apps."
+          }
+        ],
+        "packages": [{ "name": "hono", "range": "^4.0.0" }],
+        "env": [],
+        "steps": ["Mount adminApp and memberApp with route()."]
+      },
+      {
+        "id": "fetch-typescript",
+        "label": "Fetch handler (TypeScript)",
+        "language": "typescript",
+        "framework": "fetch",
+        "automated": true,
+        "docs": "frameworks/fetch",
+        "files": [
+          {
+            "template": "templates/fetch/setup.ts.tmpl",
+            "path": "{{ srcDir }}/aspec/orgs.setup.ts",
+            "description": "Creates the orgs service and Fetch handlers."
+          }
+        ],
+        "packages": [],
+        "env": [],
+        "steps": ["Export adminHandler or memberHandler from a Fetch-compatible route."]
+      },
+      {
+        "id": "generic-typescript",
+        "label": "Any TypeScript project",
+        "language": "typescript",
+        "automated": true,
+        "docs": "integrate",
+        "files": [
+          {
+            "template": "templates/generic/setup.ts.tmpl",
+            "path": "{{ srcDir }}/aspec/orgs.setup.ts",
+            "description": "Creates the orgs service without a framework adapter."
+          }
+        ],
+        "packages": [],
+        "env": [],
+        "steps": ["Import orgs and call createOrg, invite, enterTenant as needed."]
+      },
+      {
+        "id": "generic-javascript",
+        "label": "Any JavaScript project",
+        "language": "javascript",
+        "automated": true,
+        "docs": "integrate",
+        "files": [
+          {
+            "template": "templates/generic/setup.js.tmpl",
+            "path": "{{ srcDir }}/aspec/orgs.setup.js",
+            "description": "Creates the orgs service without a framework adapter."
+          }
+        ],
+        "packages": [],
+        "env": [],
+        "steps": ["Import orgs and call createOrg, invite, enterTenant as needed."]
+      }
+    ]
+  },
+  "validation": {
+    "checks": [
+      { "type": "package", "name": "@aspec/orgs", "range": "^1.0.0" },
+      { "type": "import", "specifier": "@aspec/orgs" }
+    ],
+    "commands": [
+      {
+        "run": ["node", "-e", "import('@aspec/orgs')"],
+        "description": "Imports the module entrypoint."
+      }
+    ],
+    "docs": "testing"
+  },
+  "uninstall": {
+    "steps": [
+      "Remove router or handler mounts from the application.",
+      "Drop the orgs_ tables if you used the SQL store and no longer need the data.",
+      "Drop per-tenant PostgreSQL schemas if you used schema isolation."
+    ],
+    "dataRetention": "SQL tables and tenant schemas are not dropped automatically.",
+    "docs": "uninstall"
+  },
+  "migrations": {
+    "docs": "migration",
+    "database": {
+      "dialects": ["postgres", "sqlite"],
+      "entrypoint": "@aspec/orgs/sql",
+      "tables": [
+        "orgs_organisations",
+        "orgs_memberships",
+        "orgs_teams",
+        "orgs_team_memberships",
+        "orgs_invitations",
+        "orgs_tenants",
+        "orgs_schema_migrations"
+      ]
+    }
+  },
+  "docs": {
+    "sections": {
+      "summary": "docs/summary.md",
+      "install": "docs/install.md",
+      "configure": "docs/configure.md",
+      "integrate": "docs/integrate.md",
+      "frameworks/express": "docs/frameworks/express.md",
+      "frameworks/fastify": "docs/frameworks/fastify.md",
+      "frameworks/hono": "docs/frameworks/hono.md",
+      "frameworks/fetch": "docs/frameworks/fetch.md",
+      "frameworks/vitest": "docs/frameworks/vitest.md",
+      "api": "docs/api.md",
+      "examples": "docs/examples.md",
+      "testing": "docs/testing.md",
+      "migration": "docs/migration.md",
+      "troubleshooting": "docs/troubleshooting.md",
+      "security": "docs/security.md",
+      "uninstall": "docs/uninstall.md",
+      "ai": "docs/ai.md"
+    }
+  },
+  "security": {
+    "contact": "security@aspec.tech",
+    "policy": "https://github.com/ASPEC-RACING-PTY-LTD/aspecdev/security/policy",
+    "sensitiveData": ["pii", "tokens"],
+    "notes": [
+      "Invitation tokens are stored hashed (SHA-256).",
+      "Last-owner protection prevents accidental lockout.",
+      "PostgreSQL RLS requires a non-superuser role or FORCE ROW LEVEL SECURITY."
+    ],
+    "threatModel": "security"
+  },
+  "ai": {
+    "summary": "Use createOrgs({ mode, store }) for organisations and tenancy; mount adapters for HTTP.",
+    "useWhen": [
+      "You need organisations, teams, memberships or invitations.",
+      "You need optional multi-tenancy without forcing it on single-tenant apps."
+    ],
+    "avoidWhen": [
+      "You only need user accounts. Use @aspec/users.",
+      "You only need global RBAC without org scope. Use @aspec/rbac."
+    ],
+    "keywords": ["orgs", "tenancy", "teams", "memberships", "invitations", "RLS"],
+    "entrypoints": [
+      { "name": "createOrgs", "import": "@aspec/orgs", "description": "Creates the orgs service." },
+      {
+        "name": "createMemoryOrgsStore",
+        "import": "@aspec/orgs/memory",
+        "description": "In-memory store."
+      },
+      {
+        "name": "createSqlOrgsStore",
+        "import": "@aspec/orgs/sql",
+        "description": "SQL store for PostgreSQL and SQLite."
+      },
+      {
+        "name": "createOrgsAdminRouter",
+        "import": "@aspec/orgs/express",
+        "description": "Express admin router."
+      }
+    ]
+  }
+}

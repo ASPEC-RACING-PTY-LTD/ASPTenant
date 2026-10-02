@@ -1,0 +1,8 @@
+import { withErrorHandling } from '{{ imports.fetch }}';
+
+export function wrapHandler(handler: (req: Request) => Promise<Response> | Response) {
+  return withErrorHandling(handler, {
+    typeBaseUri: process.env.ERRORS_TYPE_BASE_URI ?? 'about:blank',
+    environment: process.env.NODE_ENV,
+  });
+}

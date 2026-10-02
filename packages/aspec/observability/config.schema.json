@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Observability module configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "level": {
+      "enum": ["trace", "debug", "info", "warn", "error", "fatal", "silent"],
+      "default": "info"
+    },
+    "pretty": { "type": "boolean", "default": false },
+    "processMetrics": { "type": "boolean", "default": true },
+    "healthTimeoutMs": { "type": "integer", "minimum": 1, "default": 2000 },
+    "healthDetail": { "enum": ["none", "basic", "full"], "default": "basic" }
+  }
+}

@@ -1,0 +1,6 @@
+import { createErrorHandler } from '{{ imports.root }}';
+
+export const errors = createErrorHandler({
+  typeBaseUri: process.env.ERRORS_TYPE_BASE_URI ?? 'about:blank',
+  environment: process.env.NODE_ENV,
+});

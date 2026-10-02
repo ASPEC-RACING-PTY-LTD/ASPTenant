@@ -1,0 +1,17 @@
+import { createRateLimiter, keys } from '{{ imports.root }}';
+import { createMemoryStore } from '{{ imports.memory }}';
+import { createFetchRateLimiter } from '{{ imports.fetch }}';
+
+const store = createMemoryStore();
+
+export const limiter = createRateLimiter({
+  store,
+  policy: { name: 'api', limit: 100, windowMs: 60_000 },
+});
+
+/** Call `await fetchRateLimiter.check(request)` before handling. */
+export const fetchRateLimiter = createFetchRateLimiter({
+  limiter,
+  key: keys.ip(),
+  trustProxy: 1,
+});

@@ -1,0 +1,470 @@
+{
+  "$schema": "https://aspec.tech/schemas/module-manifest/v1.json",
+  "manifestVersion": 1,
+  "id": "aspec/users",
+  "name": "Users",
+  "summary": "User accounts, profiles, preferences, invitations, suspension and deletion workflows.",
+  "description": "Provide reusable user account management: creation, profiles, settings, preferences, suspension and activation, invitation workflows, soft deletion with purge, activity history, and HTTP admin and self-service APIs. Integrates with authentication and authorisation through structural ports only.",
+  "version": "1.0.0",
+  "category": "identity",
+  "tags": ["users", "accounts", "profiles", "invitations", "identity"],
+  "license": "MIT",
+  "maintainers": [
+    { "name": "ASPEC TECH", "email": "modules@aspec.tech", "url": "https://aspec.tech" }
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ASPEC-RACING-PTY-LTD/aspecdev",
+    "directory": "modules/users"
+  },
+  "homepage": "https://aspec.tech/modules/aspec/users",
+  "readme": "README.md",
+  "changelog": "CHANGELOG.md",
+  "languages": ["typescript", "javascript"],
+  "runtimes": [{ "name": "node", "range": ">=22.13.0" }],
+  "frameworks": [
+    {
+      "id": "express",
+      "name": "Express",
+      "range": "^4.18.0 || ^5.0.0",
+      "entrypoint": "@aspec/users/express",
+      "kind": "backend",
+      "tested": true,
+      "testedVersions": ["4.22.3", "5.2.1"]
+    },
+    {
+      "id": "fastify",
+      "name": "Fastify",
+      "range": "^5.0.0",
+      "entrypoint": "@aspec/users/fastify",
+      "kind": "backend",
+      "tested": true,
+      "testedVersions": ["5.12.5"]
+    },
+    {
+      "id": "hono",
+      "name": "Hono",
+      "range": "^4.0.0",
+      "entrypoint": "@aspec/users/hono",
+      "kind": "backend",
+      "tested": true,
+      "testedVersions": ["4.13.10"]
+    },
+    {
+      "id": "fetch",
+      "name": "Fetch API handler",
+      "range": "*",
+      "entrypoint": "@aspec/users/fetch",
+      "kind": "backend",
+      "tested": true,
+      "testedVersions": ["24.16.0"]
+    },
+    {
+      "id": "vitest",
+      "name": "Vitest",
+      "range": "^5.0.0",
+      "entrypoint": "@aspec/users",
+      "kind": "testing",
+      "tested": true,
+      "testedVersions": ["5.0.2"]
+    }
+  ],
+  "databases": [
+    { "id": "memory", "tested": true },
+    {
+      "id": "postgres",
+      "range": ">=14",
+      "entrypoint": "@aspec/users/sql",
+      "tested": true,
+      "testedVersions": ["17.11"]
+    },
+    {
+      "id": "sqlite",
+      "range": ">=3.35",
+      "entrypoint": "@aspec/users/sql",
+      "tested": true
+    }
+  ],
+  "services": [],
+  "platforms": {
+    "os": ["linux", "darwin", "windows"],
+    "arch": ["x64", "arm64"],
+    "tested": [{ "os": "windows", "arch": "x64", "runtime": "node@24.16.0" }]
+  },
+  "capabilities": [
+    {
+      "id": "user-accounts",
+      "summary": "Create, update, suspend, activate and delete user accounts."
+    },
+    { "id": "profiles-settings", "summary": "Profiles, typed settings and merged preferences." },
+    { "id": "invitations", "summary": "Hashed invitation tokens with optional mailer delivery." },
+    { "id": "activity-history", "summary": "Append-only activity events with cursor pagination." },
+    {
+      "id": "http-admin",
+      "summary": "Admin and self-service HTTP routers.",
+      "optional": true,
+      "entrypoint": "@aspec/users/express"
+    }
+  ],
+  "dependencies": {
+    "required": [],
+    "optional": [
+      {
+        "id": "aspec/audit",
+        "range": "^1.0.0",
+        "reason": "Records users.* audit events when an AuditSink is provided."
+      },
+      {
+        "id": "aspec/notifications",
+        "range": "^1.0.0",
+        "reason": "Sends invitation emails when a Mailer is provided."
+      },
+      {
+        "id": "aspec/jobs",
+        "range": "^1.0.0",
+        "reason": "Schedules users.purge jobs when a JobQueue is provided."
+      },
+      {
+        "id": "aspec/rbac",
+        "range": "^1.0.0",
+        "reason": "Authorises admin routes when a PermissionChecker is provided."
+      },
+      {
+        "id": "aspec/db",
+        "range": "^1.0.0",
+        "reason": "Supplies a SqlClient for the SQL store."
+      }
+    ],
+    "peer": []
+  },
+  "compatibility": { "conflicts": [], "cli": ">=0.1.0" },
+  "packages": {
+    "npm": {
+      "name": "@aspec/users",
+      "entrypoints": {
+        ".": "Portable core API",
+        "./express": "Express 4/5 admin and self-service routers",
+        "./fastify": "Fastify admin and self-service plugins",
+        "./hono": "Hono admin and self-service apps",
+        "./fetch": "Web Fetch API handlers",
+        "./memory": "In-memory store",
+        "./sql": "SQL store and migrations (PostgreSQL, SQLite)"
+      },
+      "dependencyType": "prod"
+    }
+  },
+  "install": {
+    "modes": ["package", "vendor"],
+    "defaultMode": "package",
+    "requirements": ["Node.js 22.13 or newer"],
+    "vendor": { "source": "src", "jsSource": "dist" }
+  },
+  "configuration": {
+    "schema": "config.schema.json",
+    "env": {
+      "required": [],
+      "optional": [
+        {
+          "name": "USERS_DATABASE_URL",
+          "description": "PostgreSQL connection string when using the SQL store.",
+          "secret": true,
+          "example": "postgres://user:pass@localhost:5432/app"
+        },
+        {
+          "name": "USERS_ACCEPT_URL",
+          "description": "Invitation accept URL template ({token} or ?token=).",
+          "example": "https://app.example.com/accept-invite"
+        },
+        {
+          "name": "USERS_APP_NAME",
+          "description": "Application name in invitation emails.",
+          "example": "Acme App"
+        }
+      ]
+    },
+    "explorer": {
+      "parameters": [
+        {
+          "id": "framework",
+          "label": "Framework",
+          "type": "select",
+          "default": "express",
+          "options": [
+            { "value": "express", "label": "Express" },
+            { "value": "fastify", "label": "Fastify" },
+            { "value": "hono", "label": "Hono" },
+            { "value": "fetch", "label": "Fetch handler" },
+            { "value": "none", "label": "Core only" }
+          ]
+        },
+        {
+          "id": "storage",
+          "label": "Storage",
+          "type": "select",
+          "default": "memory",
+          "options": [
+            { "value": "memory", "label": "In memory" },
+            { "value": "postgres", "label": "PostgreSQL" },
+            { "value": "sqlite", "label": "SQLite" }
+          ]
+        },
+        {
+          "id": "mailer",
+          "label": "Invitation mailer",
+          "type": "boolean",
+          "default": false
+        },
+        {
+          "id": "permissions",
+          "label": "Permission checks",
+          "type": "boolean",
+          "default": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "setup",
+          "label": "users.setup.ts",
+          "language": "typescript",
+          "filename": "src/aspec/users.setup.ts",
+          "template": "templates/explorer/setup.ts.tmpl"
+        },
+        {
+          "id": "env",
+          "label": ".env",
+          "language": "dotenv",
+          "template": "templates/explorer/env.tmpl"
+        }
+      ]
+    }
+  },
+  "integration": {
+    "targets": [
+      {
+        "id": "express-typescript",
+        "label": "Express (TypeScript)",
+        "language": "typescript",
+        "framework": "express",
+        "automated": true,
+        "docs": "frameworks/express",
+        "files": [
+          {
+            "template": "templates/express/setup.ts.tmpl",
+            "path": "{{ srcDir }}/aspec/users.setup.ts",
+            "description": "Creates the users service and Express routers."
+          }
+        ],
+        "packages": [{ "name": "express", "range": "^4.18.0 || ^5.0.0" }],
+        "env": [],
+        "steps": [
+          "Import users, adminRouter and selfServiceRouter from the generated file.",
+          "Mount adminRouter under an admin path and selfServiceRouter under a public path.",
+          "Wire resolveActor to your authentication layer so it returns the signed-in subject."
+        ]
+      },
+      {
+        "id": "fastify-typescript",
+        "label": "Fastify (TypeScript)",
+        "language": "typescript",
+        "framework": "fastify",
+        "automated": true,
+        "docs": "frameworks/fastify",
+        "files": [
+          {
+            "template": "templates/fastify/setup.ts.tmpl",
+            "path": "{{ srcDir }}/aspec/users.setup.ts",
+            "description": "Creates the users service and Fastify plugins."
+          }
+        ],
+        "packages": [{ "name": "fastify", "range": "^5.0.0" }],
+        "env": [],
+        "steps": [
+          "Register adminPlugin and selfServicePlugin on your Fastify instance.",
+          "Wire resolveActor to your authentication layer."
+        ]
+      },
+      {
+        "id": "hono-typescript",
+        "label": "Hono (TypeScript)",
+        "language": "typescript",
+        "framework": "hono",
+        "automated": true,
+        "docs": "frameworks/hono",
+        "files": [
+          {
+            "template": "templates/hono/setup.ts.tmpl",
+            "path": "{{ srcDir }}/aspec/users.setup.ts",
+            "description": "Creates the users service and Hono apps."
+          }
+        ],
+        "packages": [{ "name": "hono", "range": "^4.0.0" }],
+        "env": [],
+        "steps": [
+          "Mount adminApp and selfServiceApp on your Hono app with route().",
+          "Wire resolveActor to your authentication layer."
+        ]
+      },
+      {
+        "id": "fetch-typescript",
+        "label": "Fetch handler (TypeScript)",
+        "language": "typescript",
+        "framework": "fetch",
+        "automated": true,
+        "docs": "frameworks/fetch",
+        "files": [
+          {
+            "template": "templates/fetch/setup.ts.tmpl",
+            "path": "{{ srcDir }}/aspec/users.setup.ts",
+            "description": "Creates the users service and Fetch handlers."
+          }
+        ],
+        "packages": [],
+        "env": [],
+        "steps": [
+          "Export adminHandler or selfServiceHandler from a route that receives Request objects.",
+          "Wire resolveActor to your authentication layer."
+        ]
+      },
+      {
+        "id": "generic-typescript",
+        "label": "Any TypeScript project",
+        "language": "typescript",
+        "automated": true,
+        "docs": "integrate",
+        "files": [
+          {
+            "template": "templates/generic/setup.ts.tmpl",
+            "path": "{{ srcDir }}/aspec/users.setup.ts",
+            "description": "Creates the users service without a framework adapter."
+          }
+        ],
+        "packages": [],
+        "env": [],
+        "steps": [
+          "Import users from the generated file and call createUser, inviteUser, and related methods."
+        ]
+      },
+      {
+        "id": "generic-javascript",
+        "label": "Any JavaScript project",
+        "language": "javascript",
+        "automated": true,
+        "docs": "integrate",
+        "files": [
+          {
+            "template": "templates/generic/setup.js.tmpl",
+            "path": "{{ srcDir }}/aspec/users.setup.js",
+            "description": "Creates the users service without a framework adapter."
+          }
+        ],
+        "packages": [],
+        "env": [],
+        "steps": [
+          "Import users from the generated file and call createUser, inviteUser, and related methods."
+        ]
+      }
+    ]
+  },
+  "validation": {
+    "checks": [
+      { "type": "package", "name": "@aspec/users", "range": "^1.0.0" },
+      { "type": "import", "specifier": "@aspec/users" }
+    ],
+    "commands": [
+      {
+        "run": ["node", "-e", "import('@aspec/users')"],
+        "description": "Imports the module entrypoint."
+      }
+    ],
+    "docs": "testing"
+  },
+  "uninstall": {
+    "steps": [
+      "Remove router or handler mounts from the application.",
+      "Unregister users.purge and users.maintenance job handlers if registered.",
+      "Drop the users_ tables if you used the SQL store and no longer need the data."
+    ],
+    "dataRetention": "SQL tables are not dropped automatically. Soft-deleted accounts remain until purged.",
+    "docs": "uninstall"
+  },
+  "migrations": {
+    "docs": "migration",
+    "database": {
+      "dialects": ["postgres", "sqlite"],
+      "entrypoint": "@aspec/users/sql",
+      "tables": [
+        "users_accounts",
+        "users_activation_tokens",
+        "users_invitations",
+        "users_activity",
+        "users_schema_migrations"
+      ]
+    }
+  },
+  "docs": {
+    "sections": {
+      "summary": "docs/summary.md",
+      "install": "docs/install.md",
+      "configure": "docs/configure.md",
+      "integrate": "docs/integrate.md",
+      "frameworks/express": "docs/frameworks/express.md",
+      "frameworks/fastify": "docs/frameworks/fastify.md",
+      "frameworks/hono": "docs/frameworks/hono.md",
+      "frameworks/fetch": "docs/frameworks/fetch.md",
+      "frameworks/vitest": "docs/frameworks/vitest.md",
+      "api": "docs/api.md",
+      "examples": "docs/examples.md",
+      "testing": "docs/testing.md",
+      "migration": "docs/migration.md",
+      "troubleshooting": "docs/troubleshooting.md",
+      "security": "docs/security.md",
+      "uninstall": "docs/uninstall.md",
+      "ai": "docs/ai.md"
+    }
+  },
+  "security": {
+    "contact": "security@aspec.tech",
+    "policy": "https://github.com/ASPEC-RACING-PTY-LTD/aspecdev/security/policy",
+    "sensitiveData": ["pii", "tokens"],
+    "notes": [
+      "Invitation and activation tokens are stored hashed (SHA-256).",
+      "Audit events never include raw tokens or secrets.",
+      "Admin routes require a PermissionChecker for users:* permissions."
+    ],
+    "threatModel": "security"
+  },
+  "ai": {
+    "summary": "Use createUsers({ store }) for account lifecycle; mount framework adapters for admin and self-service HTTP.",
+    "useWhen": [
+      "You need user profiles, settings, preferences, invitations or account suspension.",
+      "You want account deletion with a grace period and purge jobs."
+    ],
+    "avoidWhen": [
+      "You only need authentication (sessions, passwords, OAuth). Use @aspec/auth.",
+      "You only need role and permission evaluation. Use @aspec/rbac."
+    ],
+    "keywords": ["users", "accounts", "profiles", "invitations", "suspension", "deletion"],
+    "entrypoints": [
+      {
+        "name": "createUsers",
+        "import": "@aspec/users",
+        "description": "Creates the users service."
+      },
+      {
+        "name": "createMemoryUsersStore",
+        "import": "@aspec/users/memory",
+        "description": "In-memory store."
+      },
+      {
+        "name": "createSqlUsersStore",
+        "import": "@aspec/users/sql",
+        "description": "SQL store for PostgreSQL and SQLite."
+      },
+      {
+        "name": "createUsersAdminRouter",
+        "import": "@aspec/users/express",
+        "description": "Express admin router."
+      }
+    ]
+  }
+}

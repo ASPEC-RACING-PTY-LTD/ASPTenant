@@ -1,0 +1,20 @@
+import {
+  createLogger,
+  createMetricsRegistry,
+  createHealth,
+  type LogLevelSetting,
+  registerProcessMetrics,
+} from '{{ imports.root }}';
+import { httpInstrumentation, observabilityEndpoints } from '{{ imports.express }}';
+
+// createLogger rejects values other than trace, debug, info, warn, error, fatal and silent.
+export const log = createLogger({ level: (process.env.LOG_LEVEL ?? 'info') as LogLevelSetting });
+export const registry = createMetricsRegistry();
+registerProcessMetrics(registry);
+export const health = createHealth({ checks: { self: async () => ({ ok: true }) } });
+export const observEndpoints = observabilityEndpoints({ health, registry });
+export const observHttp = httpInstrumentation({
+  registry,
+  logger: log,
+  ignorePaths: ['/livez', '/readyz', '/healthz', '/metrics'],
+});

@@ -1,0 +1,19 @@
+import {
+  createLogger,
+  createMetricsRegistry,
+  createHealth,
+  type LogLevelSetting,
+  registerProcessMetrics,
+} from '{{ imports.root }}';
+import { observability } from '{{ imports.hono }}';
+
+// createLogger rejects values other than trace, debug, info, warn, error, fatal and silent.
+export const log = createLogger({ level: (process.env.LOG_LEVEL ?? 'info') as LogLevelSetting });
+export const registry = createMetricsRegistry();
+registerProcessMetrics(registry);
+export const health = createHealth({ checks: { self: async () => ({ ok: true }) } });
+export const observMiddleware = observability({
+  registry,
+  logger: log,
+  endpoints: { health, registry },
+});

@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Rate limit module configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "storage": {
+      "enum": ["memory", "redis"],
+      "default": "memory",
+      "description": "Counter store backend."
+    },
+    "algorithm": {
+      "enum": ["sliding-window", "token-bucket", "fixed-window", "gcra", "sliding-log"],
+      "default": "sliding-window"
+    },
+    "limit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1000000000,
+      "default": 100,
+      "description": "Units allowed per window."
+    },
+    "windowMs": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 60000,
+      "description": "Window length in milliseconds."
+    },
+    "burst": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Bucket capacity for token-bucket and gcra. Default equals limit."
+    },
+    "failureMode": {
+      "enum": ["open", "closed"],
+      "default": "open",
+      "description": "Behaviour when the store fails. Use closed for authentication."
+    },
+    "keyPrefix": {
+      "type": "string",
+      "default": "rl:",
+      "description": "Redis key prefix."
+    },
+    "legacyHeaders": {
+      "type": "boolean",
+      "default": false,
+      "description": "Emit X-RateLimit-* headers in addition to IETF RateLimit headers."
+    }
+  }
+}

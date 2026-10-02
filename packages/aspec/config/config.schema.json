@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aspec.tech/schemas/modules/config/config.json",
+  "title": "ASPEC Config module options",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "expand": {
+      "type": "boolean",
+      "default": false,
+      "description": "Enable dotenv variable expansion."
+    },
+    "freeze": {
+      "type": "boolean",
+      "default": true,
+      "description": "Deep-freeze the loaded configuration object."
+    }
+  }
+}

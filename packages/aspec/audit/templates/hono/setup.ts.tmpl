@@ -1,0 +1,11 @@
+import { createAuditLogger, createMemoryAuditStore } from '{{ imports.root }}';
+import { auditContext, createAuditAdminApp } from '{{ imports.hono }}';
+
+export const audit = createAuditLogger({
+  sink: createMemoryAuditStore(),
+  chain: process.env.AUDIT_HMAC_KEY ? { hmacKey: process.env.AUDIT_HMAC_KEY } : undefined,
+  retention: { defaultDays: 90, categories: { security: 365 } },
+});
+
+export const auditContextMiddleware = auditContext({ resolveActor: () => undefined });
+export const auditAdminApp = createAuditAdminApp(audit, { authorize: async () => false });

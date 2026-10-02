@@ -1,0 +1,19 @@
+{{#if moduleSystem == "commonjs"}}
+const { createAuditLogger, createMemoryAuditStore } = require('{{ imports.root }}');
+
+const audit = createAuditLogger({
+  sink: createMemoryAuditStore(),
+  chain: process.env.AUDIT_HMAC_KEY ? { hmacKey: process.env.AUDIT_HMAC_KEY } : undefined,
+  retention: { defaultDays: 90, categories: { security: 365 } },
+});
+
+module.exports = { audit };
+{{else}}
+import { createAuditLogger, createMemoryAuditStore } from '{{ imports.root }}';
+
+export const audit = createAuditLogger({
+  sink: createMemoryAuditStore(),
+  chain: process.env.AUDIT_HMAC_KEY ? { hmacKey: process.env.AUDIT_HMAC_KEY } : undefined,
+  retention: { defaultDays: 90, categories: { security: 365 } },
+});
+{{/if}}

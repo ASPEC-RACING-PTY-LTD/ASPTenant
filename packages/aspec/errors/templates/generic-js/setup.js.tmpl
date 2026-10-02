@@ -1,0 +1,10 @@
+{{#if moduleSystem == "commonjs"}}
+const { createErrorHandler } = require('{{ imports.root }}');
+{{else}}
+import { createErrorHandler } from '{{ imports.root }}';
+{{/if}}
+
+export const errors = createErrorHandler({
+  typeBaseUri: process.env.ERRORS_TYPE_BASE_URI ?? 'about:blank',
+  environment: process.env.NODE_ENV,
+});

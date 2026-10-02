@@ -1,0 +1,51 @@
+import { createApiKeys } from '{{ imports.root }}';
+{{#if storage == "memory"}}
+import { createMemoryStore } from '{{ imports.memory }}';
+{{else}}
+import { createSqlStore, migrate } from '{{ imports.sql }}';
+{{/if}}
+{{#if framework == "express"}}
+import { createApiKeyMiddleware } from '{{ imports.express }}';
+{{/if}}
+{{#if framework == "fastify"}}
+import { createApiKeyPreHandler } from '{{ imports.fastify }}';
+{{/if}}
+{{#if framework == "hono"}}
+import { apiKeyMiddleware } from '{{ imports.hono }}';
+{{/if}}
+{{#if framework == "fetch"}}
+import { withApiKeyAuth } from '{{ imports.fetch }}';
+{{/if}}
+
+const pepper = process.env.API_KEYS_PEPPER;
+if (!pepper || Buffer.byteLength(pepper, 'utf8') < 32) {
+  throw new Error('API_KEYS_PEPPER must be set to at least 32 bytes');
+}
+
+{{#if storage == "memory"}}
+const store = createMemoryStore();
+{{else}}
+// Provide `sql` (SqlClient) from your database setup, then:
+await migrate(sql, { tablePrefix: '{{ tablePrefix }}' });
+const store = createSqlStore(sql, { tablePrefix: '{{ tablePrefix }}' });
+{{/if}}
+
+export const apiKeys = createApiKeys({
+  store,
+  pepper,
+  prefix: '{{ prefix }}',
+  defaultTtlMs: {{ defaultTtlDays }} * 86_400_000,
+});
+
+{{#if framework == "express"}}
+export const apiKeyMiddleware = createApiKeyMiddleware(apiKeys);
+{{/if}}
+{{#if framework == "fastify"}}
+export const apiKeyPreHandler = createApiKeyPreHandler(apiKeys);
+{{/if}}
+{{#if framework == "hono"}}
+export const verifyApiKey = apiKeyMiddleware(apiKeys);
+{{/if}}
+{{#if framework == "fetch"}}
+export { withApiKeyAuth };
+{{/if}}

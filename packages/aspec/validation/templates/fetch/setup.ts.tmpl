@@ -1,0 +1,9 @@
+import { withValidation } from '{{ imports.fetch }}';
+import type { StandardSchemaV1 } from '{{ imports.root }}';
+
+export function withBodyValidation<S extends StandardSchemaV1>(
+  schema: S,
+  handler: Parameters<typeof withValidation>[1],
+) {
+  return withValidation({ body: schema }, handler, { status: 400 });
+}

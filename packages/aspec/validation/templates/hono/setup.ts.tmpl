@@ -1,0 +1,6 @@
+import { validateRequest } from '{{ imports.hono }}';
+import type { StandardSchemaV1 } from '{{ imports.root }}';
+
+export function validateBody<S extends StandardSchemaV1>(schema: S) {
+  return validateRequest({ body: schema }, { status: 400 });
+}

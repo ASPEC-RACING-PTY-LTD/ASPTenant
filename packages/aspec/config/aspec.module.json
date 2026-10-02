@@ -1,0 +1,242 @@
+{
+  "$schema": "https://aspec.tech/schemas/module-manifest/v1.json",
+  "manifestVersion": 1,
+  "id": "aspec/config",
+  "name": "Configuration and Secrets",
+  "summary": "Typed configuration loading with secrets, dotenv, validation and docs generation.",
+  "description": "defineConfig and env builders validate environment variables with full TypeScript inference. Secrets are redacted in logs and generated documentation. Optional Vault, AWS Secrets Manager and file providers feed async loadConfig. Includes the aspec-config CLI.",
+  "version": "1.0.0",
+  "category": "developer-tools",
+  "tags": ["config", "secrets", "dotenv", "env", "validation"],
+  "license": "MIT",
+  "maintainers": [
+    { "name": "ASPEC TECH", "email": "modules@aspec.tech", "url": "https://aspec.tech" }
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ASPEC-RACING-PTY-LTD/aspecdev",
+    "directory": "modules/config"
+  },
+  "homepage": "https://aspec.tech/modules/aspec/config",
+  "readme": "README.md",
+  "changelog": "CHANGELOG.md",
+  "languages": ["typescript", "javascript"],
+  "runtimes": [{ "name": "node", "range": ">=22.13.0" }],
+  "frameworks": [
+    {
+      "id": "vitest",
+      "name": "Vitest",
+      "range": "^5.0.0",
+      "entrypoint": "@aspec/config",
+      "kind": "testing",
+      "tested": true,
+      "testedVersions": ["5.0.2"]
+    }
+  ],
+  "databases": [],
+  "services": [
+    {
+      "id": "vault",
+      "name": "HashiCorp Vault KV v2",
+      "optional": true,
+      "tested": false,
+      "entrypoint": "@aspec/config/vault"
+    }
+  ],
+  "platforms": {
+    "os": ["linux", "darwin", "windows"],
+    "arch": ["x64", "arm64"],
+    "tested": [{ "os": "windows", "arch": "x64", "runtime": "node@24.16.0" }]
+  },
+  "capabilities": [
+    { "id": "config-define", "summary": "Typed defineConfig with env builders and inference." },
+    { "id": "config-secrets", "summary": "Secret wrappers and redaction for logs and docs." },
+    { "id": "config-docs", "summary": "Generate .env.example, Markdown docs and JSON Schema." },
+    {
+      "id": "config-providers",
+      "summary": "Optional Vault, AWS and file secret providers.",
+      "optional": true
+    },
+    { "id": "config-cli", "summary": "aspec-config check/docs/example CLI." }
+  ],
+  "dependencies": {
+    "required": [],
+    "optional": [],
+    "peer": []
+  },
+  "compatibility": { "conflicts": [], "cli": ">=0.1.0" },
+  "packages": {
+    "npm": {
+      "name": "@aspec/config",
+      "entrypoints": {
+        ".": "Portable core API and CLI helpers",
+        "./vault": "Vault KV v2 secret provider",
+        "./aws": "AWS Secrets Manager provider (structural client)",
+        "./file": "File directory secret provider"
+      },
+      "dependencyType": "prod"
+    }
+  },
+  "install": {
+    "modes": ["package", "vendor"],
+    "defaultMode": "package",
+    "requirements": ["Node.js 22.13 or newer"],
+    "vendor": { "source": "src", "jsSource": "dist" }
+  },
+  "configuration": {
+    "schema": "config.schema.json",
+    "env": {
+      "required": [],
+      "optional": [
+        {
+          "name": "NODE_ENV",
+          "description": "Selects .env.<NODE_ENV> files.",
+          "example": "development"
+        }
+      ]
+    },
+    "explorer": {
+      "parameters": [
+        {
+          "id": "includeDatabase",
+          "label": "Include DATABASE_URL secret",
+          "type": "boolean",
+          "default": true
+        },
+        {
+          "id": "includeVault",
+          "label": "Wire Vault provider stub",
+          "type": "boolean",
+          "default": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "setup",
+          "label": "config.setup.ts",
+          "language": "typescript",
+          "filename": "src/aspec/config.setup.ts",
+          "template": "templates/explorer/setup.ts.tmpl"
+        },
+        {
+          "id": "env",
+          "label": ".env.example",
+          "language": "dotenv",
+          "template": "templates/explorer/env.tmpl"
+        }
+      ]
+    }
+  },
+  "integration": {
+    "targets": [
+      {
+        "id": "generic-typescript",
+        "label": "Any TypeScript project",
+        "language": "typescript",
+        "automated": true,
+        "docs": "integrate",
+        "files": [
+          {
+            "template": "templates/generic/setup.ts.tmpl",
+            "path": "{{ srcDir }}/aspec/config.setup.ts",
+            "description": "Creates a typed defineConfig export."
+          }
+        ],
+        "steps": [
+          "Import config from the generated setup file.",
+          "Add application-specific env builders to the shape.",
+          "Optionally run aspec-config check on the setup module in CI."
+        ]
+      },
+      {
+        "id": "generic-javascript",
+        "label": "Any JavaScript project",
+        "language": "javascript",
+        "automated": true,
+        "docs": "integrate",
+        "files": [
+          {
+            "template": "templates/generic/setup.js.tmpl",
+            "path": "{{ srcDir }}/aspec/config.setup.js",
+            "description": "Creates a defineConfig export."
+          }
+        ],
+        "steps": ["Import config from the generated setup file."]
+      }
+    ]
+  },
+  "validation": {
+    "checks": [
+      { "type": "package", "name": "@aspec/config", "range": "^1.0.0" },
+      { "type": "import", "specifier": "@aspec/config" }
+    ],
+    "commands": [
+      {
+        "run": ["node", "-e", "import('@aspec/config')"],
+        "description": "Imports the module entrypoint."
+      }
+    ],
+    "docs": "testing"
+  },
+  "uninstall": {
+    "steps": [
+      "Remove defineConfig usage and the generated setup file.",
+      "Remove the @aspec/config dependency."
+    ],
+    "dataRetention": "No persistent data.",
+    "docs": "uninstall"
+  },
+  "migrations": {
+    "docs": "migration"
+  },
+  "docs": {
+    "sections": {
+      "summary": "docs/summary.md",
+      "install": "docs/install.md",
+      "configure": "docs/configure.md",
+      "integrate": "docs/integrate.md",
+      "frameworks/vitest": "docs/frameworks/vitest.md",
+      "api": "docs/api.md",
+      "examples": "docs/examples.md",
+      "testing": "docs/testing.md",
+      "migration": "docs/migration.md",
+      "troubleshooting": "docs/troubleshooting.md",
+      "security": "docs/security.md",
+      "uninstall": "docs/uninstall.md",
+      "ai": "docs/ai.md"
+    }
+  },
+  "security": {
+    "contact": "security@aspec.tech",
+    "policy": "https://github.com/ASPEC-RACING-PTY-LTD/aspecdev/security/policy",
+    "sensitiveData": ["secrets", "credentials", "tokens"],
+    "notes": [
+      "Secret values are redacted in logs, JSON and generated documentation.",
+      "Vault provider was tested against an in-process mock only."
+    ],
+    "threatModel": "security"
+  },
+  "ai": {
+    "summary": "Use defineConfig with env builders; mark secrets with .secret(); generate docs with generateEnvExample.",
+    "useWhen": ["You need typed, validated configuration with secret redaction."],
+    "avoidWhen": ["You only read a single optional environment variable."],
+    "keywords": ["config", "secrets", "dotenv", "env", "validation"],
+    "entrypoints": [
+      {
+        "name": "defineConfig",
+        "import": "@aspec/config",
+        "description": "Loads and validates configuration."
+      },
+      {
+        "name": "env",
+        "import": "@aspec/config",
+        "description": "Typed environment variable builders."
+      },
+      {
+        "name": "createVaultKvV2Provider",
+        "import": "@aspec/config/vault",
+        "description": "Vault KV v2 secret provider."
+      }
+    ]
+  }
+}
