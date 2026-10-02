@@ -40,6 +40,10 @@ export const configShape = {
     .string('UPDATES_DIR')
     .default('/updates')
     .description('Directory shared with the updater sidecar.'),
+  dataDir: env
+    .string('DATA_DIR')
+    .default('/data')
+    .description('Writable directory for uploads and backup staging.'),
   secretKey: env
     .string('SECRET_KEY', { min: 32 })
     .optional()

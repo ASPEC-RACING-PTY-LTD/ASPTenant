@@ -9,10 +9,23 @@ import type { AppConfig } from './config.js';
 export class SecretBox {
   private readonly key: Buffer;
 
-  constructor(config: AppConfig) {
+  constructor(config: AppConfig | { rawKey: Buffer }) {
+    if ('rawKey' in config) {
+      this.key = config.rawKey;
+      return;
+    }
     const material =
       config.secretKey?.reveal() ?? config.auditHmacKey?.reveal() ?? config.databaseUrl.reveal();
     this.key = Buffer.from(hkdfSync('sha256', material, 'aspectenant', 'settings-encryption', 32));
+  }
+
+  /** Raw key, carried inside encrypted backups so a new server can re-encrypt stored secrets. */
+  exportKey(): string {
+    return this.key.toString('base64');
+  }
+
+  static fromExported(value: string): SecretBox {
+    return new SecretBox({ rawKey: Buffer.from(value, 'base64') });
   }
 
   encrypt(plain: string): string {

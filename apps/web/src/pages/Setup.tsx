@@ -2,6 +2,7 @@ import { type FormEvent, useEffect, useState } from 'react';
 import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { completeSetup, getSetupState, login } from '../api.js';
 import { useAuth } from '../auth.js';
+import { SetupRestore } from './SetupRestore.js';
 
 export function SetupPage() {
   const { session, refresh } = useAuth();
@@ -149,6 +150,7 @@ export function SetupPage() {
           Already set up? <Link to="/login">Sign in</Link>
         </p>
       </form>
+      <SetupRestore />
     </div>
   );
 }

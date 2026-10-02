@@ -14,6 +14,15 @@ The panel binds to `127.0.0.1:8080`. With cloudflared on the same host, add a pu
 
 If Cloudflare Access protects the hostname, bypass `/api/v1/mail/ingest` so the Email Routing Worker can deliver.
 
+## Mail apps and data
+
+- The API container publishes 993 (IMAPS), 465 (SMTPS) and 587 (submission) on all interfaces. Forward them on your router to the host and point a DNS-only (grey cloud) A record at your public IP. Set `ASPECTENANT_MAIL_BIND` to restrict.
+- `/data` (volume `data`) holds PST uploads and backup staging.
+
+## Backups
+
+Configure on the Backups page: R2 or any S3 bucket, an encryption passphrase, schedule and retention. Each backup is a gzip of every table (including all messages), encrypted with AES-256-GCM using a key derived from the passphrase. It also carries the settings key, so stored credentials keep working after restoring onto a new server. Disaster recovery: install fresh, open `/setup`, choose Restore from backup.
+
 ## Releases and updates
 
 - Push a tag such as `v0.2.0`. CI runs the checks, publishes `:0.2.0`, `:0.2` and `:latest`, then creates the GitHub release.

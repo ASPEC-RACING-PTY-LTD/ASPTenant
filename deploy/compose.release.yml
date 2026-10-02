@@ -9,6 +9,7 @@ networks:
 volumes:
   postgres_data:
   updates:
+  data:
 
 services:
   postgres:
@@ -38,6 +39,12 @@ services:
       AUDIT_HMAC_KEY: ${AUDIT_HMAC_KEY}
     volumes:
       - updates:/updates
+      - data:/data
+    # Mail apps connect directly (IMAPS, SMTPS, submission). Forward these on your router.
+    ports:
+      - "${ASPECTENANT_MAIL_BIND:-0.0.0.0}:993:1993"
+      - "${ASPECTENANT_MAIL_BIND:-0.0.0.0}:465:1465"
+      - "${ASPECTENANT_MAIL_BIND:-0.0.0.0}:587:1587"
     networks:
       - internal
     depends_on:

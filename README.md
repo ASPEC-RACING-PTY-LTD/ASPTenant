@@ -15,6 +15,8 @@ sudo env PUBLIC_URL=https://mail.example.com bash -c "$(curl -fsSL https://raw.g
 - The installer prints a one-time **setup code**. Open `/setup`, enter it and create the super administrator. Everything else (domains, mailboxes, Cloudflare, SMTP, updates) is managed in the panel.
 - Re-running the installer upgrades in place and keeps data.
 
+Mail apps (Outlook, Apple Mail, phones) use IMAP 993 and SMTP 465/587 directly; enable them on **Mail apps** and forward those ports. Import Microsoft 365 PST exports on **Migration**. Configure encrypted R2/S3 backups on **Backups**.
+
 Then follow **Mail settings** in the panel to connect Cloudflare Email Routing (inbound) and Cloudflare Email Sending or any SMTP relay (outbound).
 
 Updates: the **Updates** page checks GitHub releases and installs them through the bundled updater container. Automatic updates can be switched off there.

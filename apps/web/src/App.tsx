@@ -4,13 +4,15 @@ import { useAuth } from './auth.js';
 import { AdminShell } from './layout/AdminShell.js';
 import { ApplicationsPage } from './pages/Applications.js';
 import { AuditPage } from './pages/Audit.js';
+import { BackupsPage } from './pages/Backups.js';
 import { DashboardPage } from './pages/Dashboard.js';
 import { DomainsPage } from './pages/Domains.js';
 import { GroupsPage } from './pages/Groups.js';
 import { LoginPage } from './pages/Login.js';
 import { MailPage } from './pages/Mail.js';
+import { MailClientsPage } from './pages/MailClients.js';
 import { MailSettingsPage } from './pages/MailSettings.js';
-import { PlannedPage } from './pages/Planned.js';
+import { MigrationPage } from './pages/Migration.js';
 import { SecurityPage } from './pages/Security.js';
 import { SettingsPage } from './pages/Settings.js';
 import { SetupPage } from './pages/Setup.js';
@@ -57,7 +59,9 @@ export function App() {
         <Route path="domains" element={<DomainsPage />} />
         <Route path="security" element={<SecurityPage />} />
         <Route path="audit" element={<AuditPage />} />
-        <Route path="migration" element={<PlannedPage area="migration" />} />
+        <Route path="migration" element={<MigrationPage />} />
+        <Route path="mail/clients" element={<MailClientsPage />} />
+        <Route path="backups" element={<BackupsPage />} />
         <Route path="settings" element={<SettingsPage />} />
       </Route>
     </Routes>

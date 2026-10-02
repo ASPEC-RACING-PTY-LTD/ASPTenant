@@ -11,9 +11,11 @@ import { createRbac, type Rbac } from '@aspec/rbac';
 import { createSqlStore as createSqlRbacStore, migrate as migrateRbac } from '@aspec/rbac/sql';
 import { createUsers, type UsersService } from '@aspec/users';
 import { createSqlUsersStore, migrate as migrateUsers } from '@aspec/users/sql';
+import { BackupService } from './backup/index.js';
 import type { AppConfig } from './config.js';
 import { loadAppConfig } from './config.js';
 import { DirectoryService, migrateDirectory } from './directory/index.js';
+import { PstImporter } from './imports/pst.js';
 import { MailService } from './mail/service.js';
 import { MailServers } from './mailserver/index.js';
 import { platformRbacDefinition } from './permissions.js';
@@ -33,6 +35,8 @@ export interface Platform {
   readonly mail: MailService;
   readonly updates: UpdateService;
   readonly mailServers: MailServers;
+  readonly imports: PstImporter;
+  readonly backups: BackupService;
   readonly secrets: SecretBox;
   /** One-time code printed to the log while first-run setup is open. */
   setupCode: string | null;
@@ -127,6 +131,8 @@ export async function createPlatform(options: CreatePlatformOptions = {}): Promi
     mail: undefined as unknown as MailService,
     updates: undefined as unknown as UpdateService,
     mailServers: undefined as unknown as MailServers,
+    imports: undefined as unknown as PstImporter,
+    backups: undefined as unknown as BackupService,
     secrets: new SecretBox(config),
     setupCode: null,
     startedAt: Date.now(),
@@ -136,6 +142,8 @@ export async function createPlatform(options: CreatePlatformOptions = {}): Promi
     mail: new MailService(platform),
     updates: new UpdateService(platform),
     mailServers: new MailServers(platform),
+    imports: new PstImporter(platform),
+    backups: new BackupService(platform),
   });
   const firstUser = await users.listUsers({ limit: 1 });
   if (firstUser.items.length === 0) {
@@ -151,6 +159,8 @@ export async function createPlatform(options: CreatePlatformOptions = {}): Promi
 export async function closePlatform(platform: Platform): Promise<void> {
   platform.updates.stop();
   platform.mailServers.shutdown();
+  platform.imports.stop();
+  platform.backups.stop();
   await platform.auth.idle();
   await platform.db.close();
 }

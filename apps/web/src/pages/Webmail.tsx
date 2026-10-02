@@ -14,13 +14,9 @@ import {
   updateMessage,
 } from '../api.js';
 
-const FOLDERS = [
-  { key: 'inbox', label: 'Inbox' },
-  { key: 'sent', label: 'Sent' },
-  { key: 'archive', label: 'Archive' },
-  { key: 'junk', label: 'Junk' },
-  { key: 'trash', label: 'Trash' },
-] as const;
+const LABELS: Record<string, string> = { INBOX: 'Inbox' };
+const label = (name: string) => LABELS[name] ?? name.split('/').pop() ?? name;
+const depth = (name: string) => name.split('/').length - 1;
 
 interface Draft {
   from: string;
@@ -81,7 +77,7 @@ async function toBase64(file: File): Promise<string> {
 export function WebmailPage() {
   const [mailboxes, setMailboxes] = useState<MyMailbox[] | null>(null);
   const [mailboxId, setMailboxId] = useState<string | null>(null);
-  const [folder, setFolder] = useState('inbox');
+  const [folder, setFolder] = useState('INBOX');
   const [search, setSearch] = useState('');
   const [messages, setMessages] = useState<MessageSummary[]>([]);
   const [open, setOpen] = useState<MessageDetail | null>(null);
@@ -267,22 +263,23 @@ export function WebmailPage() {
           New message
         </button>
         <nav>
-          {FOLDERS.map((item) => {
-            const unread = mailbox?.folders[item.key]?.unread ?? 0;
+          {(mailbox?.folders ?? []).map((item) => {
+            const unread = item.unread;
             return (
               <button
-                key={item.key}
+                key={item.name}
                 type="button"
-                className={folder === item.key ? 'active' : ''}
-                onClick={() => setFolder(item.key)}
+                className={folder === item.name ? 'active' : ''}
+                style={{ paddingLeft: 8 + depth(item.name) * 12 }}
+                onClick={() => setFolder(item.name)}
               >
-                <span>{item.label}</span>
+                <span>{label(item.name)}</span>
                 {unread > 0 ? <span className="badge badge-ok">{unread}</span> : null}
               </button>
             );
           })}
         </nav>
-        {mailbox && (folder === 'trash' || folder === 'junk') && messages.length > 0 ? (
+        {mailbox && (folder === 'Trash' || folder === 'Junk') && messages.length > 0 ? (
           <button
             className="btn btn-ghost"
             type="button"
@@ -317,7 +314,7 @@ export function WebmailPage() {
               >
                 <span className="wm-row">
                   <span className="wm-from">
-                    {folder === 'sent'
+                    {folder === 'Sent'
                       ? `To: ${message.to.map((item) => item.address).join(', ')}`
                       : message.from.name || message.from.address}
                   </span>
@@ -422,21 +419,21 @@ export function WebmailPage() {
               <button className="btn btn-ghost" type="button" onClick={forward}>
                 Forward
               </button>
-              {open.folder !== 'archive' ? (
+              {open.folder !== 'Archive' ? (
                 <button
                   className="btn btn-ghost"
                   type="button"
-                  onClick={() => void move('archive')}
+                  onClick={() => void move('Archive')}
                 >
                   Archive
                 </button>
               ) : null}
-              {open.folder === 'junk' ? (
-                <button className="btn btn-ghost" type="button" onClick={() => void move('inbox')}>
+              {open.folder === 'Junk' ? (
+                <button className="btn btn-ghost" type="button" onClick={() => void move('INBOX')}>
                   Not junk
                 </button>
               ) : (
-                <button className="btn btn-ghost" type="button" onClick={() => void move('junk')}>
+                <button className="btn btn-ghost" type="button" onClick={() => void move('Junk')}>
                   Junk
                 </button>
               )}
@@ -448,7 +445,7 @@ export function WebmailPage() {
                 Mark unread
               </button>
               <button className="btn btn-danger" type="button" onClick={() => void remove()}>
-                {open.folder === 'trash' ? 'Delete forever' : 'Delete'}
+                {open.folder === 'Trash' ? 'Delete forever' : 'Delete'}
               </button>
             </div>
             <h2>{open.subject}</h2>

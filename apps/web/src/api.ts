@@ -375,10 +375,15 @@ export interface MailAddress {
   name: string | null;
 }
 
-export type FolderCounts = Record<string, { total: number; unread: number }>;
+export interface MailFolderInfo {
+  name: string;
+  specialUse: string | null;
+  total: number;
+  unread: number;
+}
 
 export interface MyMailbox extends DirectoryMailbox {
-  folders: FolderCounts;
+  folders: MailFolderInfo[];
 }
 
 export interface MessageSummary {
@@ -570,4 +575,169 @@ export async function applyUpdate(): Promise<UpdateStatus> {
 
 export async function setAutoUpdate(autoUpdate: boolean): Promise<UpdateStatus> {
   return api('/api/v1/updates/settings', { method: 'PUT', body: JSON.stringify({ autoUpdate }) });
+}
+
+export interface MailClientSettings {
+  enabled: boolean;
+  hostname: string;
+  certMode: 'acme' | 'manual';
+  acmeEmail: string | null;
+  hasDnsToken: boolean;
+  hasCertificate: boolean;
+  certExpiresAt: number | null;
+  lastError: string | null;
+  running: boolean;
+  ports: { imaps: number; smtps: number; submission: number };
+}
+
+export async function getMailClients(): Promise<MailClientSettings> {
+  return api('/api/v1/mail/clients');
+}
+
+export async function saveMailClients(input: {
+  enabled: boolean;
+  hostname: string;
+  certMode: 'acme' | 'manual';
+  acmeEmail?: string | null;
+  cloudflareDnsToken?: string;
+  certPem?: string;
+  keyPem?: string;
+}): Promise<MailClientSettings> {
+  return api('/api/v1/mail/clients', { method: 'PUT', body: JSON.stringify(input) });
+}
+
+export async function issueMailCertificate(): Promise<MailClientSettings> {
+  return api('/api/v1/mail/clients/certificate', { method: 'POST' });
+}
+
+export interface JobInfo<D = Record<string, unknown>, P = Record<string, unknown>> {
+  id: string;
+  kind: string;
+  status: string;
+  title: string;
+  data: D;
+  progress: P;
+  error: string | null;
+  createdAt: number;
+  finishedAt: number | null;
+}
+
+export type ImportJob = JobInfo<
+  { mailboxId: string; filename: string; size: number; received: number },
+  {
+    total: number;
+    processed: number;
+    imported: number;
+    skipped: number;
+    failed: number;
+    folder: string | null;
+  }
+>;
+
+export async function listImports(): Promise<ImportJob[]> {
+  return (await api<{ items: ImportJob[] }>('/api/v1/imports')).items;
+}
+
+export async function createImport(input: {
+  mailboxId: string;
+  filename: string;
+  size: number;
+}): Promise<ImportJob> {
+  return api('/api/v1/imports', { method: 'POST', body: JSON.stringify(input) });
+}
+
+export async function uploadImportChunk(
+  id: string,
+  offset: number,
+  chunk: Blob,
+): Promise<ImportJob> {
+  return api(`/api/v1/imports/${id}/chunk?offset=${offset}`, {
+    method: 'PUT',
+    body: chunk,
+    headers: { 'content-type': 'application/octet-stream' },
+  });
+}
+
+export async function retryImport(id: string): Promise<void> {
+  await api(`/api/v1/imports/${id}/retry`, { method: 'POST' });
+}
+
+export async function deleteImport(id: string): Promise<void> {
+  await api(`/api/v1/imports/${id}`, { method: 'DELETE' });
+}
+
+export interface BackupSettings {
+  enabled: boolean;
+  endpoint: string;
+  region: string;
+  bucket: string;
+  prefix: string;
+  accessKeyId: string;
+  forcePathStyle: boolean;
+  intervalHours: number;
+  retentionCount: number;
+  hasSecret: boolean;
+  hasPassphrase: boolean;
+  lastSuccessAt: number | null;
+  nextRunAt: number | null;
+}
+
+export type BackupJob = JobInfo<
+  { key: string | null; trigger: string },
+  { tables: number; rows: number; bytes: number }
+>;
+
+export async function getBackups(): Promise<{ settings: BackupSettings; history: BackupJob[] }> {
+  return api('/api/v1/backups');
+}
+
+export async function saveBackupSettings(
+  input: Omit<BackupSettings, 'hasSecret' | 'hasPassphrase' | 'lastSuccessAt' | 'nextRunAt'> & {
+    secretAccessKey?: string;
+    passphrase?: string;
+  },
+): Promise<BackupSettings> {
+  return api('/api/v1/backups/settings', { method: 'PUT', body: JSON.stringify(input) });
+}
+
+export async function testBackups(): Promise<{ detail: string }> {
+  return api('/api/v1/backups/test', { method: 'POST' });
+}
+
+export async function runBackup(): Promise<BackupJob> {
+  return api('/api/v1/backups/run', { method: 'POST' });
+}
+
+export async function listRemoteBackups(): Promise<
+  Array<{ key: string; size: number; modifiedAt: number }>
+> {
+  return (
+    await api<{ items: Array<{ key: string; size: number; modifiedAt: number }> }>(
+      '/api/v1/backups/remote',
+    )
+  ).items;
+}
+
+export async function restoreBackup(key: string): Promise<{ tables: number; rows: number }> {
+  return api('/api/v1/backups/restore', {
+    method: 'POST',
+    body: JSON.stringify({ key, confirm: 'RESTORE' }),
+  });
+}
+
+export async function setupRestore(input: {
+  setupCode: string;
+  passphrase: string;
+  key?: string;
+  s3: {
+    endpoint: string;
+    region: string;
+    bucket: string;
+    prefix: string;
+    accessKeyId: string;
+    secretAccessKey: string;
+    forcePathStyle: boolean;
+  };
+}): Promise<{ key: string; tables: number; rows: number }> {
+  return api('/api/v1/setup/restore', { method: 'POST', body: JSON.stringify(input) });
 }

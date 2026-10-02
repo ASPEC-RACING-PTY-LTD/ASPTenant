@@ -1,3 +1,6 @@
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { createDatabase } from '@aspec/db';
 import { createNoopLogger } from '@aspec/observability';
 import { expect } from 'vitest';
@@ -12,6 +15,7 @@ export interface TestContext {
 }
 
 export async function createTestContext(): Promise<TestContext> {
+  const dataDir = mkdtempSync(join(tmpdir(), 'aspectenant-test-'));
   const origin = 'http://127.0.0.1:8080';
   const config = loadAppConfig({
     ignoreFiles: true,
@@ -22,6 +26,7 @@ export async function createTestContext(): Promise<TestContext> {
       LOG_LEVEL: 'error',
       LISTEN_HOST: '127.0.0.1',
       LISTEN_PORT: '3000',
+      DATA_DIR: dataDir,
     },
   });
   const database = await createDatabase({
@@ -34,6 +39,7 @@ export async function createTestContext(): Promise<TestContext> {
     database,
     logger: createNoopLogger(),
   });
+  platform.backups.exitAfterRestore = false;
   return { platform, app: createApp(platform), origin };
 }
 

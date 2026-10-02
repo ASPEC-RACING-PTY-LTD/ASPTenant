@@ -10,9 +10,9 @@ RUN pnpm --filter @aspec/errors --filter @aspec/validation --filter @aspec/api -
 RUN pnpm --filter @aspectenant/api build
 ARG APP_VERSION=dev
 ENV NODE_ENV=production APP_VERSION=${APP_VERSION}
-RUN mkdir -p /updates && chown node:node /updates
+RUN mkdir -p /updates /data && chown node:node /updates /data
 USER node
-EXPOSE 3000
+EXPOSE 3000 1993 1465 1587
 HEALTHCHECK --interval=10s --timeout=5s --retries=12 --start-period=30s \
   CMD node -e "fetch('http://127.0.0.1:3000/readyz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 CMD ["node", "apps/api/dist/index.js"]

@@ -11,7 +11,10 @@ ASPECTenant provides and owns the mailbox platform. Email is not "forward everyt
 - Webmail at `/mailbox`: read (HTML in a sandboxed frame with remote scripts blocked), search, reply, reply all, forward, attachments, move, delete, download `.eml`.
 - Domains page: TXT ownership verification and MX, SPF and DMARC checks.
 
-Not implemented yet: IMAP and SMTP submission for desktop or phone clients, spam scoring (Cloudflare Email Routing applies its own checks before the Worker), retention policies, quotas enforcement, full-text search index, migration import.
+- Mail apps: IMAPS 993 and SMTP submission 465/587 (`apps/api/src/imap`, `apps/api/src/mailserver`). Login is the ASPECTenant email and password. Shared and delegated mailboxes appear under `Shared/<address>/`. Submitted mail goes through the same outbound transport; clients save their own copy to Sent. Certificates come from Let's Encrypt (Cloudflare DNS-01 token) or an uploaded PEM and renew automatically. These ports bypass Cloudflare Tunnel: forward them to the host and use a DNS-only record.
+- PST import (Migration page): chunked resumable upload, folders mapped (Inbox, Sent Items, Deleted Items, Junk, Drafts, custom), read state and dates kept. A content key per message makes re-imports skip duplicates.
+
+Not implemented yet: spam scoring (Cloudflare Email Routing applies its own checks before the Worker), retention policies, quota enforcement, full-text index, IMAP keywords and CONDSTORE.
 
 The rest of this document describes the design those pieces follow.
 
