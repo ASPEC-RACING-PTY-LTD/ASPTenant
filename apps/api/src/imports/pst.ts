@@ -52,6 +52,10 @@ const FOLDER_MAP: Record<string, string> = {
   archive: 'Archive',
 };
 
+/** System folders Outlook adds to exports that hold no real mail. */
+const SKIP_FOLDERS =
+  /^(search root|spam search folder|ipm_common_views|ipm_views|finder|freebusy data|sync issues|conflicts|local failures|server failures|outbox|conversation action settings|quick step settings|externalcontacts|recoverable items|yammer root|files|social activity notifications)$/i;
+
 const SKIP_CLASSES = [
   'IPM.Contact',
   'IPM.Appointment',
@@ -318,7 +322,10 @@ export class PstImporter {
             ? 'failed'
             : 'succeeded',
         progress: { ...progress, folder: null },
-        error: progress.failed > 0 ? `${progress.failed} items could not be imported.` : null,
+        error:
+          progress.failed > 0
+            ? `${progress.failed} damaged or unreadable items were skipped; everything else was imported.`
+            : null,
       });
       await this.platform.audit.record({
         action: 'mail.import.completed',
@@ -344,31 +351,65 @@ export class PstImporter {
     progress: ImportProgress,
     save: (force?: boolean) => Promise<void>,
   ): Promise<void> {
-    const containerClass = folder.containerClass || '';
+    let containerClass = '';
+    try {
+      containerClass = folder.containerClass || '';
+    } catch {
+      containerClass = '';
+    }
     if (containerClass && !containerClass.startsWith('IPF.Note')) return;
     const target = mapFolderPath(path);
-    if (folder.contentCount > 0) {
+    let count = 0;
+    try {
+      count = folder.contentCount;
+    } catch {
+      count = 0;
+    }
+    if (count > 0) {
       progress.folder = target;
-      let child = folder.getNextChild() as PSTMessage | null;
-      while (child) {
+      // Damaged entries throw inside the PST reader; skip them and keep going.
+      for (let index = 0; index < count; index += 1) {
         if (this.stopped) return;
+        let child: PSTMessage | null = null;
+        try {
+          folder.moveChildCursorTo(index);
+          child = folder.getNextChild() as PSTMessage | null;
+        } catch (error) {
+          progress.failed += 1;
+          progress.processed += 1;
+          this.platform.logger.warn(
+            { err: error, folder: target, index },
+            'unreadable pst item skipped',
+          );
+          continue;
+        }
+        if (!child) continue;
         await this.importOne(child, target, mailbox, progress);
         progress.processed += 1;
         await save();
         await new Promise((resolve) => setImmediate(resolve));
-        child = folder.getNextChild() as PSTMessage | null;
       }
     }
-    for (const sub of folder.getSubFolders()) {
-      const name = sub.displayName || 'Folder';
-      // Skip the store's top container ("Top of Personal Folders" and similar).
+    let subfolders: PSTFolder[] = [];
+    try {
+      subfolders = folder.hasSubfolders ? folder.getSubFolders() : [];
+    } catch (error) {
+      this.platform.logger.warn(
+        { err: error, folder: target },
+        'unreadable pst subfolders skipped',
+      );
+      progress.failed += 1;
+    }
+    for (const sub of subfolders) {
+      let name = 'Folder';
+      try {
+        name = sub.displayName || 'Folder';
+      } catch {
+        name = 'Folder';
+      }
+      if (SKIP_FOLDERS.test(name)) continue;
+      // Skip the store's top container ("Top of Outlook data file" and similar).
       const nextPath = path.length === 0 && /^(top of |root - )/i.test(name) ? [] : [...path, name];
-      if (
-        /^(search root|spam search folder|ipm_common_views|ipm_views|finder|freebusy data)$/i.test(
-          name,
-        )
-      )
-        continue;
       await this.walk(sub, nextPath, mailbox, progress, save);
     }
   }
@@ -407,7 +448,11 @@ export class PstImporter {
 }
 
 function countMessages(folder: PSTFolder): number {
-  let total = folder.contentCount;
-  if (folder.hasSubfolders) for (const sub of folder.getSubFolders()) total += countMessages(sub);
-  return total;
+  try {
+    let total = folder.contentCount;
+    if (folder.hasSubfolders) for (const sub of folder.getSubFolders()) total += countMessages(sub);
+    return total;
+  } catch {
+    return 0;
+  }
 }

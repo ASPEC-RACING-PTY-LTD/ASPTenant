@@ -145,6 +145,25 @@ export function MigrationPage() {
             </button>
           </div>
         </form>
+        <details>
+          <summary>How to export a PST from Outlook (classic)</summary>
+          <ol className="steps">
+            <li>
+              If the account is Microsoft 365 or Exchange, first turn off Cached Exchange Mode
+              (File, Account Settings, Account Settings, Change) or set the cache slider to All.
+              Otherwise Outlook only exports the cached period, 12 months by default.
+            </li>
+            <li>
+              File, Open &amp; Export, Import/Export, Export to a file, Outlook Data File (.pst).
+            </li>
+            <li>Select the mailbox at the top of the list and tick Include subfolders.</li>
+            <li>Save the file somewhere outside OneDrive, leave the password blank, and Finish.</li>
+            <li>
+              Upload it here. Calendar, contacts and tasks in the file are skipped; mail folders are
+              kept.
+            </li>
+          </ol>
+        </details>
         <p className="muted">
           Large files upload in 16 MB pieces and resume after a dropped connection. Keep this page
           open until the upload finishes; the import itself runs on the server.
