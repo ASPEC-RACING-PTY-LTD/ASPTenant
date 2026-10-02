@@ -1,4 +1,4 @@
-name: Images
+﻿name: Images
 
 # Every push to main is a release: the version comes from apps/api/package.json.
 # Images get :<version>, :latest and :<sha>, and a GitHub release v<version> is created
@@ -83,17 +83,16 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: v${{ steps.version.outputs.version }}
         run: gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --target "$GITHUB_SHA" --generate-notes --title "$TAG"
-
   notify:
     name: Discord notification
-    if: always()
-    needs: [check, publish]
+    if: ${{ always() }}
+    needs:
+      - check
+      - publish
     uses: ASPEC-RACING-PTY-LTD/.github/.github/workflows/discord-deploy-notify.yml@main
     with:
       result: ${{ needs.publish.result }}
       title: Docker Image Build
-      details: >-
-        Validation: ${{ needs.check.result }} |
-        Image publish: ${{ needs.publish.result }}
-    secrets:
-      discord_webhook: ${{ secrets.DISCORD_DEPLOY_WEBHOOK }}
+      details: ${{ format('Validation: {0} | Image publish: {1}', needs.check.result, needs.publish.result) }}
+    secrets: inherit
+
