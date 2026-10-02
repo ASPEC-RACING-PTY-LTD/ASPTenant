@@ -65,6 +65,147 @@ interface CfRecord {
   priority?: number;
 }
 
+export type CloudflareFailure = 'auth' | 'permission' | 'not-found' | 'api';
+
+/** A Cloudflare problem with a cause the UI can explain. */
+export class CloudflareError extends UnprocessableError {
+  readonly kind: CloudflareFailure;
+
+  constructor(kind: CloudflareFailure, message: string) {
+    super(message);
+    this.kind = kind;
+  }
+}
+
+export interface ZoneMatch {
+  id: string;
+  name: string;
+  /** True when the hostname is below the zone apex (for example mail.example.com in example.com). */
+  subdomain: boolean;
+}
+
+/** Cloudflare error codes for a missing, invalid or expired token. */
+const AUTH_CODES = new Set([9103, 9106, 9109, 10000, 10001, 6003, 6111]);
+
+/**
+ * Finds the Cloudflare zone that is authoritative for a hostname: the longest zone name the
+ * token can see that equals the hostname or is a parent of it. The hostname itself is never
+ * assumed to be a zone.
+ */
+export async function discoverZone(token: string, hostname: string): Promise<ZoneMatch> {
+  const host = hostname.trim().toLowerCase().replace(/\.$/, '');
+  const zones: { id: string; name: string }[] = [];
+  for (let page = 1; page <= 20; page += 1) {
+    let response: Response;
+    try {
+      response = await fetch(
+        `https://api.cloudflare.com/client/v4/zones?per_page=50&page=${page}`,
+        {
+          headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+          signal: AbortSignal.timeout(20_000),
+        },
+      );
+    } catch (error) {
+      throw new CloudflareError(
+        'api',
+        `Could not reach the Cloudflare API: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    const body = (await response.json().catch(() => ({ success: false }))) as {
+      success: boolean;
+      errors?: { code: number; message: string }[];
+      result?: { id: string; name: string }[];
+      result_info?: { total_pages?: number };
+    };
+    if (!body.success) {
+      const codes = (body.errors ?? []).map((e) => e.code);
+      const detail = body.errors?.map((e) => e.message).join(', ') || `HTTP ${response.status}`;
+      if (response.status === 401 || codes.some((code) => AUTH_CODES.has(code))) {
+        throw new CloudflareError(
+          'auth',
+          `Cloudflare rejected the API token (authentication failed: ${detail}). Check the token is correct and not expired or revoked.`,
+        );
+      }
+      if (response.status === 403) {
+        throw new CloudflareError(
+          'permission',
+          `The Cloudflare token is not allowed to list zones (${detail}). Give it Zone: Read and DNS: Edit.`,
+        );
+      }
+      throw new CloudflareError('api', `Cloudflare API error: ${detail}`);
+    }
+    zones.push(...(body.result ?? []));
+    if (page >= (body.result_info?.total_pages ?? 1)) break;
+  }
+  if (zones.length === 0) {
+    throw new CloudflareError(
+      'permission',
+      `The Cloudflare token is valid but cannot see any zones. Give it Zone: Read and DNS: Edit for the zone that contains ${host}.`,
+    );
+  }
+  const match = zones
+    .filter((zone) => {
+      const name = zone.name.toLowerCase();
+      return host === name || host.endsWith(`.${name}`);
+    })
+    .sort((a, b) => b.name.length - a.name.length)[0];
+  if (!match) {
+    throw new CloudflareError(
+      'not-found',
+      `No zone in this Cloudflare account contains ${host}. Zones this token can see: ${zones
+        .map((zone) => zone.name)
+        .slice(0, 20)
+        .join(', ')}.`,
+    );
+  }
+  return { id: match.id, name: match.name, subdomain: host !== match.name.toLowerCase() };
+}
+
+export interface DnsChallengePlan {
+  /** Name on the certificate. Never changed. */
+  certificateHostname: string;
+  /** TXT record created for the ACME DNS-01 challenge. */
+  recordName: string;
+  zone: ZoneMatch;
+  token: string;
+  tokenSource: string;
+}
+
+/** Picks the first token whose account holds the zone for the hostname, reporting each failure. */
+export async function planDnsChallenge(
+  hostname: string,
+  candidates: { source: string; token: string }[],
+): Promise<DnsChallengePlan> {
+  const host = hostname.trim().toLowerCase();
+  if (candidates.length === 0) {
+    throw new CloudflareError(
+      'auth',
+      'No Cloudflare token is configured. Connect Cloudflare on the Domains page or save a token on Mail apps.',
+    );
+  }
+  const failures: string[] = [];
+  for (const candidate of candidates) {
+    try {
+      const zone = await discoverZone(candidate.token, host);
+      return {
+        certificateHostname: host,
+        recordName: `_acme-challenge.${host}`,
+        zone,
+        token: candidate.token,
+        tokenSource: candidate.source,
+      };
+    } catch (error) {
+      failures.push(
+        `${candidate.source}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      if (candidates.length === 1) throw error;
+    }
+  }
+  throw new UnprocessableError(
+    `No Cloudflare token can manage DNS for ${host}. ${failures.join(' ')}`,
+  );
+}
+
 export class CloudflareApi {
   private readonly token: string;
 
@@ -91,16 +232,14 @@ export class CloudflareApi {
     return body.result;
   }
 
+  /** Longest matching zone for the hostname, or null when the token cannot see one. */
   async zoneFor(hostname: string): Promise<{ id: string; name: string } | null> {
-    const labels = hostname.split('.');
-    for (let i = 0; i < labels.length - 1; i += 1) {
-      const name = labels.slice(i).join('.');
-      const zones = await this.call<{ id: string; name: string }[]>(
-        `/zones?name=${encodeURIComponent(name)}`,
-      );
-      if (zones[0]) return zones[0];
+    try {
+      return await discoverZone(this.token, hostname);
+    } catch (error) {
+      if (error instanceof CloudflareError && error.kind === 'not-found') return null;
+      throw error;
     }
-    return null;
   }
 
   records(zone: string, type: string, name: string): Promise<CfRecord[]> {

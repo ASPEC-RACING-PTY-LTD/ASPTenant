@@ -14,6 +14,7 @@ import type { Actor } from '@aspec/users';
 import acme from 'acme-client';
 import addressparser from 'nodemailer/lib/addressparser/index.js';
 import { SMTPServer, type SMTPServerSession } from 'smtp-server';
+import { planDnsChallenge } from '../dns/index.js';
 import { parseHeaders } from '../imap/mime.js';
 import { ImapSession, type MailAuthenticator } from '../imap/session.js';
 import { SettingsStore } from '../mail/store.js';
@@ -174,18 +175,6 @@ async function cloudflare(token: string, path: string, init: RequestInit = {}) {
   return body.result;
 }
 
-async function findZone(token: string, hostname: string): Promise<string> {
-  const labels = hostname.split('.');
-  for (let i = 0; i < labels.length - 1; i += 1) {
-    const name = labels.slice(i).join('.');
-    const zones = (await cloudflare(token, `/zones?name=${encodeURIComponent(name)}`)) as {
-      id: string;
-    }[];
-    if (zones[0]) return zones[0].id;
-  }
-  throw new Error(`No Cloudflare zone found for ${hostname}. Check the token has Zone:Read.`);
-}
-
 export class MailServers {
   readonly accounts: MailAccounts;
   private readonly settings: SettingsStore;
@@ -338,16 +327,38 @@ export class MailServers {
   async issueCertificate(): Promise<ClientSettingsView> {
     const stored = await this.load();
     if (!stored.hostname) throw new UnprocessableError('Save a hostname first.');
-    const token = stored.cloudflareDnsToken
-      ? this.platform.secrets.decrypt(stored.cloudflareDnsToken)
-      : await this.platform.domainSetup.cloudflareToken();
-    if (!token) {
-      throw new UnprocessableError(
-        'Connect Cloudflare on the Domains page, or save a token here with Zone:Read and DNS:Edit.',
-      );
+    const candidates: { source: string; token: string }[] = [];
+    if (stored.cloudflareDnsToken) {
+      try {
+        candidates.push({
+          source: 'Mail apps token',
+          token: this.platform.secrets.decrypt(stored.cloudflareDnsToken),
+        });
+      } catch {
+        this.platform.logger.warn(
+          'the Mail apps Cloudflare token cannot be decrypted; skipping it',
+        );
+      }
+    }
+    const domainsToken = await this.platform.domainSetup.cloudflareToken();
+    if (domainsToken && !candidates.some((item) => item.token === domainsToken)) {
+      candidates.push({ source: 'Domains Cloudflare connection', token: domainsToken });
     }
     try {
-      const zone = await findZone(token, stored.hostname);
+      const plan = await planDnsChallenge(stored.hostname, candidates);
+      const token = plan.token;
+      const zone = plan.zone.id;
+      this.platform.logger.info(
+        {
+          event: 'mail_apps_certificate_dns_plan',
+          certificateHostname: plan.certificateHostname,
+          challengeRecord: plan.recordName,
+          zone: plan.zone.name,
+          subdomainOfZone: plan.zone.subdomain,
+          tokenSource: plan.tokenSource,
+        },
+        `requesting a certificate for ${plan.certificateHostname} using DNS zone ${plan.zone.name}`,
+      );
       const client = new acme.Client({
         directoryUrl: acme.directory.letsencrypt.production,
         accountKey: await acme.crypto.createPrivateKey(),
