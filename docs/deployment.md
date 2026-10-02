@@ -5,10 +5,10 @@ ASPECTenant is Docker-first and expects to sit behind an operator-provided rever
 ## Install from GitHub
 
 ```sh
-sudo env PUBLIC_URL=https://mail.example.com bash -c "$(curl -fsSL https://raw.githubusercontent.com/ASPEC-RACING-PTY-LTD/ASPTenant/main/install.sh)"
+sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/ASPEC-RACING-PTY-LTD/ASPTenant/main/install.sh)"
 ```
 
-The installer writes `/opt/aspectenant/compose.yml` and a short `.env` (`PUBLIC_URL`, `POSTGRES_PASSWORD`, `AUDIT_HMAC_KEY`, `INSTALL_DIR`), pulls the images, starts Compose and prints the one-time setup code. Re-running it upgrades and keeps data.
+The installer writes `/opt/aspectenant/compose.yml` and a `.env` of generated values only (`POSTGRES_PASSWORD`, `AUDIT_HMAC_KEY`, `INSTALL_DIR`). The public URL is set on the Settings page, pulls the images, starts Compose and prints the one-time setup code. Re-running it upgrades and keeps data.
 
 The panel binds to `127.0.0.1:8080`. With cloudflared on the same host, add a public hostname that points at `http://localhost:8080`. Set `ASPECTENANT_BIND=0.0.0.0` before installing only if the proxy runs elsewhere.
 
@@ -36,8 +36,7 @@ Configure on the Backups page: R2 or any S3 bucket, an encryption passphrase, sc
 `compose.yml` builds images locally. It is suitable for development and for a first private installation on loopback. Harden it before any public bind:
 
 - Replace the Compose PostgreSQL password
-- Set `PUBLIC_URL` to the HTTPS origin users will open
-- Set `COOKIE_SECURE` implicitly by using `https://` in `PUBLIC_URL`
+- Set the public URL (Settings page) to the HTTPS origin users open; an https URL makes session cookies Secure
 - Set `TRUSTED_PROXIES` to the proxy hop (often `private`) so `X-Forwarded-For` and `CF-Connecting-IP` are honoured
 - Set `AUDIT_HMAC_KEY` to at least 32 characters
 - Do not publish PostgreSQL or the API port on `0.0.0.0`

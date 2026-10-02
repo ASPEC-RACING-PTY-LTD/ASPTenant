@@ -85,7 +85,7 @@ The store already supports multi-organisation records, memberships, teams and op
 - Profile and lifecycle records: `@aspec/users`, keyed by the auth account id
 - Authorisation: `@aspec/rbac` with seeded `tenant.owner`, `tenant.admin` and `tenant.auditor`
 - Public self-registration is disabled. The only bootstrap is `POST /api/v1/setup` while no users exist
-- CSRF origin checks use `PUBLIC_URL`
+- CSRF: state-changing requests must come from the panel's own host or the public URL saved in Settings
 - MFA, WebAuthn, OIDC client, SAML, SCIM and LDAP are present as library capabilities or future work. They are not exposed as working product features in this scaffold
 
 Service identities for SoftDock and other platforms will use `@aspec/api-keys` (vendored, not wired) and later OAuth client credentials. They must not share the human session cookie.

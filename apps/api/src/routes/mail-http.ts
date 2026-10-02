@@ -272,7 +272,9 @@ export function createMailHttp(
   // Mail administration
   app.get('/mail/settings', async (c) => {
     await requirePermission(platform, accountId(c), 'mail:manage');
-    const settings = await platform.mail.getSettings();
+    const proto = c.req.header('x-forwarded-proto') ?? new URL(c.req.url).protocol.replace(':', '');
+    const host = c.req.header('host') ?? new URL(c.req.url).host;
+    const settings = await platform.mail.getSettings(`${proto}://${host}`);
     return c.json({ ...settings, workerScript: cloudflareWorkerScript(settings.ingest.url) });
   });
 
@@ -297,7 +299,14 @@ export function createMailHttp(
       },
       actor(c),
     );
-    return c.json({ ...saved, workerScript: cloudflareWorkerScript(saved.ingest.url) });
+    const proto = c.req.header('x-forwarded-proto') ?? new URL(c.req.url).protocol.replace(':', '');
+    const host = c.req.header('host') ?? new URL(c.req.url).host;
+    const view = await platform.mail.getSettings(`${proto}://${host}`);
+    return c.json({
+      ...view,
+      outbound: saved.outbound,
+      workerScript: cloudflareWorkerScript(view.ingest.url),
+    });
   });
 
   app.post('/mail/settings/test', async (c) => {

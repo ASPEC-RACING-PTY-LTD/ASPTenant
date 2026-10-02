@@ -3,8 +3,7 @@
 #
 #   sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/ASPEC-RACING-PTY-LTD/ASPTenant/main/install.sh)"
 #
-# Unattended:
-#   sudo env PUBLIC_URL=https://mail.example.com bash -c "$(curl -fsSL https://raw.githubusercontent.com/ASPEC-RACING-PTY-LTD/ASPTenant/main/install.sh)"
+# Nothing to configure here: the public URL and everything else are set in the panel.
 #
 # Optional: ASPECTENANT_DIR (default /opt/aspectenant), ASPECTENANT_BIND (default
 # 127.0.0.1, for a local cloudflared), ASPECTENANT_PORT (default 8080).
@@ -38,15 +37,8 @@ random() {
 }
 
 if [[ ! -f .env ]]; then
-  if [[ -z "${PUBLIC_URL:-}" ]]; then
-    if [[ -t 0 ]]; then
-      read -r -p "Public URL people will open (for example https://mail.example.com): " PUBLIC_URL
-    else
-      PUBLIC_URL="http://localhost:8080"
-    fi
-  fi
+  # Generated secrets only. Do not edit; configure everything else in the panel.
   {
-    echo "PUBLIC_URL=${PUBLIC_URL%/}"
     echo "POSTGRES_PASSWORD=$(random 24)"
     echo "AUDIT_HMAC_KEY=$(random 32)"
     echo "INSTALL_DIR=${PREFIX}"
@@ -78,9 +70,11 @@ done
 
 echo
 echo "ASPECTenant is running in ${PREFIX}"
-echo "Panel: ${PUBLIC_URL} (local: http://${ASPECTENANT_BIND:-127.0.0.1}:${ASPECTENANT_PORT:-8080})"
+LOCAL="http://${ASPECTENANT_BIND:-127.0.0.1}:${ASPECTENANT_PORT:-8080}"
+echo "Panel: ${LOCAL} (point your Cloudflare Tunnel hostname at it)"
 if [[ -n "${CODE}" ]]; then
   echo
-  echo "Open ${PUBLIC_URL}/setup and enter this setup code: ${CODE}"
+  echo "Open /setup on that address and enter this setup code: ${CODE}"
   echo "(It changes if the API restarts: docker compose logs api | grep 'Setup code')"
+  echo "Then set your public URL under Settings."
 fi

@@ -46,6 +46,6 @@ Vendored module suites can be run with `pnpm test:modules`. They are the upstrea
 
 ## Configuration
 
-`.env.example` lists only what is required to launch: `DATABASE_URL` and `PUBLIC_URL`. The super administrator and organisation name are created on the first-run setup page. Optional overrides (`LOG_LEVEL`, `AUDIT_HMAC_KEY`, `TRUSTED_PROXIES`) have defaults and do not belong in a normal launch file.
+`.env.example` only has `DATABASE_URL` for host-side runs. The public URL is set on the Settings page; `PUBLIC_URL` remains an optional override. The super administrator and organisation name are created on the first-run setup page. Optional overrides (`LOG_LEVEL`, `AUDIT_HMAC_KEY`, `TRUSTED_PROXIES`) have defaults and do not belong in a normal launch file.
 
 Secret values also accept `NAME_FILE` (from `@aspec/config`) so Docker secrets can be mounted later without new variable names.
