@@ -8,8 +8,8 @@ export const configShape = {
     .example('postgres://aspec:aspec@127.0.0.1:5432/aspec'),
   publicUrl: env
     .url('PUBLIC_URL', { protocols: ['http', 'https'] })
-    .description('Public origin of the admin UI.')
-    .example('http://localhost:8080'),
+    .optional()
+    .description('Optional. Public origin of the admin UI; normally set on the Settings page.'),
   appName: env
     .string('APP_NAME')
     .default('ASPECTenant')
@@ -40,6 +40,10 @@ export const configShape = {
     .string('UPDATES_DIR')
     .default('/updates')
     .description('Directory shared with the updater sidecar.'),
+  mailPublicPorts: env
+    .string('MAIL_PUBLIC_PORTS')
+    .default('993,465,587')
+    .description('Host ports for IMAPS, SMTPS and submission, as shown to users.'),
   dataDir: env
     .string('DATA_DIR')
     .default('/data')
@@ -61,13 +65,9 @@ export function loadAppConfig(options: DefineConfigOptions = {}): AppConfig {
   return defineConfig(configShape, options);
 }
 
-export function publicOrigin(config: AppConfig): string {
-  return new URL(config.publicUrl).origin;
-}
-
-export function cookieSecure(config: AppConfig): boolean {
+export function cookieSecure(config: AppConfig, publicUrl: string | null): boolean {
   if (config.cookieSecure !== undefined) return config.cookieSecure;
-  return new URL(config.publicUrl).protocol === 'https:';
+  return publicUrl ? new URL(publicUrl).protocol === 'https:' : false;
 }
 
 export function trustedProxyList(config: AppConfig): string[] {

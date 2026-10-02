@@ -131,8 +131,9 @@ export class MailService {
     return (await this.platform.orgs.getDefaultOrg()).id;
   }
 
-  ingestUrl(): string {
-    return `${new URL(this.platform.config.publicUrl).origin}/api/v1/mail/ingest`;
+  ingestUrl(fallbackOrigin?: string): string {
+    const origin = this.platform.publicUrl ?? fallbackOrigin ?? 'https://YOUR-PANEL-HOSTNAME';
+    return `${origin}/api/v1/mail/ingest`;
   }
 
   private async load(): Promise<StoredMailSettings> {
@@ -143,7 +144,7 @@ export class MailService {
     );
   }
 
-  async getSettings(): Promise<MailSettingsView> {
+  async getSettings(fallbackOrigin?: string): Promise<MailSettingsView> {
     const stored = await this.load();
     const smtp = stored.outbound.smtp;
     return {
@@ -158,7 +159,7 @@ export class MailService {
           hasPassword: Boolean(smtp?.password),
         },
       },
-      ingest: { configured: Boolean(stored.ingestTokenHash), url: this.ingestUrl() },
+      ingest: { configured: Boolean(stored.ingestTokenHash), url: this.ingestUrl(fallbackOrigin) },
     };
   }
 

@@ -270,12 +270,16 @@ export async function listAudit(query: {
 export async function getSettings(): Promise<{
   organisation: { id: string; name: string; slug: string; status: string };
   tenantMode: string;
+  publicUrl: string | null;
 }> {
   return api('/api/v1/settings');
 }
 
-export async function updateSettings(name: string): Promise<void> {
-  await api('/api/v1/settings', { method: 'PATCH', body: JSON.stringify({ name }) });
+export async function updateSettings(
+  name: string,
+  publicUrl: string | null,
+): Promise<{ restarting: boolean; publicUrl: string | null }> {
+  return api('/api/v1/settings', { method: 'PATCH', body: JSON.stringify({ name, publicUrl }) });
 }
 
 export async function listAuthSessions(): Promise<AuthSession[]> {

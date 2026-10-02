@@ -3,12 +3,14 @@ import { createHealth } from '@aspec/observability';
 import { observability } from '@aspec/observability/hono';
 import { createMemoryStore, createRateLimiter } from '@aspec/rate-limit';
 import { Hono } from 'hono';
-import { cookieSecure, publicOrigin } from './config.js';
+import { cookieSecure } from './config.js';
 import { createPlatformIpResolver } from './http/client-ip.js';
 import type { Platform } from './platform.js';
 import { createAdminHttp } from './routes/admin-http.js';
 import { createControlPlaneApi } from './routes/control-plane.js';
 import { createMailHttp } from './routes/mail-http.js';
+
+const TRUSTED_ORIGIN = 'http://aspectenant.internal';
 
 export function createApp(platform: Platform): Hono<{ Variables: AuthVariables }> {
   const resolveIp = createPlatformIpResolver(platform.config);
@@ -29,11 +31,12 @@ export function createApp(platform: Platform): Hono<{ Variables: AuthVariables }
   });
 
   const api = createControlPlaneApi(platform);
+  const secure = cookieSecure(platform.config, platform.publicUrl);
   const auth = createAuthRoutes(platform.auth, {
-    allowedOrigins: [publicOrigin(platform.config)],
+    allowedOrigins: [TRUSTED_ORIGIN],
     cookie: {
-      secure: cookieSecure(platform.config),
-      name: cookieSecure(platform.config) ? '__Host-aspectenant_session' : 'aspectenant_session',
+      secure,
+      name: secure ? '__Host-aspectenant_session' : 'aspectenant_session',
     },
     features: {
       register: false,
@@ -161,5 +164,29 @@ export function createApp(platform: Platform): Hono<{ Variables: AuthVariables }
     );
   });
 
-  return app;
+  // CSRF: browser writes must come from this site (the Host the browser used, or the public
+  // URL from Settings). Accepted requests continue with a fixed trusted origin, so the public
+  // URL can change at runtime without reconfiguring the auth routes.
+  const outer = new Hono<{ Variables: AuthVariables }>();
+  outer.all('*', async (c) => {
+    if (['GET', 'HEAD', 'OPTIONS'].includes(c.req.method)) return app.fetch(c.req.raw, c.env);
+    const source = c.req.header('origin') ?? c.req.header('referer');
+    if (!source) return app.fetch(c.req.raw, c.env);
+    let host = '';
+    try {
+      host = new URL(source).host;
+    } catch {
+      host = '';
+    }
+    const own = c.req.header('x-forwarded-host') ?? c.req.header('host') ?? new URL(c.req.url).host;
+    const allowed =
+      host !== '' &&
+      (host === own || (platform.publicUrl !== null && host === new URL(platform.publicUrl).host));
+    if (!allowed) return c.json({ status: 403, detail: 'Cross-site request rejected.' }, 403);
+    const headers = new Headers(c.req.raw.headers);
+    headers.set('origin', TRUSTED_ORIGIN);
+    headers.delete('referer');
+    return app.fetch(new Request(c.req.raw, { headers }), c.env);
+  });
+  return outer;
 }

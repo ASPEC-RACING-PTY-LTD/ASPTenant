@@ -93,3 +93,35 @@ describe('setup and session', () => {
     expect(response.status).toBe(401);
   });
 });
+
+describe('origin checks', () => {
+  it('rejects cross-site writes and accepts same-host ones without a public URL', async () => {
+    const { createTestContext: create, destroyTestContext: destroy } = await import('./helpers.js');
+    const ctx = await create();
+    ctx.platform.publicUrl = null;
+    try {
+      const cross = await ctx.app.request('http://panel.local/api/v1/setup', {
+        method: 'POST',
+        headers: { origin: 'https://evil.example', 'content-type': 'application/json' },
+        body: '{}',
+      });
+      expect(cross.status).toBe(403);
+      const same = await ctx.app.request('http://panel.local/api/v1/setup', {
+        method: 'POST',
+        headers: {
+          origin: 'http://panel.local',
+          host: 'panel.local',
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: 'a@b.co',
+          password: 'correct-horse-battery',
+          setupCode: ctx.platform.setupCode,
+        }),
+      });
+      expect(same.status).toBe(201);
+    } finally {
+      await destroy(ctx);
+    }
+  });
+});

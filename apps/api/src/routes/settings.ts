@@ -1,11 +1,13 @@
 import { defineRoute, ok } from '@aspec/api';
-import { ConflictError } from '@aspec/errors';
+import { ConflictError, UnprocessableError } from '@aspec/errors';
 import { z } from 'zod';
 import { accountIdFromRequest, actorFromRequest, requirePermission } from '../access.js';
+import { SettingsStore } from '../mail/store.js';
 import type { Platform } from '../platform.js';
 
 const updateBody = z.object({
   name: z.string().min(1).max(120),
+  publicUrl: z.string().max(300).nullable().optional(),
 });
 
 export function createSettingsRoutes(platform: Platform) {
@@ -33,6 +35,7 @@ export function createSettingsRoutes(platform: Platform) {
           },
           tenantMode: 'single',
           appName: platform.config.appName,
+          publicUrl: platform.publicUrl,
         });
       },
     }),
@@ -50,6 +53,26 @@ export function createSettingsRoutes(platform: Platform) {
         const body = request.body;
         if (!body) throw new ConflictError('Settings body is required');
         const org = await platform.orgs.getDefaultOrg();
+        let restarting = false;
+        if (body.publicUrl !== undefined) {
+          let next: string | null = null;
+          if (body.publicUrl?.trim()) {
+            try {
+              const url = new URL(body.publicUrl.trim());
+              if (url.protocol !== 'https:' && url.protocol !== 'http:')
+                throw new Error('protocol');
+              next = url.origin;
+            } catch {
+              throw new UnprocessableError('Enter a URL like https://mail.example.com');
+            }
+          }
+          if (next !== platform.publicUrl) {
+            await new SettingsStore(platform.db).set(org.id, 'general', { publicUrl: next });
+            platform.publicUrl = next;
+            restarting = true;
+            platform.restart();
+          }
+        }
         const updated = await platform.orgs.updateOrg(
           org.id,
           { name: body.name.trim() },
@@ -66,6 +89,8 @@ export function createSettingsRoutes(platform: Platform) {
           changes: { after: { name: updated.name } },
         });
         return ok({
+          restarting,
+          publicUrl: platform.publicUrl,
           organisation: {
             id: updated.id,
             name: updated.name,

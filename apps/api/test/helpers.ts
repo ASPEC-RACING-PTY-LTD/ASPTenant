@@ -40,6 +40,7 @@ export async function createTestContext(): Promise<TestContext> {
     logger: createNoopLogger(),
   });
   platform.backups.exitAfterRestore = false;
+  platform.restart = () => undefined;
   return { platform, app: createApp(platform), origin };
 }
 

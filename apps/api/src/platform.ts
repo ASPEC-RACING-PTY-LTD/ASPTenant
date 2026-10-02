@@ -17,6 +17,7 @@ import { loadAppConfig } from './config.js';
 import { DirectoryService, migrateDirectory } from './directory/index.js';
 import { PstImporter } from './imports/pst.js';
 import { MailService } from './mail/service.js';
+import { SettingsStore } from './mail/store.js';
 import { MailServers } from './mailserver/index.js';
 import { platformRbacDefinition } from './permissions.js';
 import { SecretBox } from './secrets.js';
@@ -38,6 +39,10 @@ export interface Platform {
   readonly imports: PstImporter;
   readonly backups: BackupService;
   readonly secrets: SecretBox;
+  /** Public origin from Settings (or PUBLIC_URL). Changing it restarts the API. */
+  publicUrl: string | null;
+  /** Restart after settings that are read at boot change. Disabled in tests. */
+  restart: () => void;
   /** One-time code printed to the log while first-run setup is open. */
   setupCode: string | null;
   readonly startedAt: number;
@@ -134,6 +139,10 @@ export async function createPlatform(options: CreatePlatformOptions = {}): Promi
     imports: undefined as unknown as PstImporter,
     backups: undefined as unknown as BackupService,
     secrets: new SecretBox(config),
+    publicUrl: config.publicUrl ? new URL(config.publicUrl).origin : null,
+    restart: () => {
+      setTimeout(() => process.exit(0), 1500).unref();
+    },
     setupCode: null,
     startedAt: Date.now(),
   };
@@ -145,6 +154,11 @@ export async function createPlatform(options: CreatePlatformOptions = {}): Promi
     imports: new PstImporter(platform),
     backups: new BackupService(platform),
   });
+  const general = await new SettingsStore(db).get<{ publicUrl?: string }>(
+    (await orgs.getDefaultOrg()).id,
+    'general',
+  );
+  if (general?.publicUrl) platform.publicUrl = general.publicUrl;
   const firstUser = await users.listUsers({ limit: 1 });
   if (firstUser.items.length === 0) {
     const code = randomBytes(5).toString('hex').toUpperCase();

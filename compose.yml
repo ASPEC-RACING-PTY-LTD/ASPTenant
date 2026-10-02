@@ -36,7 +36,6 @@ services:
     restart: unless-stopped
     environment:
       DATABASE_URL: postgres://aspec:${POSTGRES_PASSWORD:-aspec}@postgres:5432/aspec
-      PUBLIC_URL: ${PUBLIC_URL:-http://localhost:8080}
       TRUSTED_PROXIES: private
       AUDIT_HMAC_KEY: ${AUDIT_HMAC_KEY:-}
     volumes:

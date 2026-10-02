@@ -1,6 +1,6 @@
 import { ConfigError } from '@aspec/config';
 import { describe, expect, it } from 'vitest';
-import { cookieSecure, loadAppConfig, publicOrigin } from '../src/config.js';
+import { cookieSecure, loadAppConfig } from '../src/config.js';
 
 describe('configuration', () => {
   it('loads the documented development values', () => {
@@ -11,9 +11,14 @@ describe('configuration', () => {
         PUBLIC_URL: 'http://localhost:8080',
       },
     });
+    expect(
+      loadAppConfig({ ignoreFiles: true, processEnv: { DATABASE_URL: 'sqlite::memory:' } })
+        .publicUrl,
+    ).toBeUndefined();
     expect(config.appName).toBe('ASPECTenant');
-    expect(publicOrigin(config)).toBe('http://localhost:8080');
-    expect(cookieSecure(config)).toBe(false);
+    expect(config.publicUrl).toBe('http://localhost:8080/');
+    expect(cookieSecure(config, null)).toBe(false);
+    expect(cookieSecure(config, 'https://mail.example.com')).toBe(true);
     expect(config.databaseUrl.reveal()).toContain('postgres://');
     expect(String(config.databaseUrl)).toBe('[Secret]');
   });

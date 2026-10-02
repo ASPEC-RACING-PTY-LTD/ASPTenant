@@ -7,12 +7,12 @@ Self-hosted control plane for organisation identity, administration and organisa
 On a host with Docker Engine and the Compose plugin:
 
 ```sh
-sudo env PUBLIC_URL=https://mail.example.com bash -c "$(curl -fsSL https://raw.githubusercontent.com/ASPEC-RACING-PTY-LTD/ASPTenant/main/install.sh)"
+sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/ASPEC-RACING-PTY-LTD/ASPTenant/main/install.sh)"
 ```
 
 - Installs to `/opt/aspectenant` and binds the panel to `127.0.0.1:8080`, ready for a local `cloudflared` tunnel (point the tunnel at `http://localhost:8080`).
-- `.env` holds only the public URL and generated database and encryption secrets.
-- The installer prints a one-time **setup code**. Open `/setup`, enter it and create the super administrator. Everything else (domains, mailboxes, Cloudflare, SMTP, updates) is managed in the panel.
+- Nothing to configure: `.env` only holds generated secrets.
+- The installer prints a one-time **setup code**. Open `/setup`, enter it and create the super administrator (or restore a backup). Then set your **Public URL** under Settings. Everything else (domains, mailboxes, Cloudflare, SMTP, mail apps, backups, updates) is managed in the panel.
 - Re-running the installer upgrades in place and keeps data.
 
 Mail apps (Outlook, Apple Mail, phones) use IMAP 993 and SMTP 465/587 directly; enable them on **Mail apps** and forward those ports. Import Microsoft 365 PST exports on **Migration**. Configure encrypted R2/S3 backups on **Backups**.
@@ -29,7 +29,6 @@ Releases are published by pushing a `vX.Y.Z` tag. Images:
 ## Local development
 
 ```sh
-cp .env.example .env
 docker compose up --build
 ```
 

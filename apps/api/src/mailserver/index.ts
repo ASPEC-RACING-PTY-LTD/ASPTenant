@@ -14,7 +14,11 @@ import type { Platform } from '../platform.js';
 
 const KEY = 'mail-clients';
 export const CLIENT_PORTS = { imaps: 1993, smtps: 1465, submission: 1587 } as const;
-const PUBLIC_PORTS = { imaps: 993, smtps: 465, submission: 587 } as const;
+const PUBLIC_PORTS: { imaps: number; smtps: number; submission: number } = {
+  imaps: 993,
+  smtps: 465,
+  submission: 587,
+};
 const MAX_MESSAGE = 30 * 1024 * 1024;
 
 export type CertMode = 'acme' | 'manual';
@@ -166,6 +170,17 @@ export class MailServers {
     await this.settings.set(await this.tenantId(), KEY, next);
   }
 
+  private publicPorts(): typeof PUBLIC_PORTS {
+    const [imaps, smtps, submission] = this.platform.config.mailPublicPorts
+      .split(',')
+      .map((value) => Number.parseInt(value.trim(), 10));
+    return {
+      imaps: imaps || PUBLIC_PORTS.imaps,
+      smtps: smtps || PUBLIC_PORTS.smtps,
+      submission: submission || PUBLIC_PORTS.submission,
+    };
+  }
+
   async view(): Promise<ClientSettingsView> {
     const stored = await this.load();
     return {
@@ -178,7 +193,7 @@ export class MailServers {
       certExpiresAt: stored.certExpiresAt,
       lastError: stored.lastError,
       running: this.imap !== null,
-      ports: PUBLIC_PORTS,
+      ports: this.publicPorts(),
     };
   }
 

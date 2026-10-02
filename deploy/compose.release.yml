@@ -1,6 +1,7 @@
 name: aspectenant
 
 # Written by install.sh. Re-running the installer refreshes this file and keeps .env.
+# Ports come from .env (chosen by the installer to avoid conflicts).
 
 networks:
   internal:
@@ -34,17 +35,17 @@ services:
     restart: unless-stopped
     environment:
       DATABASE_URL: postgres://aspec:${POSTGRES_PASSWORD}@postgres:5432/aspec
-      PUBLIC_URL: ${PUBLIC_URL}
       TRUSTED_PROXIES: private
       AUDIT_HMAC_KEY: ${AUDIT_HMAC_KEY}
+      MAIL_PUBLIC_PORTS: ${ASPECTENANT_MAIL_PORTS:-993,465,587}
     volumes:
       - updates:/updates
       - data:/data
     # Mail apps connect directly (IMAPS, SMTPS, submission). Forward these on your router.
     ports:
-      - "${ASPECTENANT_MAIL_BIND:-0.0.0.0}:993:1993"
-      - "${ASPECTENANT_MAIL_BIND:-0.0.0.0}:465:1465"
-      - "${ASPECTENANT_MAIL_BIND:-0.0.0.0}:587:1587"
+      - "${ASPECTENANT_MAIL_BIND:-0.0.0.0}:${ASPECTENANT_IMAPS_PORT:-993}:1993"
+      - "${ASPECTENANT_MAIL_BIND:-0.0.0.0}:${ASPECTENANT_SMTPS_PORT:-465}:1465"
+      - "${ASPECTENANT_MAIL_BIND:-0.0.0.0}:${ASPECTENANT_SUBMISSION_PORT:-587}:1587"
     networks:
       - internal
     depends_on:
