@@ -40,6 +40,10 @@ export const configShape = {
     .string('UPDATES_DIR')
     .default('/updates')
     .description('Directory shared with the updater sidecar.'),
+  mailPublicPorts: env
+    .string('MAIL_PUBLIC_PORTS')
+    .default('993,465,587')
+    .description('Host ports for IMAPS, SMTPS and submission, as shown to users.'),
   dataDir: env
     .string('DATA_DIR')
     .default('/data')
