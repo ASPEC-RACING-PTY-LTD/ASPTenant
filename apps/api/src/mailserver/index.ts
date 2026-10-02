@@ -76,34 +76,43 @@ export class MailAccounts implements MailAuthenticator {
 
   async verify(email: string, password: string, ip: string): Promise<string | null> {
     const now = Date.now();
-    const failure = this.failures.get(ip);
-    if (failure && failure.until > now && failure.count >= 10) return null;
-    if (!email || !password) return null;
-    const account = await this.store.getAccountByEmail(
-      normalizeEmail(email) ?? email.trim().toLowerCase(),
-    );
-    let ok = false;
-    if (account?.passwordHash) ok = await this.hasher.verify(account.passwordHash, password);
-    else {
+    const login = (normalizeEmail(email) ?? email.trim().toLowerCase()).slice(0, 320);
+    // Lock out per address and account: services such as Outlook mobile log in from shared IPs.
+    const key = `${ip}|${login}`;
+    const failure = this.failures.get(key);
+    const fail = (reason: string) => {
+      const count = failure && failure.until > now ? failure.count + 1 : 1;
+      this.failures.set(key, { count, until: now + 15 * 60 * 1000 });
+      this.platform.logger.warn(
+        { ip, email: login, reason },
+        `mail client login failed: ${reason}`,
+      );
+      return null;
+    };
+    if (failure && failure.until > now && failure.count >= 10) {
+      this.platform.logger.warn(
+        { ip, email: login },
+        'mail client login blocked: too many failures, wait 15 minutes',
+      );
+      return null;
+    }
+    if (!login || !password) return fail('missing username or password');
+    const account = await this.store.getAccountByEmail(login);
+    if (!account?.passwordHash) {
       this.dummy ??= this.hasher.hash('dummy-password-for-timing');
       await this.hasher.verify(await this.dummy, password);
+      return fail('no ASPECTenant account with this email (use the sign-in email, not an alias)');
     }
-    if (
-      ok &&
-      account &&
-      !account.disabledAt &&
-      !(account.lockedUntil && account.lockedUntil > now)
-    ) {
-      const user = await this.platform.users.findUser(account.id);
-      if (user && user.status === 'active') {
-        this.failures.delete(ip);
-        return account.id;
-      }
-    }
-    const next = failure && failure.until > now ? failure.count + 1 : 1;
-    this.failures.set(ip, { count: next, until: now + 15 * 60 * 1000 });
-    this.platform.logger.warn({ ip, email: email.slice(0, 120) }, 'mail client login failed');
-    return null;
+    if (!(await this.hasher.verify(account.passwordHash, password))) return fail('wrong password');
+    if (account.disabledAt) return fail('account is disabled');
+    if (account.lockedUntil && account.lockedUntil > now) return fail('account is locked');
+    const user = await this.platform.users.findUser(account.id);
+    if (!user || user.status !== 'active') return fail('user is suspended');
+    const mailboxes = await this.platform.directory.listAccessibleMailboxes(account.id);
+    if (mailboxes.length === 0) return fail('account has no mailbox; create one under Mail');
+    this.failures.delete(key);
+    this.platform.logger.info({ ip, email: login }, 'mail client login ok');
+    return account.id;
   }
 }
 
