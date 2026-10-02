@@ -469,16 +469,26 @@ export class DomainSetup {
     const mx = await dns.resolveMx(host).catch(() => []);
     const rootTxt = await this.txt(host);
     for (const record of routing) {
-      const name = record.name === '@' ? host : record.name;
+      const name = record.name === '@' ? host : record.name.replace(/\.$/, '');
       if (record.type === 'MX') {
-        const ok = mx.some((item) => item.exchange.toLowerCase() === record.content.toLowerCase());
+        // Cloudflare returns FQDNs with a trailing dot and picks arbitrary priorities per zone.
+        // The MX host is what matters; any priority routes mail to Email Routing.
+        const exchange = record.content.replace(/\.$/, '').toLowerCase();
+        const existing = mx.find(
+          (item) => item.exchange.replace(/\.$/, '').toLowerCase() === exchange,
+        );
+        const ok = Boolean(existing);
         out.push({
           key: `mx:${record.content}`,
           purpose: 'Receive mail (Cloudflare Email Routing)',
           type: 'MX',
           name,
-          content: record.content,
-          ...(record.priority !== undefined ? { priority: record.priority } : {}),
+          content: exchange,
+          ...(existing
+            ? { priority: existing.priority }
+            : record.priority !== undefined
+              ? { priority: record.priority }
+              : {}),
           status: ok ? 'ok' : mx.length ? 'different' : 'missing',
           found: mx.map((item) => `${item.priority} ${item.exchange}`),
           automatic: Boolean(zone),

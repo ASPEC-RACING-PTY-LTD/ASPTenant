@@ -642,3 +642,61 @@ input {
     height: auto;
   }
 }
+
+/* Dark mode: set by the header toggle (data-theme on <html>), defaults to the OS preference. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0f141c;
+  --bg-elevated: #171e29;
+  --ink: #e3e8ef;
+  --ink-muted: #9aa6b5;
+  --line: #2a3442;
+  --brand: #5b7cf0;
+  --brand-ink: #ffffff;
+  --sidebar: #0a0e14;
+  --sidebar-active: #1b2638;
+  --danger: #f2756a;
+  --ok: #4ccf8a;
+  --warn: #f0a556;
+  --focus: #7b96f5;
+}
+
+:root[data-theme="dark"] .badge-ok {
+  background: #12301f;
+}
+
+:root[data-theme="dark"] .badge-warn,
+:root[data-theme="dark"] .notice {
+  background: #33240f;
+  color: #f3c27f;
+}
+
+:root[data-theme="dark"] .badge-off {
+  background: #222b37;
+}
+
+:root[data-theme="dark"] .notice-error {
+  background: #3a1814;
+  color: #f7b4ac;
+}
+
+:root[data-theme="dark"] .field input,
+:root[data-theme="dark"] .field textarea,
+:root[data-theme="dark"] select,
+:root[data-theme="dark"] input,
+:root[data-theme="dark"] textarea {
+  background: #0f141c;
+  color: var(--ink);
+  border-color: var(--line);
+}
+
+:root[data-theme="dark"] .wm-list li button.active,
+:root[data-theme="dark"] .wm-folders nav button.active {
+  background: #1f2b40;
+}
+
+.theme-toggle {
+  margin-left: 12px;
+  font-size: 16px;
+  line-height: 1;
+}

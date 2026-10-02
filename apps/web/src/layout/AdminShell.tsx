@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
 import { logout } from '../api.js';
 import { useAuth } from '../auth.js';
@@ -28,6 +29,19 @@ const LINKS: ReadonlyArray<{
 
 export function AdminShell() {
   const { session, refresh } = useAuth();
+  const [theme, setTheme] = useState(
+    document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light',
+  );
+  const toggleTheme = () => {
+    const next = theme === 'dark' ? 'light' : 'dark';
+    document.documentElement.dataset.theme = next;
+    try {
+      localStorage.setItem('aspectenant-theme', next);
+    } catch {
+      // Storage can be unavailable (private mode); the toggle still works for this page.
+    }
+    setTheme(next);
+  };
 
   return (
     <div className="app-shell">
@@ -66,6 +80,15 @@ export function AdminShell() {
           <div>{session?.organisation.name ?? 'ASPECTenant'}</div>
           <div>
             {session?.user.email}
+            <button
+              className="btn btn-ghost theme-toggle"
+              type="button"
+              aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+              title={theme === 'dark' ? 'Light mode' : 'Dark mode'}
+              onClick={toggleTheme}
+            >
+              {theme === 'dark' ? '☀' : '☾'}
+            </button>
             <button
               className="btn btn-ghost"
               style={{ marginLeft: 12 }}
