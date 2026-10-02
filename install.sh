@@ -3,8 +3,8 @@
 #
 #   sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/ASPEC-RACING-PTY-LTD/ASPTenant/main/install.sh)"
 #
-# Nothing to configure: free ports are detected, secrets are generated, and the
-# public URL and everything else are set in the panel. Re-running upgrades in place.
+# Asks for the public URL on install; free ports are detected and secrets generated.
+# Everything else is set in the panel. Choose 2 on later runs to upgrade in place.
 #
 # Installs into ./aspectenant under the directory you run it from (for example
 # /root/aspectenant). Optional: ASPECTENANT_DIR, ASPECTENANT_PORT (preferred panel port),
@@ -75,18 +75,30 @@ fi
 if [[ "${MODE}" == "upgrade" && "${HAS_ENV}" -eq 0 ]]; then
   die "Nothing to upgrade in ${PREFIX}. Choose 1 (install) or 3 (fresh)."
 fi
-if [[ "${MODE}" == "install" && "${HAS_ENV}" -eq 1 ]]; then
-  say "Already installed; upgrading instead (data is kept)."
-  MODE=upgrade
-fi
-if [[ "${MODE}" == "install" && "${LEFTOVERS}" -eq 1 ]]; then
-  # Old volumes would not open with newly generated database credentials.
-  say "Old data volumes exist but their settings (.env) are gone, so they cannot be reused."
+if [[ "${MODE}" == "install" && ( "${HAS_ENV}" -eq 1 || "${LEFTOVERS}" -eq 1 ) ]]; then
+  if [[ "${HAS_ENV}" -eq 1 ]]; then
+    say "ASPECTenant is already installed in ${PREFIX}."
+  else
+    say "Old ASPECTenant containers or volumes exist without their settings and cannot be reused."
+  fi
+  say "Installing again replaces it. Choose 2 instead to upgrade and keep data."
   MODE=fresh
 fi
-if [[ "${MODE}" == "fresh" && ( "${HAS_ENV}" -eq 1 || "${LEFTOVERS}" -eq 1 ) && -t 0 ]]; then
+if [[ "${MODE}" == "fresh" && ( "${HAS_ENV}" -eq 1 || "${LEFTOVERS}" -eq 1 ) ]]; then
+  [[ -t 0 ]] || die "Refusing to delete an existing installation without a terminal."
   read -r -p "This deletes all ASPECTenant data, mail and settings. Type DELETE to continue: " confirm
   [[ "${confirm}" == "DELETE" ]] || die "Cancelled."
+fi
+
+# Public URL: asked on every new install; kept on upgrade.
+if [[ "${MODE}" != "upgrade" ]]; then
+  if [[ -z "${PUBLIC_URL:-}" && -t 0 ]]; then
+    read -r -p "Public URL people will open (for example https://mail.example.com): " PUBLIC_URL
+  fi
+  PUBLIC_URL="${PUBLIC_URL%/}"
+  if [[ -n "${PUBLIC_URL}" && ! "${PUBLIC_URL}" =~ ^https?://[^/[:space:]]+$ ]]; then
+    die "Enter the URL like https://mail.example.com"
+  fi
 fi
 
 mkdir -p "${PREFIX}"
@@ -153,8 +165,6 @@ if [[ ! -f .env ]]; then
   chmod 600 .env
 fi
 env_set INSTALL_DIR "${PREFIX}"
-OLD_URL="$(env_get PUBLIC_URL)"
-sed -i '/^PUBLIC_URL=/d' .env
 [[ -n "${ASPECTENANT_BIND:-}" ]] && env_set ASPECTENANT_BIND "${ASPECTENANT_BIND}"
 
 # Panel port: keep the saved one if still free, otherwise the first free one from 8080.
@@ -181,6 +191,11 @@ for spec in IMAPS:993:1993 SMTPS:465:1465 SUBMISSION:587:1587; do
   env_set "ASPECTENANT_${name}_PORT" "${candidate}"
   MAIL_PORTS+=("${candidate}")
 done
+if [[ "${MODE}" != "upgrade" ]]; then
+  env_set PUBLIC_URL "${PUBLIC_URL:-http://localhost:${PANEL_PORT}}"
+elif [[ -z "$(env_get PUBLIC_URL)" ]]; then
+  env_set PUBLIC_URL "http://localhost:${PANEL_PORT}"
+fi
 env_set ASPECTENANT_MAIL_PORTS "$(IFS=,; echo "${MAIL_PORTS[*]}")"
 
 set -a
@@ -211,6 +226,4 @@ if [[ -n "${CODE}" ]]; then
   say "Open /setup and enter this setup code: ${CODE}"
   say "(It changes if the API restarts: cd ${PREFIX} && docker compose logs api | grep 'Setup code')"
 fi
-if [[ -n "${OLD_URL}" ]]; then
-  say "Note: set your public URL (${OLD_URL}) on the Settings page; it no longer lives in .env."
-fi
+say "Public URL: $(env_get PUBLIC_URL) (change it later on the Settings page)"
