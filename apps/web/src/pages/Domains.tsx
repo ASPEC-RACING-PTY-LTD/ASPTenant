@@ -9,6 +9,7 @@ import {
   getDomainSetup,
   listDomains,
   setPrimaryDomain,
+  startDomainConnect,
   verifyDomain,
   verifyDomainWithCloudflare,
 } from '../api.js';
@@ -74,6 +75,60 @@ export function DomainsPage() {
 
   const cloudflareProvider = setup?.provider.id === 'cloudflare';
 
+  /** Verify: Domain Connect popup at the DNS provider, then confirm the TXT record in DNS. */
+  const verifyWithDomainConnect = (domain: DirectoryDomain) =>
+    run(async () => {
+      const result = await startDomainConnect(domain.id);
+      if (!result.supported) {
+        setSelected(domain.id);
+        setNotice(`${result.reason} Add the records below manually instead.`);
+        return;
+      }
+      const popup = window.open(result.applyUrl, 'domain-connect', 'width=640,height=760');
+      if (!popup) {
+        setError('Allow pop-ups for this site, then select Verify again.');
+        return;
+      }
+      setNotice(`Approve the DNS changes at ${result.providerName} in the pop-up window.`);
+      const outcome = await new Promise<{ ok: boolean; error?: string }>((resolve) => {
+        const onMessage = (event: MessageEvent) => {
+          if (event.origin !== window.location.origin || event.data?.type !== 'domain-connect')
+            return;
+          window.removeEventListener('message', onMessage);
+          clearInterval(closed);
+          resolve({ ok: Boolean(event.data.ok), error: event.data.error });
+        };
+        const closed = setInterval(() => {
+          if (popup.closed) {
+            window.removeEventListener('message', onMessage);
+            clearInterval(closed);
+            resolve({ ok: true });
+          }
+        }, 1000);
+        window.addEventListener('message', onMessage);
+      });
+      if (!outcome.ok)
+        throw new Error(
+          `${result.providerName} did not apply the records: ${outcome.error ?? 'cancelled'}`,
+        );
+      setNotice('Records added. Waiting for DNS to confirm ownership…');
+      for (let attempt = 0; attempt < 8; attempt += 1) {
+        try {
+          await verifyDomain(domain.id);
+          setNotice(`${domain.hostname} is verified and its mail records were added.`);
+          await reload();
+          setSelected(domain.id);
+          return;
+        } catch {
+          await new Promise((r) => setTimeout(r, 8000));
+        }
+      }
+      setSelected(domain.id);
+      setNotice(
+        'The records were submitted but DNS has not updated yet. Select Verify again in a minute.',
+      );
+    });
+
   return (
     <>
       <div className="page-header">
@@ -120,9 +175,20 @@ export function DomainsPage() {
                   <span className={`badge ${badge(domain.status)}`}>{domain.status}</span>
                 </td>
                 <td className="btn-row">
-                  <button className="btn" type="button" onClick={() => setSelected(domain.id)}>
-                    {domain.status === 'verified' ? 'DNS records' : 'Verify'}
-                  </button>
+                  {domain.status === 'verified' ? (
+                    <button className="btn" type="button" onClick={() => setSelected(domain.id)}>
+                      DNS records
+                    </button>
+                  ) : (
+                    <button
+                      className="btn"
+                      type="button"
+                      disabled={busy}
+                      onClick={() => void verifyWithDomainConnect(domain)}
+                    >
+                      Verify
+                    </button>
+                  )}
                   {!domain.primary ? (
                     <button
                       className="btn btn-ghost"

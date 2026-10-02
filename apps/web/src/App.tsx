@@ -6,6 +6,7 @@ import { ApplicationsPage } from './pages/Applications.js';
 import { AuditPage } from './pages/Audit.js';
 import { BackupsPage } from './pages/Backups.js';
 import { DashboardPage } from './pages/Dashboard.js';
+import { DomainConnectDonePage } from './pages/DomainConnectDone.js';
 import { DomainsPage } from './pages/Domains.js';
 import { GroupsPage } from './pages/Groups.js';
 import { LoginPage } from './pages/Login.js';
@@ -39,6 +40,7 @@ export function App() {
     <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route path="/setup" element={<SetupPage />} />
+      <Route path="/domain-connect/done" element={<DomainConnectDonePage />} />
       <Route
         path="/"
         element={

@@ -413,6 +413,55 @@ export function createMailHttp(
     return c.json({ ok: true });
   });
 
+  // Domain Connect: one-click DNS setup at the domain's own DNS provider.
+  app.get('/integrations/domain-connect', async (c) => {
+    await requirePermission(platform, accountId(c), 'platform:admin');
+    return c.json(await platform.domainConnect.view());
+  });
+
+  app.put('/integrations/domain-connect', async (c) => {
+    await requirePermission(platform, accountId(c), 'platform:admin');
+    const body = await json(
+      c,
+      z.object({
+        providerId: z.string().min(1).max(253),
+        serviceId: z.string().min(1).max(100),
+        keyId: z.string().min(1).max(63),
+        privateKey: z.string().max(20_000).optional(),
+        generateKey: z.boolean().optional(),
+      }),
+    );
+    return c.json(
+      await platform.domainConnect.update({
+        providerId: body.providerId,
+        serviceId: body.serviceId,
+        keyId: body.keyId,
+        ...(body.privateKey ? { privateKey: body.privateKey } : {}),
+        ...(body.generateKey ? { generateKey: true } : {}),
+      }),
+    );
+  });
+
+  app.post('/domains/:id/domain-connect', async (c) => {
+    await requirePermission(platform, accountId(c), 'domains:manage');
+    const domain = await platform.directory.store.getDomain(
+      (await platform.orgs.getDefaultOrg()).id,
+      c.req.param('id'),
+    );
+    if (!domain) throw new NotFoundError('Domain not found');
+    const proto = c.req.header('x-forwarded-proto') ?? new URL(c.req.url).protocol.replace(':', '');
+    const host = c.req.header('host') ?? new URL(c.req.url).host;
+    const origin = platform.publicUrl ?? `${proto}://${host}`;
+    const verification = platform.directory.domainVerification(domain);
+    return c.json(
+      await platform.domainConnect.applyUrl(
+        domain.hostname,
+        { verification: verification.value },
+        `${origin}/domain-connect/done`,
+      ),
+    );
+  });
+
   app.get('/domains/:id/setup', async (c) => {
     await requirePermission(platform, accountId(c), 'domains:read');
     return c.json(await platform.domainSetup.view(c.req.param('id')));

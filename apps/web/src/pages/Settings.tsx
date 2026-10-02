@@ -1,6 +1,7 @@
 import { type FormEvent, useEffect, useState } from 'react';
 import { getSettings, updateSettings } from '../api.js';
 import { useAuth } from '../auth.js';
+import { DomainConnectSettingsPanel } from './DomainConnectSettings.js';
 
 export function SettingsPage() {
   const { refresh } = useAuth();
@@ -88,6 +89,7 @@ export function SettingsPage() {
           </button>
         </form>
       </section>
+      <DomainConnectSettingsPanel />
     </>
   );
 }

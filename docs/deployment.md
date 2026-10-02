@@ -60,3 +60,9 @@ All durable state, including every mail message, is in PostgreSQL. Back it up wi
 - `GET /livez` process is up
 - `GET /readyz` database is reachable
 - `GET /healthz` same checks with more detail (API container only, not routed by the web container)
+
+## Domain Connect
+
+Verify on the Domains page uses [Domain Connect](https://www.domainconnect.org): it finds the domain's DNS provider from `_domainconnect.<domain>`, opens a signed apply URL in a pop-up, and the provider adds the verification, MX, SPF and DMARC records from `deploy/domainconnect/aspecracing.com.au.aspectenant-mail.json`. ASPECTenant then confirms the TXT record in public DNS before marking the domain verified. If the provider does not support Domain Connect or has not onboarded the template, the manual records are shown instead.
+
+Onboarding (once, by ASPEC TECH): generate the key pair under Settings > Domain Connect, publish the shown TXT record at `<keyId>.<providerId>`, submit the template to github.com/Domain-Connect/Templates, then email domain-connect@cloudflare.com with the template link, the key domain and a logo. The Cloudflare API connection remains for mail apps certificates and Email Routing.

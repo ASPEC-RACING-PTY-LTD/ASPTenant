@@ -796,3 +796,35 @@ export async function applyDomainRecords(
 ): Promise<{ created: string[]; skipped: string[] }> {
   return api(`/api/v1/domains/${id}/records/apply`, { method: 'POST' });
 }
+
+export interface DomainConnectSettings {
+  configured: boolean;
+  providerId: string;
+  serviceId: string;
+  keyId: string;
+  publicKey: string | null;
+  publicKeyTxt: string | null;
+}
+
+export async function getDomainConnect(): Promise<DomainConnectSettings> {
+  return api('/api/v1/integrations/domain-connect');
+}
+
+export async function saveDomainConnect(input: {
+  providerId: string;
+  serviceId: string;
+  keyId: string;
+  privateKey?: string;
+  generateKey?: boolean;
+}): Promise<DomainConnectSettings> {
+  return api('/api/v1/integrations/domain-connect', { method: 'PUT', body: JSON.stringify(input) });
+}
+
+export async function startDomainConnect(
+  id: string,
+): Promise<
+  | { supported: true; providerName: string; applyUrl: string }
+  | { supported: false; providerName: string | null; reason: string }
+> {
+  return api(`/api/v1/domains/${id}/domain-connect`, { method: 'POST' });
+}

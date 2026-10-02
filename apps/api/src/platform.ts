@@ -15,6 +15,7 @@ import { BackupService } from './backup/index.js';
 import type { AppConfig } from './config.js';
 import { loadAppConfig } from './config.js';
 import { DirectoryService, migrateDirectory } from './directory/index.js';
+import { DomainConnect } from './dns/domainconnect.js';
 import { DomainSetup } from './dns/index.js';
 import { PstImporter } from './imports/pst.js';
 import { MailService } from './mail/service.js';
@@ -40,6 +41,7 @@ export interface Platform {
   readonly imports: PstImporter;
   readonly backups: BackupService;
   readonly domainSetup: DomainSetup;
+  readonly domainConnect: DomainConnect;
   readonly secrets: SecretBox;
   /** Public origin from Settings (or PUBLIC_URL). Changing it restarts the API. */
   publicUrl: string | null;
@@ -141,6 +143,7 @@ export async function createPlatform(options: CreatePlatformOptions = {}): Promi
     imports: undefined as unknown as PstImporter,
     backups: undefined as unknown as BackupService,
     domainSetup: undefined as unknown as DomainSetup,
+    domainConnect: undefined as unknown as DomainConnect,
     secrets: new SecretBox(config),
     publicUrl: config.publicUrl ? new URL(config.publicUrl).origin : null,
     restart: () => {
@@ -157,6 +160,7 @@ export async function createPlatform(options: CreatePlatformOptions = {}): Promi
     imports: new PstImporter(platform),
     backups: new BackupService(platform),
     domainSetup: new DomainSetup(platform),
+    domainConnect: new DomainConnect(platform),
   });
   const general = await new SettingsStore(db).get<{ publicUrl?: string }>(
     (await orgs.getDefaultOrg()).id,
