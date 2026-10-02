@@ -8,7 +8,7 @@ function stubCloudflare(
   tokens: Record<string, Zone[] | { status: number; code: number; message: string }>,
 ) {
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
-    const token = String((init?.headers as Record<string, string>).authorization).replace(
+    const token = String(((init?.headers ?? {}) as Record<string, string>).authorization).replace(
       'Bearer ',
       '',
     );
