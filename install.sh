@@ -8,7 +8,7 @@
 #
 # Installs into ./aspectenant under the directory you run it from (for example
 # /root/aspectenant). Optional: ASPECTENANT_DIR, ASPECTENANT_PORT (preferred panel port),
-# ASPECTENANT_BIND (default 127.0.0.1), ASPECTENANT_MODE=install|upgrade|fresh (skip the menu).
+# ASPECTENANT_BIND (default 127.0.0.1), ASPECTENANT_MODE=install|upgrade|uninstall (skip the menu).
 set -euo pipefail
 
 REPO_RAW="${ASPECTENANT_RAW:-https://raw.githubusercontent.com/ASPEC-RACING-PTY-LTD/ASPTenant/main}"
@@ -21,93 +21,77 @@ die() { printf 'Error: %s\n' "$*" >&2; exit 1; }
 command -v docker >/dev/null 2>&1 || die "Docker is required. Install Docker Engine, then re-run."
 docker compose version >/dev/null 2>&1 || die "Docker Compose is required. Install the Compose plugin, then re-run."
 
-# Install next to where the script is run (/root -> /root/aspectenant), unless an
-# existing installation lives elsewhere.
+# Prompts read from the terminal directly so they work under "bash -c" and pipes.
+ask() {
+  local prompt="$1" answer=""
+  if [[ -r /dev/tty ]]; then
+    read -r -p "${prompt}" answer </dev/tty || true
+  elif [[ -t 0 ]]; then
+    read -r -p "${prompt}" answer || true
+  fi
+  echo "${answer}"
+}
+
+wipe() {
+  docker ps -aq --filter "label=com.docker.compose.project=${PROJECT}" | xargs -r docker rm -f >/dev/null 2>&1 || true
+  docker volume ls -q --filter "label=com.docker.compose.project=${PROJECT}" | xargs -r docker volume rm -f >/dev/null 2>&1 || true
+  docker network ls -q --filter "label=com.docker.compose.project=${PROJECT}" | xargs -r docker network rm >/dev/null 2>&1 || true
+  rm -f "${PREFIX}/.env" "${PREFIX}/compose.yml"
+}
+
+# Install next to where the script is run (/root -> /root/aspectenant).
 HERE="$(pwd)"
 [[ "${HERE}" == "/" ]] && HERE=/opt
-PREFIX="${ASPECTENANT_DIR:-}"
-if [[ -z "${PREFIX}" ]]; then
-  FOUND="$(docker ps -a --filter "label=com.docker.compose.project=${PROJECT}" \
-    --format '{{.Label "com.docker.compose.project.working_dir"}}' 2>/dev/null | head -n1 || true)"
-  if [[ -n "${FOUND}" && -f "${FOUND}/.env" ]]; then
-    PREFIX="${FOUND}"
-  elif [[ "$(basename "${HERE}")" == "${PROJECT}" ]]; then
-    PREFIX="${HERE}"
-  else
-    PREFIX="${HERE}/${PROJECT}"
-  fi
-fi
-
-HAS_ENV=0
-[[ -f "${PREFIX}/.env" ]] && HAS_ENV=1
-LEFTOVERS=0
-if docker ps -aq --filter "label=com.docker.compose.project=${PROJECT}" | grep -q . ||
-  docker volume ls -q --filter "label=com.docker.compose.project=${PROJECT}" | grep -q .; then
-  LEFTOVERS=1
+if [[ -n "${ASPECTENANT_DIR:-}" ]]; then
+  PREFIX="${ASPECTENANT_DIR}"
+elif [[ "$(basename "${HERE}")" == "${PROJECT}" ]]; then
+  PREFIX="${HERE}"
+else
+  PREFIX="${HERE}/${PROJECT}"
 fi
 
 MODE="${ASPECTENANT_MODE:-}"
 if [[ -z "${MODE}" ]]; then
-  DEFAULT=1
-  [[ "${HAS_ENV}" -eq 1 ]] && DEFAULT=2
-  [[ "${HAS_ENV}" -eq 1 ]] && say "Existing ASPECTenant installation found in ${PREFIX}."
-  if [[ -t 0 ]]; then
-    say "  1) Install"
-    say "  2) Upgrade / repair (keep all data)"
-    say "  3) Delete everything and install fresh"
-    read -r -p "Choose 1, 2 or 3 [${DEFAULT}]: " choice
-    choice="${choice:-${DEFAULT}}"
-  else
-    choice="${DEFAULT}"
-  fi
-  case "${choice}" in
-    1) MODE=install ;;
+  say "ASPECTenant installer (${PREFIX})"
+  say "  1) Install (replaces any existing installation)"
+  say "  2) Upgrade / repair (keep all data)"
+  say "  3) Uninstall (delete everything)"
+  case "$(ask "Choose 1, 2 or 3 [1]: ")" in
+    "" | 1) MODE=install ;;
     2) MODE=upgrade ;;
-    3) MODE=fresh ;;
-    *) die "Unknown choice ${choice}." ;;
+    3) MODE=uninstall ;;
+    *) die "Unknown choice." ;;
   esac
 fi
 
-if [[ "${MODE}" == "upgrade" && "${HAS_ENV}" -eq 0 ]]; then
-  die "Nothing to upgrade in ${PREFIX}. Choose 1 (install) or 3 (fresh)."
-fi
-if [[ "${MODE}" == "fresh" && ( "${HAS_ENV}" -eq 1 || "${LEFTOVERS}" -eq 1 ) ]]; then
-  [[ -t 0 ]] || die "Refusing to delete an existing installation without a terminal."
-  read -r -p "This deletes all ASPECTenant data, mail and settings. Type DELETE to continue: " confirm
-  [[ "${confirm}" == "DELETE" ]] || die "Cancelled."
-fi
-
-# Public URL: asked on every new install; kept on upgrade.
-if [[ "${MODE}" != "upgrade" ]]; then
-  if [[ -z "${PUBLIC_URL:-}" && -t 0 ]]; then
-    read -r -p "Public URL people will open (for example https://mail.example.com): " PUBLIC_URL
-  fi
-  PUBLIC_URL="${PUBLIC_URL%/}"
-  if [[ -n "${PUBLIC_URL}" && ! "${PUBLIC_URL}" =~ ^https?://[^/[:space:]]+$ ]]; then
-    die "Enter the URL like https://mail.example.com"
-  fi
-fi
+case "${MODE}" in
+  install)
+    url="$(ask "Public URL people will open (for example https://mail.example.com): ")"
+    PUBLIC_URL="${url:-${PUBLIC_URL:-}}"
+    PUBLIC_URL="${PUBLIC_URL%/}"
+    if [[ -n "${PUBLIC_URL}" && ! "${PUBLIC_URL}" =~ ^https?://[^/[:space:]]+$ ]]; then
+      die "Enter the URL like https://mail.example.com"
+    fi
+    say "Installing into ${PREFIX} (any existing ASPECTenant installation is replaced)..."
+    wipe
+    ;;
+  upgrade)
+    [[ -f "${PREFIX}/.env" ]] || die "No installation in ${PREFIX}. Choose 1 to install."
+    say "Upgrading ${PREFIX} (data is kept)..."
+    (cd "${PREFIX}" && docker compose -p "${PROJECT}" down --remove-orphans >/dev/null 2>&1) || true
+    ;;
+  uninstall)
+    [[ "$(ask "This deletes all ASPECTenant data, mail and settings. Type DELETE to continue: ")" == "DELETE" ]] ||
+      die "Cancelled."
+    wipe
+    say "ASPECTenant has been removed."
+    exit 0
+    ;;
+  *) die "Unknown mode ${MODE}." ;;
+esac
 
 mkdir -p "${PREFIX}"
 cd "${PREFIX}"
-
-# Stop our own containers first so their ports count as free. Install silently clears
-# leftovers that have no .env: their database cannot be opened with new credentials.
-if [[ "${MODE}" == "install" && "${HAS_ENV}" -eq 0 && "${LEFTOVERS}" -eq 1 ]]; then
-  docker ps -aq --filter "label=com.docker.compose.project=${PROJECT}" | xargs -r docker rm -f >/dev/null 2>&1 || true
-  docker volume ls -q --filter "label=com.docker.compose.project=${PROJECT}" | xargs -r docker volume rm >/dev/null 2>&1 || true
-elif [[ "${MODE}" == "install" ]]; then
-  docker compose -p "${PROJECT}" down --remove-orphans >/dev/null 2>&1 || true
-fi
-if [[ "${MODE}" == "fresh" ]]; then
-  say "Removing the old installation and its data..."
-  docker ps -aq --filter "label=com.docker.compose.project=${PROJECT}" | xargs -r docker rm -f >/dev/null 2>&1 || true
-  docker volume ls -q --filter "label=com.docker.compose.project=${PROJECT}" | xargs -r docker volume rm >/dev/null 2>&1 || true
-  rm -f .env compose.yml
-elif [[ "${MODE}" == "upgrade" ]]; then
-  say "Stopping the existing installation (data is kept)..."
-  docker compose -p "${PROJECT}" down --remove-orphans >/dev/null 2>&1 || true
-fi
 
 curl -fsSL "${REPO_RAW}/deploy/compose.release.yml" -o compose.yml.new
 mv compose.yml.new compose.yml
@@ -185,7 +169,7 @@ for spec in IMAPS:993:1993 SMTPS:465:1465 SUBMISSION:587:1587; do
   env_set "ASPECTENANT_${name}_PORT" "${candidate}"
   MAIL_PORTS+=("${candidate}")
 done
-if [[ "${MODE}" != "upgrade" ]]; then
+if [[ "${MODE}" == "install" ]]; then
   env_set PUBLIC_URL "${PUBLIC_URL:-http://localhost:${PANEL_PORT}}"
 elif [[ -z "$(env_get PUBLIC_URL)" ]]; then
   env_set PUBLIC_URL "http://localhost:${PANEL_PORT}"

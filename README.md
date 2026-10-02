@@ -11,7 +11,7 @@ sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/ASPEC-RACING-PTY-LT
 ```
 
 - Installs into `aspectenant/` under the directory you run it from (for example `/root/aspectenant`). The panel binds to `127.0.0.1` on the first free port from 8080; the installer prints it for your `cloudflared` tunnel.
-- Menu: 1) Install, 2) Upgrade / repair (keeps data), 3) Delete everything and install fresh.
+- Menu: 1) Install (asks for the public URL; replaces any existing installation), 2) Upgrade / repair (keeps data), 3) Uninstall.
 - Nothing to configure: `.env` only holds generated secrets.
 - The installer prints a one-time **setup code**. Open `/setup`, enter it and create the super administrator (or restore a backup). Then set your **Public URL** under Settings. Everything else (domains, mailboxes, Cloudflare, SMTP, mail apps, backups, updates) is managed in the panel.
 - Re-running the installer and choosing 2 upgrades in place and keeps data.
