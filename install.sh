@@ -50,11 +50,7 @@ MODE="${ASPECTENANT_MODE:-}"
 if [[ -z "${MODE}" ]]; then
   DEFAULT=1
   [[ "${HAS_ENV}" -eq 1 ]] && DEFAULT=2
-  if [[ "${HAS_ENV}" -eq 1 ]]; then
-    say "Existing ASPECTenant installation found in ${PREFIX}."
-  elif [[ "${LEFTOVERS}" -eq 1 ]]; then
-    say "Leftover ASPECTenant containers or data volumes found without their settings."
-  fi
+  [[ "${HAS_ENV}" -eq 1 ]] && say "Existing ASPECTenant installation found in ${PREFIX}."
   if [[ -t 0 ]]; then
     say "  1) Install"
     say "  2) Upgrade / repair (keep all data)"
@@ -74,15 +70,6 @@ fi
 
 if [[ "${MODE}" == "upgrade" && "${HAS_ENV}" -eq 0 ]]; then
   die "Nothing to upgrade in ${PREFIX}. Choose 1 (install) or 3 (fresh)."
-fi
-if [[ "${MODE}" == "install" && ( "${HAS_ENV}" -eq 1 || "${LEFTOVERS}" -eq 1 ) ]]; then
-  if [[ "${HAS_ENV}" -eq 1 ]]; then
-    say "ASPECTenant is already installed in ${PREFIX}."
-  else
-    say "Old ASPECTenant containers or volumes exist without their settings and cannot be reused."
-  fi
-  say "Installing again replaces it. Choose 2 instead to upgrade and keep data."
-  MODE=fresh
 fi
 if [[ "${MODE}" == "fresh" && ( "${HAS_ENV}" -eq 1 || "${LEFTOVERS}" -eq 1 ) ]]; then
   [[ -t 0 ]] || die "Refusing to delete an existing installation without a terminal."
@@ -104,7 +91,14 @@ fi
 mkdir -p "${PREFIX}"
 cd "${PREFIX}"
 
-# Stop our own containers first so their ports count as free.
+# Stop our own containers first so their ports count as free. Install silently clears
+# leftovers that have no .env: their database cannot be opened with new credentials.
+if [[ "${MODE}" == "install" && "${HAS_ENV}" -eq 0 && "${LEFTOVERS}" -eq 1 ]]; then
+  docker ps -aq --filter "label=com.docker.compose.project=${PROJECT}" | xargs -r docker rm -f >/dev/null 2>&1 || true
+  docker volume ls -q --filter "label=com.docker.compose.project=${PROJECT}" | xargs -r docker volume rm >/dev/null 2>&1 || true
+elif [[ "${MODE}" == "install" ]]; then
+  docker compose -p "${PROJECT}" down --remove-orphans >/dev/null 2>&1 || true
+fi
 if [[ "${MODE}" == "fresh" ]]; then
   say "Removing the old installation and its data..."
   docker ps -aq --filter "label=com.docker.compose.project=${PROJECT}" | xargs -r docker rm -f >/dev/null 2>&1 || true
