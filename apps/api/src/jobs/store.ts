@@ -42,9 +42,19 @@ function toJob<D, P>(row: Row): Job<D, P> {
 /** Durable background job records (imports, backups, restores). */
 export class JobStore {
   private readonly db: SqlClient;
+  /** When set, every read and write is limited to this tenant's jobs. */
+  private readonly tenant: (() => string) | null;
 
-  constructor(db: SqlClient) {
+  constructor(db: SqlClient, tenant: (() => string) | null = null) {
     this.db = db;
+    this.tenant = tenant;
+  }
+
+  /** `AND tenant_id = $n` for the bound tenant, appended after `params`. */
+  private scope(params: unknown[]): string {
+    if (!this.tenant) return '';
+    params.push(this.tenant());
+    return ` AND tenant_id = $${params.length}`;
   }
 
   async create<D, P>(input: {
@@ -80,15 +90,22 @@ export class JobStore {
   }
 
   async get<D, P>(id: string): Promise<Job<D, P> | null> {
-    const result = await this.db.query(`SELECT * FROM aspectenant_jobs WHERE id = $1`, [id]);
+    const params: unknown[] = [id];
+    const where = this.scope(params);
+    const result = await this.db.query(
+      `SELECT * FROM aspectenant_jobs WHERE id = $1${where}`,
+      params,
+    );
     const row = result.rows[0];
     return row ? toJob<D, P>(row) : null;
   }
 
   async list<D, P>(kind: string, limit = 50): Promise<Job<D, P>[]> {
+    const params: unknown[] = [kind, limit];
+    const where = this.scope(params);
     const result = await this.db.query(
-      `SELECT * FROM aspectenant_jobs WHERE kind = $1 ORDER BY created_at DESC LIMIT $2`,
-      [kind, limit],
+      `SELECT * FROM aspectenant_jobs WHERE kind = $1${where} ORDER BY created_at DESC LIMIT $2`,
+      params,
     );
     return result.rows.map((row) => toJob<D, P>(row));
   }
@@ -118,13 +135,17 @@ export class JobStore {
     if (patch.error !== undefined) add('error', patch.error);
     add('updated_at', Date.now());
     params.push(id);
+    const idParam = params.length;
+    const where = this.scope(params);
     await this.db.query(
-      `UPDATE aspectenant_jobs SET ${sets.join(', ')} WHERE id = $${params.length}`,
+      `UPDATE aspectenant_jobs SET ${sets.join(', ')} WHERE id = $${idParam}${where}`,
       params,
     );
   }
 
   async delete(id: string): Promise<void> {
-    await this.db.query(`DELETE FROM aspectenant_jobs WHERE id = $1`, [id]);
+    const params: unknown[] = [id];
+    const where = this.scope(params);
+    await this.db.query(`DELETE FROM aspectenant_jobs WHERE id = $1${where}`, params);
   }
 }

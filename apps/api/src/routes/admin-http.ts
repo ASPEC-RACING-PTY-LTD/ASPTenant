@@ -3,7 +3,7 @@ import { isAppError, UnprocessableError } from '@aspec/errors';
 import type { Actor } from '@aspec/users';
 import { type Context, Hono } from 'hono';
 import { z } from 'zod';
-import { requirePermission } from '../access.js';
+import { requirePermission, requirePlatformPermission } from '../access.js';
 import { s3Target } from '../backup/index.js';
 import { IMPORT_KIND, MAX_CHUNK } from '../imports/pst.js';
 import type { Platform } from '../platform.js';
@@ -125,7 +125,8 @@ export function createAdminHttp(
 
   // Backups
   app.get('/backups', async (c) => {
-    await requirePermission(platform, accountId(c), 'system:read');
+    // Backups cover every tenant, so only platform operators see them.
+    await requirePlatformPermission(platform, accountId(c), 'platform:admin');
     return c.json({
       settings: await platform.backups.view(),
       history: await platform.backups.history(),
@@ -133,7 +134,7 @@ export function createAdminHttp(
   });
 
   app.put('/backups/settings', async (c) => {
-    await requirePermission(platform, accountId(c), 'platform:admin');
+    await requirePlatformPermission(platform, accountId(c), 'platform:admin');
     const body = await json(
       c,
       z.object({
@@ -164,23 +165,23 @@ export function createAdminHttp(
   });
 
   app.post('/backups/test', async (c) => {
-    await requirePermission(platform, accountId(c), 'platform:admin');
+    await requirePlatformPermission(platform, accountId(c), 'platform:admin');
     return c.json(await platform.backups.test());
   });
 
   app.get('/backups/remote', async (c) => {
-    await requirePermission(platform, accountId(c), 'platform:admin');
+    await requirePlatformPermission(platform, accountId(c), 'platform:admin');
     return c.json({ items: await platform.backups.listRemote() });
   });
 
   app.post('/backups/run', async (c) => {
-    await requirePermission(platform, accountId(c), 'platform:admin');
+    await requirePlatformPermission(platform, accountId(c), 'platform:admin');
     const job = await platform.backups.run('manual', actor(c));
     return c.json(job, job.status === 'failed' ? 422 : 200);
   });
 
   app.post('/backups/restore', async (c) => {
-    await requirePermission(platform, accountId(c), 'platform:admin');
+    await requirePlatformPermission(platform, accountId(c), 'platform:admin');
     const body = await json(c, z.object({ key: z.string().min(1), confirm: z.literal('RESTORE') }));
     const who = actor(c);
     const result = await platform.backups.restore(body.key, { actor: who });

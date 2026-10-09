@@ -116,7 +116,7 @@ describe('mail app listeners', () => {
   }
 
   it('starts all three listeners, restores them on restart and serves TLS on each', async () => {
-    ctx = await createTestContext(ENV);
+    ctx = await createTestContext({ env: ENV });
     const pem = await certificate('mail.example.com');
     const { response } = await configure({
       enabled: true,
@@ -158,7 +158,7 @@ describe('mail app listeners', () => {
   }, 30_000);
 
   it('reports why nothing is listening when no certificate is configured', async () => {
-    ctx = await createTestContext(ENV);
+    ctx = await createTestContext({ env: ENV });
     const { response } = await configure({
       enabled: true,
       hostname: 'mail.example.com',
@@ -176,7 +176,7 @@ describe('mail app listeners', () => {
   });
 
   it('loads the certificate from the data volume', async () => {
-    ctx = await createTestContext(ENV);
+    ctx = await createTestContext({ env: ENV });
     const pem = await certificate('mail.example.com');
     mkdirSync(join(ctx.platform.config.dataDir, 'mail-tls'), { recursive: true });
     writeFileSync(join(ctx.platform.config.dataDir, 'mail-tls/fullchain.pem'), pem.cert);
@@ -193,7 +193,7 @@ describe('mail app listeners', () => {
   });
 
   it('swaps a replaced certificate into the running listeners', async () => {
-    ctx = await createTestContext(ENV);
+    ctx = await createTestContext({ env: ENV });
     const first = await certificate('old.example.com');
     const { headers } = await configure({
       enabled: true,
@@ -221,7 +221,7 @@ describe('mail app listeners', () => {
   });
 
   it('reports a port conflict per listener and recovers on retry', async () => {
-    ctx = await createTestContext(ENV);
+    ctx = await createTestContext({ env: ENV });
     const blocker = createServer();
     await new Promise<void>((resolve) =>
       blocker.listen(PORTS.submission, '0.0.0.0', () => resolve()),

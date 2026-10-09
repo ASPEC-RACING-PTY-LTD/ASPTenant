@@ -62,10 +62,11 @@ export function SetupPage() {
         <strong>ASPECTenant</strong>
       </div>
       <form className="auth-card" onSubmit={(event) => void onSubmit(event)}>
-        <h1>Create the super administrator</h1>
+        <h1>Create the first account</h1>
         <p>
-          Name the organisation and create the first owner account. This form closes after that
-          account exists.
+          Name the first organisation and create its owner. This account also operates the
+          installation and can add more organisations later. This form closes after that account
+          exists.
         </p>
         {error ? (
           <p className="notice notice-error" role="alert">
@@ -144,7 +145,7 @@ export function SetupPage() {
           />
         </div>
         <button className="btn" type="submit" disabled={pending || ready !== true}>
-          {pending ? 'Creating account…' : 'Create super administrator'}
+          {pending ? 'Creating account…' : 'Create account'}
         </button>
         <p>
           Already set up? <Link to="/login">Sign in</Link>

@@ -159,6 +159,11 @@ export function SecurityPage() {
                 <td>
                   <strong>{role.name}</strong>
                   <div>{role.description}</div>
+                  <div className="muted">
+                    {role.scope === 'platform'
+                      ? 'Assigned for the whole installation'
+                      : 'Assigned per organisation'}
+                  </div>
                 </td>
                 <td>{role.permissions.join(', ')}</td>
               </tr>

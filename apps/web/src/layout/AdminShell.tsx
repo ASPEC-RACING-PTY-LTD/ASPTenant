@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { NavLink, Outlet } from 'react-router-dom';
+import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { logout } from '../api.js';
 import { useAuth } from '../auth.js';
 
@@ -15,7 +15,7 @@ const LINKS: ReadonlyArray<{
   { to: '/groups', label: 'Groups', implemented: true, permission: 'groups:read' },
   { to: '/mail', label: 'Mail', implemented: true, permission: 'mail:read' },
   { to: '/mail/settings', label: 'Mail settings', implemented: true, permission: 'mail:manage' },
-  { to: '/mail/clients', label: 'Mail apps', implemented: true, permission: 'mail:manage' },
+  { to: '/mail/clients', label: 'Mail apps', implemented: true, permission: 'platform:admin' },
   { to: '/domains', label: 'Domains', implemented: true, permission: 'domains:read' },
   { to: '/applications', label: 'Applications', implemented: true, permission: 'apps:read' },
   { to: '/security', label: 'Security', implemented: true, permission: 'security:read' },
@@ -25,10 +25,19 @@ const LINKS: ReadonlyArray<{
   { to: '/backups', label: 'Backups', implemented: true, permission: 'platform:admin' },
   { to: '/updates', label: 'Updates', implemented: true, permission: 'platform:admin' },
   { to: '/settings', label: 'Settings', implemented: true, permission: 'orgs:settings' },
+  { to: '/tenants', label: 'Tenants', implemented: true, permission: 'tenants:read' },
 ];
 
 export function AdminShell() {
-  const { session, refresh } = useAuth();
+  const { session, refresh, selectTenant } = useAuth();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const operator = session?.platform.operator === true;
+  const tenants = session?.tenants ?? [];
+  // Installation pages work without an organisation.
+  const onPlatformPage = ['/tenants', '/backups', '/updates'].some((path) =>
+    location.pathname.startsWith(path),
+  );
   const [theme, setTheme] = useState(
     document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light',
   );
@@ -77,7 +86,30 @@ export function AdminShell() {
       </aside>
       <div className="main">
         <header className="topbar">
-          <div>{session?.organisation.name ?? 'ASPECTenant'}</div>
+          <div className="tenant-switch">
+            {tenants.length > 1 ? (
+              <>
+                <label htmlFor="tenant-select">Organisation</label>
+                <select
+                  id="tenant-select"
+                  value={session?.organisation?.id ?? ''}
+                  onChange={(event) => {
+                    void selectTenant(event.target.value).then(() => {
+                      if (!onPlatformPage) navigate('/');
+                    });
+                  }}
+                >
+                  {tenants.map((tenant) => (
+                    <option key={tenant.id} value={tenant.id}>
+                      {tenant.name}
+                    </option>
+                  ))}
+                </select>
+              </>
+            ) : (
+              <strong>{session?.organisation?.name ?? 'No organisation'}</strong>
+            )}
+          </div>
           <div>
             {session?.user.email}
             <button
@@ -102,7 +134,23 @@ export function AdminShell() {
           </div>
         </header>
         <div className="content">
-          <Outlet />
+          {session?.organisation || onPlatformPage ? (
+            <Outlet key={session?.organisation?.id ?? 'platform'} />
+          ) : (
+            <section className="panel">
+              <h2>No organisation</h2>
+              <p>
+                This account is not an active member of any organisation, or its organisation has
+                been archived. Ask an administrator of your organisation to add or reinstate you.
+              </p>
+              {operator ? (
+                <p>
+                  As a platform operator you can manage organisations on the{' '}
+                  <Link to="/tenants">Tenants</Link> page.
+                </p>
+              ) : null}
+            </section>
+          )}
         </div>
       </div>
     </div>

@@ -1,4 +1,6 @@
 import { randomBytes } from 'node:crypto';
+import type { MxRecord } from 'node:dns';
+import { Resolver } from 'node:dns/promises';
 import { createAuditLogger } from '@aspec/audit';
 import { createSqlAuditStore, migrate as migrateAudit } from '@aspec/audit/sql';
 import { type Auth, createAuth } from '@aspec/auth';
@@ -14,7 +16,7 @@ import { createSqlUsersStore, migrate as migrateUsers } from '@aspec/users/sql';
 import { BackupService } from './backup/index.js';
 import type { AppConfig } from './config.js';
 import { loadAppConfig } from './config.js';
-import { DirectoryService, migrateDirectory } from './directory/index.js';
+import { DirectoryService, migrateDirectory, PLATFORM_SCOPE } from './directory/index.js';
 import { DomainConnect } from './dns/domainconnect.js';
 import { DomainSetup } from './dns/index.js';
 import { PstImporter } from './imports/pst.js';
@@ -23,7 +25,24 @@ import { SettingsStore } from './mail/store.js';
 import { MailServers } from './mailserver/index.js';
 import { platformRbacDefinition } from './permissions.js';
 import { SecretBox } from './secrets.js';
+import { inScope, reconcileLegacyRoleAssignments, rowLevelSecurityStatus } from './tenancy.js';
 import { UpdateService } from './updates.js';
+
+/** DNS lookups used for domain verification and checks. */
+export interface DnsLookup {
+  /** TXT records, each as its character-string chunks. */
+  resolveTxt(name: string): Promise<string[][]>;
+  resolveMx(name: string): Promise<MxRecord[]>;
+}
+
+function publicDns(): DnsLookup {
+  const resolver = new Resolver({ timeout: 4000, tries: 2 });
+  resolver.setServers(['1.1.1.1', '8.8.8.8']);
+  return {
+    resolveTxt: (name) => resolver.resolveTxt(name),
+    resolveMx: (name) => resolver.resolveMx(name),
+  };
+}
 
 export interface Platform {
   readonly config: AppConfig;
@@ -43,6 +62,7 @@ export interface Platform {
   readonly domainSetup: DomainSetup;
   readonly domainConnect: DomainConnect;
   readonly secrets: SecretBox;
+  readonly dns: DnsLookup;
   /** Public origin from Settings (or PUBLIC_URL). Changing it restarts the API. */
   publicUrl: string | null;
   /** Restart after settings that are read at boot change. Disabled in tests. */
@@ -56,6 +76,8 @@ export interface CreatePlatformOptions {
   config?: AppConfig;
   database?: Database;
   logger?: Logger;
+  /** DNS used for domain verification. Defaults to public resolvers. */
+  dns?: DnsLookup;
 }
 
 export async function createPlatform(options: CreatePlatformOptions = {}): Promise<Platform> {
@@ -113,19 +135,13 @@ export async function createPlatform(options: CreatePlatformOptions = {}): Promi
   });
 
   const orgs = createOrgs({
-    mode: 'single',
+    mode: 'multi',
     store: createSqlOrgsStore(db),
     audit,
     permissions: rbac,
     logger,
-    single: {
-      id: 'default',
-      name: config.appName,
-      slug: 'default',
-    },
     invitations: { appName: config.appName },
   });
-  await orgs.getDefaultOrg();
 
   const platform: Platform = {
     config,
@@ -145,6 +161,7 @@ export async function createPlatform(options: CreatePlatformOptions = {}): Promi
     domainSetup: undefined as unknown as DomainSetup,
     domainConnect: undefined as unknown as DomainConnect,
     secrets: new SecretBox(config),
+    dns: options.dns ?? publicDns(),
     publicUrl: config.publicUrl ? new URL(config.publicUrl).origin : null,
     restart: () => {
       setTimeout(() => process.exit(0), 1500).unref();
@@ -162,9 +179,13 @@ export async function createPlatform(options: CreatePlatformOptions = {}): Promi
     domainSetup: new DomainSetup(platform),
     domainConnect: new DomainConnect(platform),
   });
-  const general = await new SettingsStore(db).get<{ publicUrl?: string }>(
-    (await orgs.getDefaultOrg()).id,
-    'general',
+  await reconcileLegacyRoleAssignments(platform);
+  if (db.dialect === 'postgres') {
+    const rls = await rowLevelSecurityStatus(db);
+    if (!rls.enforced) logger.warn({ rls }, rls.detail);
+  }
+  const general = await inScope(platform, PLATFORM_SCOPE, () =>
+    new SettingsStore(db).get<{ publicUrl?: string }>(PLATFORM_SCOPE, 'general'),
   );
   if (general?.publicUrl) platform.publicUrl = general.publicUrl;
   const firstUser = await users.listUsers({ limit: 1 });

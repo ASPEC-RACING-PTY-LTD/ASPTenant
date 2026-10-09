@@ -3,11 +3,13 @@ import { ForbiddenError, isAppError, NotFoundError, UnprocessableError } from '@
 import type { Actor } from '@aspec/users';
 import { type Context, Hono } from 'hono';
 import { z } from 'zod';
-import { requirePermission } from '../access.js';
+import { requirePermission, requirePlatformPermission } from '../access.js';
+import { requireTenantId } from '../directory/service.js';
 import { INGEST_MAX_BYTES, OUTBOUND_KINDS, SMTP_SECURITY } from '../mail/service.js';
 import { normaliseFolderName } from '../mail/store.js';
 import { cloudflareWorkerScript } from '../mail/worker.js';
 import type { Platform } from '../platform.js';
+import { withSystemTenant } from '../tenancy.js';
 
 type Env = { Variables: AuthVariables };
 
@@ -120,7 +122,9 @@ export function createMailHttp(
   app.post('/mail/ingest', async (c) => {
     const header = c.req.header('authorization') ?? '';
     const token = header.toLowerCase().startsWith('bearer ') ? header.slice(7).trim() : null;
-    if (!(await platform.mail.checkIngestToken(token))) {
+    // The token identifies the tenant; delivery is limited to that tenant's mailboxes.
+    const tenantId = await platform.mail.tenantForIngestToken(token);
+    if (!tenantId) {
       return c.json({ accepted: false, reason: 'Invalid ingest token' }, 401);
     }
     const length = Number(c.req.header('content-length') ?? 0);
@@ -132,7 +136,7 @@ export function createMailHttp(
       return c.json({ accepted: false, reason: 'Empty or oversized message' }, 413);
     }
     const to = (c.req.header('x-envelope-to') ?? '').split(',');
-    const result = await platform.mail.ingest(raw, to);
+    const result = await withSystemTenant(platform, tenantId, () => platform.mail.ingest(raw, to));
     if (result.accepted.length === 0) {
       return c.json({ ok: false, reason: 'Unknown recipient', rejected: result.rejected }, 404);
     }
@@ -351,12 +355,13 @@ export function createMailHttp(
 
   // Mail clients (IMAP and SMTP submission)
   app.get('/mail/clients', async (c) => {
-    await requirePermission(platform, accountId(c), 'mail:manage');
+    await requirePermission(platform, accountId(c), 'mail:read');
     return c.json(await platform.mailServers.view());
   });
 
   app.put('/mail/clients', async (c) => {
-    await requirePermission(platform, accountId(c), 'mail:manage');
+    // Mail app listeners serve every tenant, so changing them is a platform task.
+    await requirePlatformPermission(platform, accountId(c), 'platform:admin');
     const body = await json(
       c,
       z.object({
@@ -391,7 +396,8 @@ export function createMailHttp(
   });
 
   app.post('/mail/clients/certificate', async (c) => {
-    await requirePermission(platform, accountId(c), 'mail:manage');
+    // Mail app listeners serve every tenant, so changing them is a platform task.
+    await requirePlatformPermission(platform, accountId(c), 'platform:admin');
     return c.json(await platform.mailServers.issueCertificate());
   });
 
@@ -415,12 +421,12 @@ export function createMailHttp(
 
   // Domain Connect: one-click DNS setup at the domain's own DNS provider.
   app.get('/integrations/domain-connect', async (c) => {
-    await requirePermission(platform, accountId(c), 'platform:admin');
+    await requirePlatformPermission(platform, accountId(c), 'platform:admin');
     return c.json(await platform.domainConnect.view());
   });
 
   app.put('/integrations/domain-connect', async (c) => {
-    await requirePermission(platform, accountId(c), 'platform:admin');
+    await requirePlatformPermission(platform, accountId(c), 'platform:admin');
     const body = await json(
       c,
       z.object({
@@ -445,7 +451,7 @@ export function createMailHttp(
   app.post('/domains/:id/domain-connect', async (c) => {
     await requirePermission(platform, accountId(c), 'domains:manage');
     const domain = await platform.directory.store.getDomain(
-      (await platform.orgs.getDefaultOrg()).id,
+      requireTenantId(platform),
       c.req.param('id'),
     );
     if (!domain) throw new NotFoundError('Domain not found');
@@ -490,12 +496,12 @@ export function createMailHttp(
   });
 
   app.post('/updates/check', async (c) => {
-    await requirePermission(platform, accountId(c), 'platform:admin');
+    await requirePlatformPermission(platform, accountId(c), 'platform:admin');
     return c.json(await platform.updates.check());
   });
 
   app.post('/updates/apply', async (c) => {
-    await requirePermission(platform, accountId(c), 'platform:admin');
+    await requirePlatformPermission(platform, accountId(c), 'platform:admin');
     try {
       const status = await platform.updates.apply();
       await platform.audit.record({
@@ -512,7 +518,7 @@ export function createMailHttp(
   });
 
   app.put('/updates/settings', async (c) => {
-    await requirePermission(platform, accountId(c), 'platform:admin');
+    await requirePlatformPermission(platform, accountId(c), 'platform:admin');
     const body = await json(c, z.object({ autoUpdate: z.boolean() }));
     return c.json(await platform.updates.setAutoUpdate(body.autoUpdate));
   });

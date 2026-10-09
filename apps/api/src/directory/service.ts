@@ -1,8 +1,8 @@
 import { randomBytes } from 'node:crypto';
-import { Resolver } from 'node:dns/promises';
-import { ConflictError, NotFoundError, UnprocessableError } from '@aspec/errors';
+import { ConflictError, ForbiddenError, NotFoundError, UnprocessableError } from '@aspec/errors';
 import type { Actor } from '@aspec/users';
 import type { Platform } from '../platform.js';
+import { tenantClient } from '../tenancy.js';
 import { DirectoryStore } from './store.js';
 import type {
   DirectoryApplication,
@@ -36,6 +36,22 @@ function normaliseHostname(value: string): string {
   return value.trim().toLowerCase().replace(/\.$/, '');
 }
 
+/** PostgreSQL 23505 or SQLite UNIQUE constraint failure. */
+export function isUniqueViolation(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) return false;
+  const code = (error as { code?: unknown }).code;
+  if (code === '23505') return true;
+  const message = (error as { message?: unknown }).message;
+  return typeof message === 'string' && message.includes('UNIQUE constraint failed');
+}
+
+/** Tenant bound to the current request, job or mail session. */
+export function requireTenantId(platform: Platform): string {
+  const ctx = platform.orgs.currentTenant();
+  if (!ctx) throw new ForbiddenError('You are not an active member of this organisation.');
+  return ctx.orgId;
+}
+
 async function audit(
   platform: Platform,
   actor: Actor,
@@ -49,7 +65,7 @@ async function audit(
     category: 'admin',
     actor,
     resource,
-    tenantId: (await platform.orgs.getDefaultOrg()).id,
+    tenantId: requireTenantId(platform),
     ...(changes ? { changes } : {}),
   });
 }
@@ -60,11 +76,45 @@ export class DirectoryService {
 
   constructor(platform: Platform) {
     this.platform = platform;
-    this.store = new DirectoryStore(platform.db);
+    this.store = new DirectoryStore(tenantClient(platform));
   }
 
+  /** Tenant bound to the current request. Directory data is never read without one. */
   async tenantId(): Promise<string> {
-    return (await this.platform.orgs.getDefaultOrg()).id;
+    return requireTenantId(this.platform);
+  }
+
+  /** Runs a write that may hit a unique index inside a savepoint so the transaction survives. */
+  private async guardUnique<T>(message: string, fn: () => Promise<T>): Promise<T> {
+    try {
+      return await this.platform.db.transaction(() => fn());
+    } catch (error) {
+      if (isUniqueViolation(error)) throw new ConflictError(message);
+      throw error;
+    }
+  }
+
+  /** Users of other tenants are reported as not found so their existence is not disclosed. */
+  private async requireMember(tenantId: string, userId: string): Promise<void> {
+    const membership = await this.platform.orgs.getMembership(tenantId, userId);
+    if (!membership || membership.status === 'removed' || membership.status === 'invited') {
+      throw new NotFoundError('User not found');
+    }
+  }
+
+  /** The domain of an address must be a domain this tenant has verified. */
+  private async requireVerifiedDomain(tenantId: string, domain: string): Promise<void> {
+    const found = await this.store.findDomainByHostname(tenantId, domain);
+    if (!found) {
+      throw new UnprocessableError(
+        `${domain} is not one of your domains. Add it on the Domains page first.`,
+      );
+    }
+    if (found.status !== 'verified') {
+      throw new UnprocessableError(
+        `${domain} is not verified yet. Verify it on the Domains page before using it for mail.`,
+      );
+    }
   }
 
   async counts(): Promise<DirectoryCounts> {
@@ -76,11 +126,7 @@ export class DirectoryService {
     const address = normaliseEmail(value);
     if (!EMAIL.test(address)) throw new UnprocessableError('Enter a valid email address.');
     const domain = address.split('@')[1] ?? '';
-    if (!(await this.store.findDomainByHostname(tenantId, domain))) {
-      throw new UnprocessableError(
-        `${domain} is not one of your domains. Add it on the Domains page first.`,
-      );
-    }
+    await this.requireVerifiedDomain(tenantId, domain);
     if (
       (await this.store.findMailboxByAddress(tenantId, address)) ||
       (await this.store.findGroupByEmail(tenantId, address))
@@ -90,9 +136,11 @@ export class DirectoryService {
     return address;
   }
 
+  /** True when the address is on a domain this tenant has verified. */
   async isOwnedDomain(address: string): Promise<boolean> {
     const domain = normaliseEmail(address).split('@')[1] ?? '';
-    return (await this.store.findDomainByHostname(await this.tenantId(), domain)) !== null;
+    const found = await this.store.findDomainByHostname(await this.tenantId(), domain);
+    return found?.status === 'verified';
   }
 
   async findGroupByEmail(address: string): Promise<DirectoryGroup | null> {
@@ -120,8 +168,7 @@ export class DirectoryService {
   }> {
     const domain = await this.store.getDomain(await this.tenantId(), id);
     if (!domain) throw new NotFoundError('Domain not found');
-    const dns = new Resolver({ timeout: 4000, tries: 2 });
-    dns.setServers(['1.1.1.1', '8.8.8.8']);
+    const dns = this.platform.dns;
     const resolveMx = (name: string) => dns.resolveMx(name);
     const txt = async (name: string) => {
       try {
@@ -149,7 +196,7 @@ export class DirectoryService {
 
   async listMailboxMembers(mailboxId: string) {
     await this.getMailbox(mailboxId);
-    const members = await this.store.listMailboxMembers(mailboxId);
+    const members = await this.store.listMailboxMembers(await this.tenantId(), mailboxId);
     return Promise.all(
       members.map(async (member) => {
         const user = await this.platform.users.findUser(member.userId);
@@ -165,8 +212,8 @@ export class DirectoryService {
   async addMailboxMember(mailboxId: string, userId: string, actor: Actor): Promise<void> {
     const mailbox = await this.getMailbox(mailboxId);
     if (mailbox.userId === userId) throw new ConflictError('That user already owns this mailbox.');
-    if (!(await this.platform.users.findUser(userId))) throw new NotFoundError('User not found');
-    const existing = await this.store.listMailboxMembers(mailboxId);
+    await this.requireMember(mailbox.tenantId, userId);
+    const existing = await this.store.listMailboxMembers(mailbox.tenantId, mailboxId);
     if (existing.some((member) => member.userId === userId)) {
       throw new ConflictError('That user already has access.');
     }
@@ -185,7 +232,7 @@ export class DirectoryService {
 
   async removeMailboxMember(mailboxId: string, userId: string, actor: Actor): Promise<void> {
     await this.getMailbox(mailboxId);
-    if (!(await this.store.removeMailboxMember(mailboxId, userId))) {
+    if (!(await this.store.removeMailboxMember(await this.tenantId(), mailboxId, userId))) {
       throw new NotFoundError('Member not found');
     }
     await audit(
@@ -298,7 +345,7 @@ export class DirectoryService {
 
   async listGroupMembers(id: string): Promise<DirectoryGroupMember[]> {
     await this.getGroup(id);
-    return this.store.listGroupMembers(id);
+    return this.store.listGroupMembers(await this.tenantId(), id);
   }
 
   async addGroupMember(
@@ -306,13 +353,13 @@ export class DirectoryService {
     userId: string,
     actor: Actor,
   ): Promise<DirectoryGroupMember> {
+    const tenantId = await this.tenantId();
     await this.getGroup(groupId);
-    const user = await this.platform.users.findUser(userId);
-    if (!user) throw new NotFoundError('User not found');
-    if (await this.store.hasGroupMember(groupId, userId)) {
+    await this.requireMember(tenantId, userId);
+    if (await this.store.hasGroupMember(tenantId, groupId, userId)) {
       throw new ConflictError('That user is already a member of this group.');
     }
-    const member = await this.store.addGroupMember(groupId, userId);
+    const member = await this.store.addGroupMember(tenantId, groupId, userId);
     await audit(
       this.platform,
       actor,
@@ -327,7 +374,7 @@ export class DirectoryService {
 
   async removeGroupMember(groupId: string, userId: string, actor: Actor): Promise<void> {
     await this.getGroup(groupId);
-    const removed = await this.store.removeGroupMember(groupId, userId);
+    const removed = await this.store.removeGroupMember(await this.tenantId(), groupId, userId);
     if (!removed) throw new NotFoundError('Group member not found');
     await audit(
       this.platform,
@@ -355,6 +402,10 @@ export class DirectoryService {
     }
     if (await this.store.findDomainByHostname(tenantId, hostname)) {
       throw new ConflictError('That domain is already registered.');
+    }
+    const owner = await this.store.findVerifiedDomain(hostname);
+    if (owner && owner.tenantId !== tenantId) {
+      throw new ConflictError('That domain is verified by another organisation.');
     }
     const existing = await this.store.listDomains(tenantId);
     const primary = input.primary === true || existing.length === 0;
@@ -385,12 +436,25 @@ export class DirectoryService {
     return this.markVerified(id, actor, 'dns-txt');
   }
 
+  /**
+   * Marks a domain verified. A hostname can be verified by one tenant only: the check below
+   * covers what this connection can see, the partial unique index covers the rest.
+   */
   async markVerified(id: string, actor: Actor, method: string): Promise<DirectoryDomain> {
     const tenantId = await this.tenantId();
-    const updated = await this.store.updateDomain(tenantId, id, {
-      status: 'verified',
-      verifiedAt: Date.now(),
-    });
+    const current = await this.store.getDomain(tenantId, id);
+    if (!current) throw new NotFoundError('Domain not found');
+    if (current.status === 'verified') return current;
+    const owner = await this.store.findVerifiedDomain(current.hostname);
+    if (owner && owner.tenantId !== tenantId) {
+      throw new ConflictError('That domain is verified by another organisation.');
+    }
+    const updated = await this.guardUnique('That domain is verified by another organisation.', () =>
+      this.store.updateDomain(tenantId, id, {
+        status: 'verified',
+        verifiedAt: Date.now(),
+      }),
+    );
     if (!updated) throw new NotFoundError('Domain not found');
     await audit(
       this.platform,
@@ -400,6 +464,16 @@ export class DirectoryService {
       { after: { ...updated, method } },
     );
     return updated;
+  }
+
+  /** Marks a domain verified without DNS. Platform operators only; checked by the route. */
+  async confirmDomain(id: string, actor: Actor): Promise<DirectoryDomain> {
+    return this.markVerified(id, actor, 'operator');
+  }
+
+  /** Ends a user's presence in this tenant: group memberships and mailbox delegations. */
+  async detachUser(userId: string): Promise<void> {
+    await this.store.detachUser(await this.tenantId(), userId);
   }
 
   async setPrimaryDomain(id: string, actor: Actor): Promise<DirectoryDomain> {
@@ -425,6 +499,11 @@ export class DirectoryService {
     const tenantId = await this.tenantId();
     const current = await this.store.getDomain(tenantId, id);
     if (!current) throw new NotFoundError('Domain not found');
+    if ((await this.store.countAddressesOnDomain(tenantId, current.hostname)) > 0) {
+      throw new ConflictError(
+        'Mailboxes, aliases or groups still use this domain. Remove them before removing the domain.',
+      );
+    }
     await this.store.deleteDomain(tenantId, id);
     await audit(
       this.platform,
@@ -482,19 +561,22 @@ export class DirectoryService {
     const tenantId = await this.tenantId();
     if (input.kind === 'user') {
       if (!input.userId) throw new UnprocessableError('A user mailbox must be linked to a user.');
+      await this.requireMember(tenantId, input.userId);
       if (await this.store.findMailboxByUser(tenantId, input.userId)) {
         throw new ConflictError('That user already has a mailbox.');
       }
     }
     const primaryAddress = await this.claimAddress(tenantId, input.primaryAddress);
-    const mailbox = await this.store.insertMailbox({
-      tenantId,
-      userId: input.kind === 'user' ? (input.userId ?? null) : null,
-      primaryAddress,
-      kind: input.kind,
-      displayName: input.displayName?.trim() ? input.displayName.trim() : null,
-      quotaBytes: input.quotaBytes ?? null,
-    });
+    const mailbox = await this.guardUnique('That mailbox address is already in use.', () =>
+      this.store.insertMailbox({
+        tenantId,
+        userId: input.kind === 'user' ? (input.userId ?? null) : null,
+        primaryAddress,
+        kind: input.kind,
+        displayName: input.displayName?.trim() ? input.displayName.trim() : null,
+        quotaBytes: input.quotaBytes ?? null,
+      }),
+    );
     if (actor) {
       await audit(
         this.platform,
@@ -550,7 +632,9 @@ export class DirectoryService {
     const mailbox = await this.store.getMailbox(tenantId, mailboxId);
     if (!mailbox) throw new NotFoundError('Mailbox not found');
     const address = await this.claimAddress(tenantId, alias);
-    await this.store.addAlias(mailboxId, address);
+    await this.guardUnique('That address is already in use.', () =>
+      this.store.addAlias(tenantId, mailboxId, address),
+    );
     const updated = await this.getMailbox(mailboxId);
     await audit(
       this.platform,
@@ -566,7 +650,11 @@ export class DirectoryService {
 
   async removeAlias(mailboxId: string, alias: string, actor: Actor): Promise<DirectoryMailbox> {
     await this.getMailbox(mailboxId);
-    const removed = await this.store.removeAlias(mailboxId, normaliseEmail(alias));
+    const removed = await this.store.removeAlias(
+      await this.tenantId(),
+      mailboxId,
+      normaliseEmail(alias),
+    );
     if (!removed) throw new NotFoundError('Alias not found');
     const updated = await this.getMailbox(mailboxId);
     await audit(

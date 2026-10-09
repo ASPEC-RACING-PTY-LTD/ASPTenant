@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   createTestContext,
   destroyTestContext,
+  publishTxt,
   request,
   setupOwner,
   type TestContext,
@@ -47,6 +48,25 @@ describe('admin directory', () => {
       body: JSON.stringify({ hostname: 'example.com' }),
     });
     expect(ownedDomain.status).toBe(201);
+    const owned = (await ownedDomain.json()) as {
+      id: string;
+      verification: { name: string; value: string };
+    };
+
+    // Mail addresses need a verified domain. Without the TXT record verification fails.
+    const unverified = await request(ctx, `/api/v1/domains/${owned.id}/verify`, {
+      method: 'POST',
+      headers,
+    });
+    expect(unverified.status).toBe(422);
+    expect(owned.verification.name).toBe('example.com');
+    publishTxt(ctx, owned.verification.name, owned.verification.value);
+    const verified = await request(ctx, `/api/v1/domains/${owned.id}/verify`, {
+      method: 'POST',
+      headers,
+    });
+    expect(verified.status).toBe(200);
+    expect(((await verified.json()) as { status: string }).status).toBe('verified');
 
     const createdUser = await request(ctx, '/api/v1/users', {
       method: 'POST',
@@ -86,6 +106,13 @@ describe('admin directory', () => {
     expect(domainBody.status).toBe('pending');
     expect(domainBody.primary).toBe(false);
 
+    const onPending = await request(ctx, '/api/v1/mailboxes', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ kind: 'shared', primaryAddress: 'help@mail.example.com' }),
+    });
+    expect(onPending.status).toBe(422);
+
     const application = await request(ctx, '/api/v1/applications', {
       method: 'POST',
       headers,
@@ -123,6 +150,12 @@ describe('admin directory', () => {
       }),
     });
     expect(shared.status).toBe(201);
+
+    const inUse = await request(ctx, `/api/v1/domains/${owned.id}`, {
+      method: 'DELETE',
+      headers,
+    });
+    expect(inUse.status).toBe(409);
 
     const settings = await request(ctx, '/api/v1/settings', {
       method: 'PATCH',

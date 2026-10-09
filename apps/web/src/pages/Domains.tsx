@@ -1,6 +1,7 @@
 import { type FormEvent, useCallback, useEffect, useState } from 'react';
 import {
   applyDomainRecords,
+  confirmDomain,
   connectCloudflare,
   createDomain,
   type DirectoryDomain,
@@ -30,8 +31,13 @@ export function DomainsPage() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [canOverride, setCanOverride] = useState(false);
 
-  const reload = useCallback(async () => setDomains(await listDomains()), []);
+  const reload = useCallback(async () => {
+    const result = await listDomains();
+    setDomains(result.items);
+    setCanOverride(result.canOverride);
+  }, []);
   const loadSetup = useCallback(async (id: string) => {
     setSetup(null);
     setSetup(await getDomainSetup(id));
@@ -66,7 +72,7 @@ export function DomainsPage() {
       await createDomain(hostname.trim());
       setHostname('');
       await reload();
-      const created = (await listDomains()).find(
+      const created = (await listDomains()).items.find(
         (d) => d.hostname === hostname.trim().toLowerCase(),
       );
       if (created) setSelected(created.id);
@@ -133,7 +139,10 @@ export function DomainsPage() {
     <>
       <div className="page-header">
         <h1>Domains</h1>
-        <p>Add a domain, prove you own it, then set up the DNS records mail needs.</p>
+        <p>
+          Add a domain, prove you own it, then set up the DNS records mail needs. A verified domain
+          belongs to this organisation only, and mailbox addresses must use one.
+        </p>
       </div>
       {error ? (
         <p className="notice notice-error" role="alert">
@@ -189,6 +198,23 @@ export function DomainsPage() {
                       Verify
                     </button>
                   )}
+                  {domain.status !== 'verified' && canOverride ? (
+                    <button
+                      className="btn btn-ghost"
+                      type="button"
+                      disabled={busy}
+                      title="Platform operator override. Use only when DNS cannot be checked from this server."
+                      onClick={() =>
+                        void run(async () => {
+                          await confirmDomain(domain.id);
+                          await reload();
+                          setNotice(`${domain.hostname} was confirmed without a DNS check.`);
+                        })
+                      }
+                    >
+                      Confirm without DNS
+                    </button>
+                  ) : null}
                   {!domain.primary ? (
                     <button
                       className="btn btn-ghost"

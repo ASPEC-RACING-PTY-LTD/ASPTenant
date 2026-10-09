@@ -12,6 +12,7 @@ import { createInterface } from 'node:readline';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { createGunzip, createGzip } from 'node:zlib';
+import type { SqlClient } from '@aspec/db';
 import { ConflictError, UnprocessableError } from '@aspec/errors';
 import type { Actor } from '@aspec/users';
 import {
@@ -23,10 +24,12 @@ import {
   S3Client,
 } from '@aws-sdk/client-s3';
 import { Upload } from '@aws-sdk/lib-storage';
+import { ALL_TENANTS_SCOPE, PLATFORM_SCOPE, tenancyBackfillSql } from '../directory/index.js';
 import { type Job, JobStore } from '../jobs/store.js';
 import { SettingsStore } from '../mail/store.js';
 import type { Platform } from '../platform.js';
 import { SecretBox } from '../secrets.js';
+import { bindTenant, scopedClient } from '../tenancy.js';
 
 export const BACKUP_KIND = 'backup';
 const KEY = 'backup';
@@ -247,14 +250,19 @@ export class BackupService {
   /** Restart after a restore so caches reload. Disabled in tests. */
   exitAfterRestore = true;
 
+  /** Backups cover the whole installation, so this client sees every tenant's rows. */
+  private readonly db: SqlClient;
+
   constructor(platform: Platform) {
     this.platform = platform;
-    this.jobs = new JobStore(platform.db);
-    this.settings = new SettingsStore(platform.db);
+    this.db = scopedClient(platform, ALL_TENANTS_SCOPE);
+    this.jobs = new JobStore(this.db, () => PLATFORM_SCOPE);
+    this.settings = new SettingsStore(this.db);
   }
 
+  /** Backup settings and history belong to the installation, not to a tenant. */
   private async tenantId(): Promise<string> {
-    return (await this.platform.orgs.getDefaultOrg()).id;
+    return PLATFORM_SCOPE;
   }
 
   private async load(): Promise<StoredBackupSettings> {
@@ -443,7 +451,7 @@ export class BackupService {
   }
 
   private async tables(): Promise<string[]> {
-    const db = this.platform.db;
+    const db = this.db;
     const result =
       db.dialect === 'postgres'
         ? await db.query(
@@ -467,7 +475,7 @@ export class BackupService {
     out.write(Buffer.concat([MAGIC, salt, iv]));
     const gzip = createGzip();
     const progress: BackupProgress = { tables: 0, rows: 0, bytes: 0 };
-    const db = this.platform.db;
+    const db = this.db;
     const tables = await this.tables();
     const lines = async function* (this: BackupService) {
       yield `${JSON.stringify({
@@ -561,7 +569,7 @@ export class BackupService {
   }
 
   private async columns(table: string): Promise<Set<string>> {
-    const db = this.platform.db;
+    const db = this.db;
     const result =
       db.dialect === 'postgres'
         ? await db.query(
@@ -575,17 +583,21 @@ export class BackupService {
   private async apply(plainFile: string): Promise<{ tables: number; rows: number }> {
     const db = this.platform.db;
     const local = new Set(await this.tables());
-    const reader = createInterface({
-      input: createReadStream(plainFile).pipe(createGunzip()),
-      crlfDelay: Number.POSITIVE_INFINITY,
-    });
     let source: SecretBox | null = null;
     let tables = 0;
     let rows = 0;
     let current: { name: string; columns: Set<string> } | null = null;
     await db.transaction(async () => {
-      if (db.dialect === 'postgres') await db.query(`SET LOCAL session_replication_role = replica`);
-      else await db.query(`PRAGMA defer_foreign_keys = ON`);
+      // A restore replaces every tenant's data, so it runs with the all-tenants binding.
+      await bindTenant(db, ALL_TENANTS_SCOPE);
+      const restoreForeignKeys = db.dialect === 'postgres' ? await this.suspendForeignKeys() : null;
+      if (db.dialect !== 'postgres') await db.query(`PRAGMA defer_foreign_keys = ON`);
+      // Open the file only now: lines emitted before iteration starts would be lost and the
+      // loop would wait for them forever.
+      const reader = createInterface({
+        input: createReadStream(plainFile).pipe(createGunzip()),
+        crlfDelay: Number.POSITIVE_INFINITY,
+      });
       for await (const line of reader) {
         if (!line) continue;
         const entry = JSON.parse(line) as {
@@ -602,12 +614,14 @@ export class BackupService {
             throw new UnprocessableError('Not an ASPECTenant backup.');
           source = entry.secretKey ? SecretBox.fromExported(entry.secretKey) : null;
           for (const table of entry.tables ?? []) {
-            if (local.has(table)) await db.query(`DELETE FROM "${table}"`);
+            if (local.has(table) && !isLedger(table)) await db.query(`DELETE FROM "${table}"`);
           }
         } else if (entry.type === 'table' && entry.name) {
-          current = local.has(entry.name)
-            ? { name: entry.name, columns: await this.columns(entry.name) }
-            : null;
+          // The local migration ledger describes the local schema; never replace it.
+          current =
+            local.has(entry.name) && !isLedger(entry.name)
+              ? { name: entry.name, columns: await this.columns(entry.name) }
+              : null;
           if (current) tables += 1;
         } else if (entry.type === 'row' && current && entry.r) {
           const record = entry.r;
@@ -633,8 +647,38 @@ export class BackupService {
           rows += 1;
         }
       }
+      // Backups from single-tenant releases have no tenant columns on some rows.
+      for (const sql of tenancyBackfillSql()) await db.query(sql);
+      if (restoreForeignKeys) await restoreForeignKeys();
     });
     return { tables, rows };
+  }
+
+  /**
+   * Drops foreign keys for the duration of a restore so rows can arrive in any order, and
+   * returns a function that adds them back (PostgreSQL validates them again then). The
+   * application role owns its tables, so it may do this without superuser rights.
+   */
+  private async suspendForeignKeys(): Promise<() => Promise<void>> {
+    const db = this.platform.db;
+    const result = await db.query<{ table_name: string; name: string; definition: string }>(
+      `SELECT rel.relname AS table_name, con.conname AS name,
+              pg_get_constraintdef(con.oid) AS definition
+         FROM pg_constraint con
+         JOIN pg_class rel ON rel.oid = con.conrelid
+         JOIN pg_namespace nsp ON nsp.oid = rel.relnamespace
+        WHERE con.contype = 'f' AND nsp.nspname = current_schema()`,
+    );
+    for (const row of result.rows) {
+      await db.query(`ALTER TABLE "${row.table_name}" DROP CONSTRAINT "${row.name}"`);
+    }
+    return async () => {
+      for (const row of result.rows) {
+        await db.query(
+          `ALTER TABLE "${row.table_name}" ADD CONSTRAINT "${row.name}" ${row.definition}`,
+        );
+      }
+    };
   }
 
   /** Records a restore in history (after the restore so it survives the data replacement). */
@@ -654,4 +698,9 @@ export class BackupService {
     });
     await this.jobs.update(job.id, { status: 'succeeded' });
   }
+}
+
+/** Migration ledgers (`*_schema_migrations`, `*_migrations`) are never restored. */
+function isLedger(table: string): boolean {
+  return table.endsWith('migrations');
 }

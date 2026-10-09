@@ -178,6 +178,97 @@ CREATE INDEX IF NOT EXISTS aspectenant_jobs_kind_idx ON aspectenant_jobs (kind, 
 `;
 }
 
+/** Tables that hold tenant data and carry `tenant_id`. Row-level security applies to each. */
+export const TENANT_TABLES = [
+  'aspectenant_groups',
+  'aspectenant_group_members',
+  'aspectenant_domains',
+  'aspectenant_mailboxes',
+  'aspectenant_mailbox_aliases',
+  'aspectenant_mailbox_members',
+  'aspectenant_applications',
+  'aspectenant_settings',
+  'aspectenant_messages',
+  'aspectenant_mail_folders',
+  'aspectenant_jobs',
+] as const;
+
+/** `tenant_id` of installation-wide settings (public URL, updates, backups, mail apps). */
+export const PLATFORM_SCOPE = '__platform__';
+
+/**
+ * Binding that lets installation-level code (backup, restore, job discovery) see every
+ * tenant's rows. Only code behind a platform permission or a system task binds it.
+ */
+export const ALL_TENANTS_SCOPE = '*';
+
+/** Name of the row-level security policy on every tenant table. */
+export const RLS_POLICY = 'aspectenant_tenant_isolation';
+
+function rowLevelSecuritySql(tables: readonly string[]): string {
+  const bound = `NULLIF(current_setting('app.tenant_id', true), '')`;
+  const rule = `(tenant_id = ${bound} OR ${bound} = '${ALL_TENANTS_SCOPE}')`;
+  return tables
+    .map(
+      (table) => `ALTER TABLE ${table} ENABLE ROW LEVEL SECURITY;
+ALTER TABLE ${table} FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS ${RLS_POLICY} ON ${table};
+CREATE POLICY ${RLS_POLICY} ON ${table} FOR ALL TO PUBLIC USING ${rule} WITH CHECK ${rule};`,
+    )
+    .join('\n');
+}
+
+/** Settings keys that belong to the installation, not to one tenant. */
+export const PLATFORM_SETTING_KEYS = [
+  'general',
+  'updates',
+  'backup',
+  'mail-clients',
+  'domainconnect',
+] as const;
+
+/**
+ * Fills tenant columns and moves installation settings for rows written by single-tenant
+ * releases. Runs in the migration and again after restoring an older backup.
+ */
+export function tenancyBackfillSql(): string[] {
+  const keys = PLATFORM_SETTING_KEYS.map((key) => `'${key}'`).join(', ');
+  return [
+    `UPDATE aspectenant_group_members SET tenant_id = (
+  SELECT g.tenant_id FROM aspectenant_groups g WHERE g.id = aspectenant_group_members.group_id
+) WHERE tenant_id = ''`,
+    `UPDATE aspectenant_mailbox_aliases SET tenant_id = (
+  SELECT m.tenant_id FROM aspectenant_mailboxes m WHERE m.id = aspectenant_mailbox_aliases.mailbox_id
+) WHERE tenant_id = ''`,
+    `INSERT INTO aspectenant_settings (tenant_id, key, value, updated_at)
+  SELECT '${PLATFORM_SCOPE}', key, value, updated_at FROM aspectenant_settings
+  WHERE tenant_id = 'default' AND key IN (${keys})
+  ON CONFLICT DO NOTHING`,
+    `DELETE FROM aspectenant_settings WHERE tenant_id = 'default' AND key IN (${keys})`,
+  ];
+}
+
+function tenancySql(): string {
+  return `
+ALTER TABLE aspectenant_group_members ADD COLUMN tenant_id TEXT NOT NULL DEFAULT '';
+CREATE INDEX IF NOT EXISTS aspectenant_group_members_tenant_idx
+  ON aspectenant_group_members (tenant_id, group_id);
+
+ALTER TABLE aspectenant_mailbox_aliases ADD COLUMN tenant_id TEXT NOT NULL DEFAULT '';
+CREATE INDEX IF NOT EXISTS aspectenant_mailbox_aliases_tenant_idx
+  ON aspectenant_mailbox_aliases (tenant_id, mailbox_id);
+
+CREATE UNIQUE INDEX IF NOT EXISTS aspectenant_domains_verified_uq
+  ON aspectenant_domains (hostname) WHERE status = 'verified';
+
+DROP INDEX IF EXISTS aspectenant_mailboxes_address_uq;
+CREATE UNIQUE INDEX IF NOT EXISTS aspectenant_mailboxes_address_global_uq
+  ON aspectenant_mailboxes (primary_address);
+
+${tenancyBackfillSql().join(';\n')};
+`;
+}
+
 export async function migrateDirectory(client: SqlClient): Promise<void> {
   const migrator = createMigrator(client, {
     tablePrefix: 'aspectenant_',
@@ -196,6 +287,16 @@ export async function migrateDirectory(client: SqlClient): Promise<void> {
         id: '0003_imap_jobs',
         postgres: imapSql('postgres'),
         sqlite: imapSql('sqlite'),
+      },
+      {
+        id: '0004_tenancy',
+        postgres: tenancySql(),
+        sqlite: tenancySql(),
+      },
+      {
+        id: '0005_row_level_security',
+        postgres: rowLevelSecuritySql(TENANT_TABLES),
+        sqlite: 'SELECT 1;',
       },
     ],
   });

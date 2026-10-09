@@ -1,7 +1,14 @@
 import { created, defineRoute, noContent, ok } from '@aspec/api';
 import { ConflictError, NotFoundError } from '@aspec/errors';
 import { z } from 'zod';
-import { accountIdFromRequest, actorFromRequest, requirePermission } from '../access.js';
+import {
+  accountIdFromRequest,
+  actorFromRequest,
+  hasPlatformPermission,
+  requirePermission,
+  requirePlatformPermission,
+} from '../access.js';
+import type { DirectoryDomain } from '../directory/index.js';
 import type { Platform } from '../platform.js';
 
 const idParams = z.object({ id: z.string().min(1) });
@@ -11,19 +18,32 @@ const createBody = z.object({
 });
 
 export function createDomainRoutes(platform: Platform) {
+  /** A domain with the TXT record that proves ownership while it is still pending. */
+  const domainView = (domain: DirectoryDomain) => ({
+    ...domain,
+    verification:
+      domain.status === 'verified'
+        ? null
+        : { type: 'TXT' as const, ...platform.directory.domainVerification(domain) },
+  });
+
   return [
     defineRoute({
       method: 'get',
       path: '/domains',
       operationId: 'listDomains',
-      summary: 'List custom domains',
+      summary: 'List the custom domains of the current organisation',
       tags: ['domains'],
       request: {},
       responses: { '200': { description: 'Domains' } },
       handler: async ({ raw }) => {
         const accountId = accountIdFromRequest(raw);
         await requirePermission(platform, accountId, 'domains:read');
-        return ok({ items: await platform.directory.listDomains() });
+        const domains = await platform.directory.listDomains();
+        return ok({
+          items: domains.map(domainView),
+          canOverride: await hasPlatformPermission(platform, accountId, 'domains:override'),
+        });
       },
     }),
     defineRoute({
@@ -31,7 +51,7 @@ export function createDomainRoutes(platform: Platform) {
       path: '/domains',
       operationId: 'createDomain',
       summary:
-        'Register a custom domain. Verification is operator-confirmed, not an automatic DNS check.',
+        'Register a custom domain. It stays pending until the DNS TXT record proves ownership.',
       tags: ['domains'],
       request: { body: createBody },
       responses: { '201': { description: 'Created' } },
@@ -41,12 +61,14 @@ export function createDomainRoutes(platform: Platform) {
         const body = request.body;
         if (!body) throw new ConflictError('Domain body is required');
         return created(
-          await platform.directory.createDomain(
-            {
-              hostname: body.hostname,
-              ...(body.primary !== undefined ? { primary: body.primary } : {}),
-            },
-            actorFromRequest(raw, accountId),
+          domainView(
+            await platform.directory.createDomain(
+              {
+                hostname: body.hostname,
+                ...(body.primary !== undefined ? { primary: body.primary } : {}),
+              },
+              actorFromRequest(raw, accountId),
+            ),
           ),
         );
       },
@@ -55,16 +77,42 @@ export function createDomainRoutes(platform: Platform) {
       method: 'post',
       path: '/domains/:id/verify',
       operationId: 'verifyDomain',
-      summary: 'Mark a domain as verified after the operator confirms DNS ownership',
+      summary: 'Verify domain ownership by looking up the TXT record in DNS',
+      tags: ['domains'],
+      request: { params: idParams },
+      responses: {
+        '200': { description: 'Verified' },
+        '409': { description: 'Verified by another organisation' },
+        '422': { description: 'TXT record not found' },
+      },
+      handler: async ({ raw, request }) => {
+        const accountId = accountIdFromRequest(raw);
+        await requirePermission(platform, accountId, 'domains:manage');
+        const id = request.params?.id;
+        if (!id) throw new NotFoundError('Domain not found');
+        return ok(
+          domainView(await platform.directory.verifyDomain(id, actorFromRequest(raw, accountId))),
+        );
+      },
+    }),
+    defineRoute({
+      method: 'post',
+      path: '/domains/:id/confirm',
+      operationId: 'confirmDomain',
+      summary:
+        'Platform operators only: mark a domain verified without a DNS check, for example on a private network.',
       tags: ['domains'],
       request: { params: idParams },
       responses: { '200': { description: 'Verified' } },
       handler: async ({ raw, request }) => {
         const accountId = accountIdFromRequest(raw);
         await requirePermission(platform, accountId, 'domains:manage');
+        await requirePlatformPermission(platform, accountId, 'domains:override');
         const id = request.params?.id;
         if (!id) throw new NotFoundError('Domain not found');
-        return ok(await platform.directory.verifyDomain(id, actorFromRequest(raw, accountId)));
+        return ok(
+          domainView(await platform.directory.confirmDomain(id, actorFromRequest(raw, accountId))),
+        );
       },
     }),
     defineRoute({
@@ -80,14 +128,18 @@ export function createDomainRoutes(platform: Platform) {
         await requirePermission(platform, accountId, 'domains:manage');
         const id = request.params?.id;
         if (!id) throw new NotFoundError('Domain not found');
-        return ok(await platform.directory.setPrimaryDomain(id, actorFromRequest(raw, accountId)));
+        return ok(
+          domainView(
+            await platform.directory.setPrimaryDomain(id, actorFromRequest(raw, accountId)),
+          ),
+        );
       },
     }),
     defineRoute({
       method: 'delete',
       path: '/domains/:id',
       operationId: 'deleteDomain',
-      summary: 'Remove a domain record',
+      summary: 'Remove a domain record that no mailbox or alias uses',
       tags: ['domains'],
       request: { params: idParams },
       responses: { '204': { description: 'Deleted' } },

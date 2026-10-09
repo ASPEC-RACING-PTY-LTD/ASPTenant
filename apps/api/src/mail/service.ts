@@ -5,7 +5,9 @@ import { type AddressObject, simpleParser } from 'mailparser';
 import nodemailer from 'nodemailer';
 import MailComposer from 'nodemailer/lib/mail-composer/index.js';
 import type { DirectoryMailbox } from '../directory/index.js';
+import { requireTenantId } from '../directory/service.js';
 import type { Platform } from '../platform.js';
+import { inScope, listActiveTenants, tenantClient } from '../tenancy.js';
 import { type MailAddress, MessageStore, SettingsStore, type StoredMessage } from './store.js';
 
 export const OUTBOUND_KINDS = ['none', 'cloudflare', 'smtp'] as const;
@@ -123,12 +125,12 @@ export class MailService {
 
   constructor(platform: Platform) {
     this.platform = platform;
-    this.messages = new MessageStore(platform.db);
-    this.settings = new SettingsStore(platform.db);
+    this.messages = new MessageStore(tenantClient(platform));
+    this.settings = new SettingsStore(tenantClient(platform));
   }
 
   private async tenantId(): Promise<string> {
-    return (await this.platform.orgs.getDefaultOrg()).id;
+    return requireTenantId(this.platform);
   }
 
   ingestUrl(fallbackOrigin?: string): string {
@@ -215,13 +217,22 @@ export class MailService {
     return token;
   }
 
-  async checkIngestToken(token: string | null): Promise<boolean> {
-    if (!token) return false;
-    const stored = await this.load();
-    if (!stored.ingestTokenHash) return false;
-    const a = Buffer.from(sha256(token), 'hex');
-    const b = Buffer.from(stored.ingestTokenHash, 'hex');
-    return a.length === b.length && timingSafeEqual(a, b);
+  /**
+   * Finds the tenant an ingest token belongs to. Each tenant has its own token, so a sender
+   * can only deliver into the mailboxes of the tenant that issued it.
+   */
+  async tenantForIngestToken(token: string | null): Promise<string | null> {
+    if (!token) return null;
+    const given = Buffer.from(sha256(token), 'hex');
+    for (const org of await listActiveTenants(this.platform)) {
+      const stored = await inScope(this.platform, org.id, () =>
+        this.settings.get<StoredMailSettings>(org.id, SETTINGS_KEY),
+      );
+      if (!stored?.ingestTokenHash) continue;
+      const expected = Buffer.from(stored.ingestTokenHash, 'hex');
+      if (expected.length === given.length && timingSafeEqual(expected, given)) return org.id;
+    }
+    return null;
   }
 
   private async transport(): Promise<{

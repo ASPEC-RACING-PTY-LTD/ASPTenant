@@ -1,5 +1,13 @@
-export { migrateDirectory } from './schema.js';
-export { DirectoryService } from './service.js';
+export {
+  ALL_TENANTS_SCOPE,
+  migrateDirectory,
+  PLATFORM_SCOPE,
+  PLATFORM_SETTING_KEYS,
+  RLS_POLICY,
+  TENANT_TABLES,
+  tenancyBackfillSql,
+} from './schema.js';
+export { DirectoryService, isUniqueViolation } from './service.js';
 export { DirectoryStore } from './store.js';
 export type {
   DirectoryApplication,

@@ -12,6 +12,63 @@ volumes:
   updates:
   data:
 
+configs:
+  # Same as deploy/postgres/app-role.sql in the repository. Kept inline so this file installs alone.
+  db_roles:
+    content: |
+      -- Creates or updates the role the API connects as. Run by the db-roles service with the
+      -- PostgreSQL superuser on every start, so existing volumes are upgraded too.
+      --
+      -- The application role is not a superuser and cannot bypass row-level security, so the
+      -- tenant isolation policies on aspectenant_* tables apply to every API query. It owns the
+      -- tables so the API can run its own migrations; FORCE ROW LEVEL SECURITY makes the
+      -- policies apply to the owner as well.
+      --
+      -- Usage: psql -v ON_ERROR_STOP=1 -v app_password=... -f app-role.sql
+
+      SELECT format('CREATE ROLE aspectenant_app LOGIN PASSWORD %L', :'app_password')
+      WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'aspectenant_app')\gexec
+
+      ALTER ROLE aspectenant_app WITH LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE
+        PASSWORD :'app_password';
+
+      SELECT format('GRANT CONNECT ON DATABASE %I TO aspectenant_app', current_database())\gexec
+      GRANT USAGE, CREATE ON SCHEMA public TO aspectenant_app;
+
+      -- Tables created by earlier releases belong to the superuser. Hand them to the application role.
+      DO $$$$
+      DECLARE
+        r record;
+      BEGIN
+        FOR r IN
+          SELECT c.relname, c.relkind
+          FROM pg_class c
+          JOIN pg_namespace n ON n.oid = c.relnamespace
+          WHERE n.nspname = 'public'
+            AND c.relkind IN ('r', 'p', 'S', 'v', 'm')
+            AND pg_get_userbyid(c.relowner) <> 'aspectenant_app'
+            -- Sequences owned by a column move with their table.
+            AND NOT (
+              c.relkind = 'S'
+              AND EXISTS (
+                SELECT 1 FROM pg_depend d WHERE d.objid = c.oid AND d.deptype IN ('a', 'i')
+              )
+            )
+        LOOP
+          EXECUTE format(
+            'ALTER %s public.%I OWNER TO aspectenant_app',
+            CASE r.relkind
+              WHEN 'S' THEN 'SEQUENCE'
+              WHEN 'v' THEN 'VIEW'
+              WHEN 'm' THEN 'MATERIALIZED VIEW'
+              ELSE 'TABLE'
+            END,
+            r.relname
+          );
+        END LOOP;
+      END
+      $$$$;
+
 services:
   postgres:
     image: postgres:17.6-alpine
@@ -30,11 +87,31 @@ services:
       timeout: 3s
       retries: 30
 
+  # Creates the non-superuser role the API connects as, so row-level security applies.
+  db-roles:
+    image: postgres:17.6-alpine
+    restart: "no"
+    environment:
+      PGHOST: postgres
+      PGUSER: aspec
+      PGDATABASE: aspec
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      APP_DB_PASSWORD: ${POSTGRES_APP_PASSWORD}
+    configs:
+      - source: db_roles
+        target: /app-role.sql
+    command: ["sh", "-c", "psql -v ON_ERROR_STOP=1 -v app_password=\"$$APP_DB_PASSWORD\" -f /app-role.sql"]
+    networks:
+      - internal
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   api:
     image: ${ASPECTENANT_API_IMAGE:-ghcr.io/aspec-racing-pty-ltd/aspectenant-api:latest}
     restart: unless-stopped
     environment:
-      DATABASE_URL: postgres://aspec:${POSTGRES_PASSWORD}@postgres:5432/aspec
+      DATABASE_URL: postgres://aspectenant_app:${POSTGRES_APP_PASSWORD}@postgres:5432/aspec
       PUBLIC_URL: ${PUBLIC_URL:-http://localhost:8080}
       TRUSTED_PROXIES: private
       AUDIT_HMAC_KEY: ${AUDIT_HMAC_KEY}
@@ -50,8 +127,8 @@ services:
     networks:
       - internal
     depends_on:
-      postgres:
-        condition: service_healthy
+      db-roles:
+        condition: service_completed_successfully
 
   web:
     image: ${ASPECTENANT_WEB_IMAGE:-ghcr.io/aspec-racing-pty-ltd/aspectenant-web:latest}

@@ -3,6 +3,8 @@ import nodemailer from 'nodemailer';
 import selfsigned from 'selfsigned';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
+  addVerifiedDomain,
+  asTenant,
   createTestContext,
   destroyTestContext,
   request,
@@ -40,11 +42,7 @@ describe('IMAP and SMTP submission', () => {
     ctx = await createTestContext();
     const cookie = await setupOwner(ctx);
     const headers = { cookie };
-    await request(ctx, '/api/v1/domains', {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ hostname: 'example.com' }),
-    });
+    await addVerifiedDomain(ctx, headers, 'example.com');
     const users = (await (await request(ctx, '/api/v1/users', { headers })).json()) as {
       items: Array<{ id: string }>;
     };
@@ -84,7 +82,7 @@ describe('IMAP and SMTP submission', () => {
     });
     expect(saved.status).toBe(200);
     expect(((await saved.json()) as { running: boolean }).running).toBe(true);
-    await ctx.platform.mail.ingest(Buffer.from(RAW), ['owner@example.com']);
+    await asTenant(ctx, () => ctx.platform.mail.ingest(Buffer.from(RAW), ['owner@example.com']));
     client = new ImapFlow({
       host: '127.0.0.1',
       port: 1993,

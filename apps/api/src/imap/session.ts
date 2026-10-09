@@ -2,6 +2,7 @@ import type { Socket } from 'node:net';
 import type { DirectoryMailbox } from '../directory/index.js';
 import { type MessageFlags, normaliseFolderName, type UidRow } from '../mail/store.js';
 import type { Platform } from '../platform.js';
+import { withSystemTenant } from '../tenancy.js';
 import {
   bodyStructure,
   envelope,
@@ -24,8 +25,14 @@ import {
   type Token,
 } from './parser.js';
 
+/** An authenticated mail app login, bound to the tenant whose mailboxes it opens. */
+export interface MailLogin {
+  accountId: string;
+  tenantId: string;
+}
+
 export interface MailAuthenticator {
-  verify(email: string, password: string, ip: string): Promise<string | null>;
+  verify(email: string, password: string, ip: string): Promise<MailLogin | null>;
 }
 
 const CAPABILITIES =
@@ -84,6 +91,7 @@ export class ImapSession {
   private literal = 0;
   private queue: Promise<void> = Promise.resolve();
   private account: string | null = null;
+  private tenant: string | null = null;
   private selected: Selected | null = null;
   private idle: { tag: string; timer: NodeJS.Timeout } | null = null;
   private authTag: string | null = null;
@@ -159,7 +167,12 @@ export class ImapSession {
   }
 
   private enqueue(task: () => Promise<void>): void {
-    this.queue = this.queue.then(task).catch((error: unknown) => {
+    // After login every command runs bound to the session's tenant.
+    const bound = () =>
+      this.tenant && this.account
+        ? withSystemTenant(this.platform, this.tenant, task, this.account)
+        : task();
+    this.queue = this.queue.then(bound).catch((error: unknown) => {
       this.platform.logger.warn({ err: error }, 'imap command failed');
     });
   }
@@ -348,12 +361,13 @@ export class ImapSession {
   }
 
   private async login(email: string, password: string): Promise<void> {
-    const account = await this.auth.verify(email, password, this.ip);
-    if (!account) {
+    const login = await this.auth.verify(email, password, this.ip);
+    if (!login) {
       await new Promise((resolve) => setTimeout(resolve, 1000));
       throw new NoError('[AUTHENTICATIONFAILED] Invalid credentials');
     }
-    this.account = account;
+    this.account = login.accountId;
+    this.tenant = login.tenantId;
   }
 
   private async finishPlain(tag: string, payload: string): Promise<void> {

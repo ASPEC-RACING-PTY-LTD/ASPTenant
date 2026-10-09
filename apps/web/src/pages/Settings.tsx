@@ -4,7 +4,7 @@ import { useAuth } from '../auth.js';
 import { DomainConnectSettingsPanel } from './DomainConnectSettings.js';
 
 export function SettingsPage() {
-  const { refresh } = useAuth();
+  const { refresh, session } = useAuth();
   const [name, setName] = useState('');
   const [slug, setSlug] = useState('');
   const [publicUrl, setPublicUrl] = useState('');
@@ -49,7 +49,7 @@ export function SettingsPage() {
     <>
       <div className="page-header">
         <h1>Settings</h1>
-        <p>Organisation identity for this single-tenant installation.</p>
+        <p>Identity of the organisation you are working in.</p>
       </div>
       {error ? (
         <p className="notice notice-error" role="alert">
@@ -74,22 +74,27 @@ export function SettingsPage() {
             <label htmlFor="org-slug">Slug</label>
             <input id="org-slug" value={slug} disabled />
           </div>
-          <div className="field">
-            <label htmlFor="public-url">Public URL</label>
-            <input
-              id="public-url"
-              placeholder="https://mail.example.com"
-              value={publicUrl}
-              onChange={(e) => setPublicUrl(e.target.value)}
-            />
-          </div>
-          <p>Tenant mode is single. Multi-tenant isolation remains in the data model only.</p>
+          {session?.platform.operator ? (
+            <div className="field">
+              <label htmlFor="public-url">Public URL (whole installation)</label>
+              <input
+                id="public-url"
+                placeholder="https://mail.example.com"
+                value={publicUrl}
+                onChange={(e) => setPublicUrl(e.target.value)}
+              />
+            </div>
+          ) : null}
+          <p>
+            Each organisation is a separate tenant. Its users, groups, domains, mailboxes,
+            applications and audit history are not visible to other organisations.
+          </p>
           <button className="btn" type="submit">
             Save
           </button>
         </form>
       </section>
-      <DomainConnectSettingsPanel />
+      {session?.platform.operator ? <DomainConnectSettingsPanel /> : null}
     </>
   );
 }

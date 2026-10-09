@@ -20,3 +20,41 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm exec biome check apps docs
       - run: pnpm test
+
+  # Row-level security only exists in PostgreSQL. Runs every API suite against it as the
+  # non-superuser application role that production uses.
+  postgres:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17.6-alpine
+        env:
+          POSTGRES_USER: aspec
+          POSTGRES_PASSWORD: aspec
+          POSTGRES_DB: aspec
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U aspec -d aspec"
+          --health-interval 3s
+          --health-timeout 3s
+          --health-retries 30
+    env:
+      ADMIN_URL: postgres://aspec:aspec@127.0.0.1:5432/aspec
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build:modules
+      - run: psql "$ADMIN_URL" -v ON_ERROR_STOP=1 -v app_password=aspectenant -f deploy/postgres/app-role.sql
+      - run: psql "$ADMIN_URL" -v ON_ERROR_STOP=1 -c "CREATE DATABASE aspec_test OWNER aspectenant_app"
+      - run: psql "$ADMIN_URL" -v ON_ERROR_STOP=1 -c "CREATE DATABASE aspec_test2 OWNER aspectenant_app"
+      - run: pnpm --filter @aspectenant/api exec vitest run --no-file-parallelism
+        env:
+          ASPECTENANT_TEST_DATABASE_URL: postgres://aspectenant_app:aspectenant@127.0.0.1:5432/aspec_test
+          ASPECTENANT_TEST_DATABASE_URL_2: postgres://aspectenant_app:aspectenant@127.0.0.1:5432/aspec_test2
+          ASPECTENANT_TEST_ALL_POSTGRES: "1"

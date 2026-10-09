@@ -84,7 +84,7 @@ export function LoginPage() {
           {pending ? 'Signing in…' : 'Sign in'}
         </button>
         <p>
-          First installation? <Link to="/setup">Create the super administrator</Link>
+          First installation? <Link to="/setup">Create the first account</Link>
         </p>
       </form>
     </div>

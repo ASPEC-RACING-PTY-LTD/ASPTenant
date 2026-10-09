@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+  addVerifiedDomain,
   createTestContext,
   destroyTestContext,
   request,
@@ -31,15 +32,7 @@ describe('mail', () => {
     const cookie = await setupOwner(ctx);
     const headers = { cookie };
 
-    expect(
-      (
-        await request(ctx, '/api/v1/domains', {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({ hostname: 'example.com' }),
-        })
-      ).status,
-    ).toBe(201);
+    await addVerifiedDomain(ctx, headers, 'example.com');
 
     const users = (await (await request(ctx, '/api/v1/users', { headers })).json()) as {
       items: Array<{ id: string }>;

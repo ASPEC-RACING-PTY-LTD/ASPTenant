@@ -1,9 +1,16 @@
 import { defineRoute, ok } from '@aspec/api';
 import { ConflictError, UnprocessableError } from '@aspec/errors';
 import { z } from 'zod';
-import { accountIdFromRequest, actorFromRequest, requirePermission } from '../access.js';
+import {
+  accountIdFromRequest,
+  actorFromRequest,
+  requirePermission,
+  requirePlatformPermission,
+} from '../access.js';
+import { PLATFORM_SCOPE } from '../directory/index.js';
 import { SettingsStore } from '../mail/store.js';
 import type { Platform } from '../platform.js';
+import { scopedClient } from '../tenancy.js';
 
 const updateBody = z.object({
   name: z.string().min(1).max(120),
@@ -22,8 +29,8 @@ export function createSettingsRoutes(platform: Platform) {
       responses: { '200': { description: 'Settings' } },
       handler: async ({ raw }) => {
         const accountId = accountIdFromRequest(raw);
-        await requirePermission(platform, accountId, 'orgs:read');
-        const org = await platform.orgs.getDefaultOrg();
+        const tenantId = await requirePermission(platform, accountId, 'orgs:read');
+        const org = await platform.orgs.getOrg(tenantId);
         return ok({
           organisation: {
             id: org.id,
@@ -33,7 +40,7 @@ export function createSettingsRoutes(platform: Platform) {
             createdAt: org.createdAt,
             updatedAt: org.updatedAt,
           },
-          tenantMode: 'single',
+          tenantMode: 'multi',
           appName: platform.config.appName,
           publicUrl: platform.publicUrl,
         });
@@ -49,12 +56,17 @@ export function createSettingsRoutes(platform: Platform) {
       responses: { '200': { description: 'Updated' } },
       handler: async ({ raw, request }) => {
         const accountId = accountIdFromRequest(raw);
-        await requirePermission(platform, accountId, 'orgs:settings');
+        const tenantId = await requirePermission(platform, accountId, 'orgs:settings');
         const body = request.body;
         if (!body) throw new ConflictError('Settings body is required');
-        const org = await platform.orgs.getDefaultOrg();
+        const org = await platform.orgs.getOrg(tenantId);
         let restarting = false;
-        if (body.publicUrl !== undefined) {
+        if (
+          body.publicUrl !== undefined &&
+          (body.publicUrl?.trim() || null) !== platform.publicUrl
+        ) {
+          // The public URL belongs to the whole installation.
+          await requirePlatformPermission(platform, accountId, 'platform:admin');
           let next: string | null = null;
           if (body.publicUrl?.trim()) {
             try {
@@ -67,7 +79,11 @@ export function createSettingsRoutes(platform: Platform) {
             }
           }
           if (next !== platform.publicUrl) {
-            await new SettingsStore(platform.db).set(org.id, 'general', { publicUrl: next });
+            await new SettingsStore(scopedClient(platform, PLATFORM_SCOPE)).set(
+              PLATFORM_SCOPE,
+              'general',
+              { publicUrl: next },
+            );
             platform.publicUrl = next;
             restarting = true;
             platform.restart();
@@ -77,7 +93,7 @@ export function createSettingsRoutes(platform: Platform) {
           org.id,
           { name: body.name.trim() },
           {},
-          { actor: actorFromRequest(raw, accountId) },
+          { actor: actorFromRequest(raw, accountId), tenantId },
         );
         await platform.audit.record({
           action: 'organisation.settings.updated',

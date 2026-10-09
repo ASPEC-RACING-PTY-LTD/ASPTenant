@@ -4,10 +4,28 @@ import {
   type DirectoryUser,
   listUsers,
   reinstateUser,
+  removeUser,
+  setUserRole,
   suspendUser,
+  type TenantRole,
   updateUser,
 } from '../api.js';
 import { useAuth } from '../auth.js';
+
+type RoleChoice = 'member' | TenantRole;
+
+function roleOf(user: DirectoryUser): string {
+  if (user.orgRole === 'owner' || user.roles.includes('tenant.owner')) return 'Owner';
+  if (user.roles.includes('tenant.admin')) return 'Administrator';
+  if (user.roles.includes('tenant.auditor')) return 'Auditor';
+  return 'Member';
+}
+
+function choiceOf(user: DirectoryUser): RoleChoice {
+  if (user.roles.includes('tenant.admin')) return 'tenant.admin';
+  if (user.roles.includes('tenant.auditor')) return 'tenant.auditor';
+  return 'member';
+}
 
 export function UsersPage() {
   const { session } = useAuth();
@@ -17,7 +35,10 @@ export function UsersPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
-  const [orgRole, setOrgRole] = useState<'admin' | 'member'>('member');
+  const [role, setRole] = useState<RoleChoice>('member');
+  const [notice, setNotice] = useState<string | null>(null);
+  const [editRole, setEditRole] = useState<RoleChoice>('member');
+  const canManageMembers = session?.permissions.includes('orgs.members:manage') === true;
   const [selected, setSelected] = useState<DirectoryUser | null>(null);
   const [editName, setEditName] = useState('');
   const [reason, setReason] = useState('Suspended by administrator');
@@ -42,13 +63,19 @@ export function UsersPage() {
     event.preventDefault();
     setPending(true);
     setError(null);
+    setNotice(null);
     try {
-      await createUser({
+      const result = await createUser({
         email,
         password,
-        orgRole,
+        role: role === 'member' ? null : role,
         ...(displayName.trim() ? { displayName: displayName.trim() } : {}),
       });
+      setNotice(
+        result.mailboxId
+          ? `${email} was created with a mailbox record.`
+          : `${email} was created. No mailbox record was made because the address is not on a verified domain of this organisation.`,
+      );
       setEmail('');
       setPassword('');
       setDisplayName('');
@@ -64,13 +91,17 @@ export function UsersPage() {
     <>
       <div className="page-header">
         <h1>Users</h1>
-        <p>Organisation directory. Creating a user also provisions a mailbox record.</p>
+        <p>
+          People in this organisation. A mailbox record is created for users whose address is on a
+          verified domain.
+        </p>
       </div>
       {error ? (
         <p className="notice notice-error" role="alert">
           {error}
         </p>
       ) : null}
+      {notice ? <p className="notice">{notice}</p> : null}
       <section className="panel">
         <h2>Create user</h2>
         <form className="form-grid" onSubmit={(event) => void onCreate(event)}>
@@ -104,14 +135,15 @@ export function UsersPage() {
             />
           </div>
           <div className="field">
-            <label htmlFor="user-role">Organisation role</label>
+            <label htmlFor="user-role">Role in this organisation</label>
             <select
               id="user-role"
-              value={orgRole}
-              onChange={(e) => setOrgRole(e.target.value as 'admin' | 'member')}
+              value={role}
+              onChange={(e) => setRole(e.target.value as RoleChoice)}
             >
               <option value="member">Member</option>
-              <option value="admin">Administrator</option>
+              <option value="tenant.admin">Administrator</option>
+              <option value="tenant.auditor">Auditor</option>
             </select>
           </div>
           <div className="field field-action">
@@ -148,7 +180,7 @@ export function UsersPage() {
                       {user.status}
                     </span>
                   </td>
-                  <td>{user.orgRole ?? 'none'}</td>
+                  <td>{roleOf(user)}</td>
                   <td>
                     <button
                       className="btn btn-ghost"
@@ -156,6 +188,7 @@ export function UsersPage() {
                       onClick={() => {
                         setSelected(user);
                         setEditName(user.displayName ?? '');
+                        setEditRole(choiceOf(user));
                       }}
                     >
                       Manage
@@ -171,9 +204,39 @@ export function UsersPage() {
         <section className="panel">
           <h2>{selected.email}</h2>
           <p>
-            Platform roles: {selected.platformRoles.join(', ') || 'none'}. Mailbox:{' '}
-            {selected.mailboxId ? 'provisioned' : 'none'}.
+            Role: {roleOf(selected)}. Mailbox: {selected.mailboxId ? 'provisioned' : 'none'}.
           </p>
+          {canManageMembers && selected.id !== session?.user.id && roleOf(selected) !== 'Owner' ? (
+            <div className="form-grid">
+              <div className="field">
+                <label htmlFor="edit-role">Role in this organisation</label>
+                <select
+                  id="edit-role"
+                  value={editRole}
+                  onChange={(e) => setEditRole(e.target.value as RoleChoice)}
+                >
+                  <option value="member">Member</option>
+                  <option value="tenant.admin">Administrator</option>
+                  <option value="tenant.auditor">Auditor</option>
+                </select>
+              </div>
+              <div className="field field-action">
+                <button
+                  className="btn"
+                  type="button"
+                  onClick={() => {
+                    void setUserRole(selected.id, editRole === 'member' ? null : editRole)
+                      .then(reload)
+                      .catch((err: unknown) => {
+                        setError(err instanceof Error ? err.message : 'Role update failed.');
+                      });
+                  }}
+                >
+                  Save role
+                </button>
+              </div>
+            </div>
+          ) : null}
           <div className="form-grid">
             <div className="field">
               <label htmlFor="edit-name">Display name</label>
@@ -244,6 +307,26 @@ export function UsersPage() {
           ) : (
             <p>You cannot suspend your own account.</p>
           )}
+          {canManageMembers && selected.id !== session?.user.id ? (
+            <div className="btn-row">
+              <button
+                className="btn btn-danger"
+                type="button"
+                onClick={() => {
+                  void removeUser(selected.id)
+                    .then(() => {
+                      setSelected(null);
+                      return reload();
+                    })
+                    .catch((err: unknown) => {
+                      setError(err instanceof Error ? err.message : 'Remove failed.');
+                    });
+                }}
+              >
+                Remove from organisation
+              </button>
+            </div>
+          ) : null}
         </section>
       ) : null}
     </>

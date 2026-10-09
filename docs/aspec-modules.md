@@ -13,7 +13,7 @@ All 20 catalogue modules: api, api-keys, audit, auth, cache, config, db, errors,
 | `@aspec/api` | Versioned `/api` routes, OpenAPI, problem responses |
 | `@aspec/auth` | Accounts, login, logout, sessions, password policy |
 | `@aspec/users` | User profile records linked to auth ids |
-| `@aspec/orgs` | Single-organisation tenant |
+| `@aspec/orgs` | Tenants (organisations), memberships and tenant context |
 | `@aspec/rbac` | Seeded control-plane roles |
 | `@aspec/audit` | Setup and auth audit events |
 | `@aspec/db` | PostgreSQL in Docker, SQLite in tests |

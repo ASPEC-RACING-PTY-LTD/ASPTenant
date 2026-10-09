@@ -60,6 +60,25 @@ export function SystemPage() {
                   <td>{system.database.dialect}</td>
                 </tr>
                 <tr>
+                  <th>Tenant isolation</th>
+                  <td>
+                    {system.isolation ? (
+                      <>
+                        <span
+                          className={`badge ${system.isolation.rowLevelSecurity.enforced ? 'badge-ok' : 'badge-warn'}`}
+                        >
+                          {system.isolation.rowLevelSecurity.enforced
+                            ? 'row-level security enforced'
+                            : 'tenant-scoped queries only'}
+                        </span>{' '}
+                        {system.isolation.rowLevelSecurity.detail}
+                      </>
+                    ) : (
+                      'unknown'
+                    )}
+                  </td>
+                </tr>
+                <tr>
                   <th>Uptime</th>
                   <td>{uptimeMinutes === 0 ? 'under 1 minute' : `${uptimeMinutes} minutes`}</td>
                 </tr>
@@ -70,7 +89,7 @@ export function SystemPage() {
       </section>
       {system ? (
         <section className="panel">
-          <h2>Counts</h2>
+          <h2>Counts for this organisation</h2>
           <table className="table">
             <tbody>
               {Object.entries(system.counts).map(([name, value]) => (

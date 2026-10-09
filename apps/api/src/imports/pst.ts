@@ -6,8 +6,11 @@ import { ConflictError, NotFoundError, UnprocessableError } from '@aspec/errors'
 import MailComposer from 'nodemailer/lib/mail-composer/index.js';
 import { PSTFile, type PSTFolder, type PSTMessage } from 'pst-extractor';
 import type { DirectoryMailbox } from '../directory/index.js';
+import { ALL_TENANTS_SCOPE } from '../directory/index.js';
+import { requireTenantId } from '../directory/service.js';
 import { type Job, JobStore } from '../jobs/store.js';
 import type { Platform } from '../platform.js';
+import { inTenantContext, runDetached, scopedClient, tenantClient } from '../tenancy.js';
 
 export const IMPORT_KIND = 'pst-import';
 export const MAX_CHUNK = 32 * 1024 * 1024;
@@ -168,14 +171,18 @@ export async function buildMime(
 }
 
 export class PstImporter {
+  /** Jobs of the tenant bound to the current request or import. */
   readonly jobs: JobStore;
+  /** Every tenant's jobs, for the background queue only. */
+  private readonly queue: JobStore;
   private readonly platform: Platform;
   private running = false;
   private stopped = false;
 
   constructor(platform: Platform) {
     this.platform = platform;
-    this.jobs = new JobStore(platform.db);
+    this.jobs = new JobStore(tenantClient(platform), () => requireTenantId(platform));
+    this.queue = new JobStore(scopedClient(platform, ALL_TENANTS_SCOPE));
   }
 
   private dir(): string {
@@ -273,22 +280,31 @@ export class PstImporter {
   kick(): void {
     if (this.running || this.stopped) return;
     this.running = true;
-    void (async () => {
+    // Uploads finish inside a request; the queue must run outside its transaction and tenant.
+    runDetached(async () => {
       try {
         for (;;) {
-          const [next] = await this.jobs.withStatus<ImportData, ImportProgress>(IMPORT_KIND, [
+          const [next] = await this.queue.withStatus<ImportData, ImportProgress>(IMPORT_KIND, [
             'running',
             'queued',
           ]);
           if (!next || this.stopped) break;
-          await this.process(next);
+          // Each import runs in its own tenant, without a long-lived transaction.
+          await inTenantContext(this.platform, next.tenantId, () => this.process(next)).catch(
+            async (error: unknown) => {
+              await this.queue.update(next.id, {
+                status: 'failed',
+                error: error instanceof Error ? error.message : String(error),
+              });
+            },
+          );
         }
       } catch (error) {
         this.platform.logger.error({ err: error }, 'import loop failed');
       } finally {
         this.running = false;
       }
-    })();
+    });
   }
 
   stop(): void {

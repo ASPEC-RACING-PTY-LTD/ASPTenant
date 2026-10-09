@@ -14,11 +14,13 @@ import type { Actor } from '@aspec/users';
 import acme from 'acme-client';
 import addressparser from 'nodemailer/lib/addressparser/index.js';
 import { SMTPServer, type SMTPServerSession } from 'smtp-server';
+import { PLATFORM_SCOPE } from '../directory/index.js';
 import { planDnsChallenge } from '../dns/index.js';
 import { parseHeaders } from '../imap/mime.js';
-import { ImapSession, type MailAuthenticator } from '../imap/session.js';
+import { ImapSession, type MailAuthenticator, type MailLogin } from '../imap/session.js';
 import { SettingsStore } from '../mail/store.js';
 import type { Platform } from '../platform.js';
+import { activeTenantsFor, scopedClient, tenantForAddress, withSystemTenant } from '../tenancy.js';
 
 const KEY = 'mail-clients';
 export const CLIENT_PORTS = { imaps: 1993, smtps: 1465, submission: 1587 } as const;
@@ -114,7 +116,7 @@ export class MailAccounts implements MailAuthenticator {
     this.store = createSqlAuthStore(platform.db);
   }
 
-  async verify(email: string, password: string, ip: string): Promise<string | null> {
+  async verify(email: string, password: string, ip: string): Promise<MailLogin | null> {
     const now = Date.now();
     const login = (normalizeEmail(email) ?? email.trim().toLowerCase()).slice(0, 320);
     // Lock out per address and account: services such as Outlook mobile log in from shared IPs.
@@ -148,11 +150,29 @@ export class MailAccounts implements MailAuthenticator {
     if (account.lockedUntil && account.lockedUntil > now) return fail('account is locked');
     const user = await this.platform.users.findUser(account.id);
     if (!user || user.status !== 'active') return fail('user is suspended');
-    const mailboxes = await this.platform.directory.listAccessibleMailboxes(account.id);
+    const tenantId = await this.tenantFor(account.id, login);
+    if (!tenantId) return fail('account is not an active member of any organisation');
+    const mailboxes = await withSystemTenant(
+      this.platform,
+      tenantId,
+      () => this.platform.directory.listAccessibleMailboxes(account.id),
+      account.id,
+    );
     if (mailboxes.length === 0) return fail('account has no mailbox; create one under Mail');
     this.failures.delete(key);
-    this.platform.logger.info({ ip, email: login }, 'mail client login ok');
-    return account.id;
+    this.platform.logger.info({ ip, email: login, tenantId }, 'mail client login ok');
+    return { accountId: account.id, tenantId };
+  }
+
+  /**
+   * The tenant a mail app session works in: the one that verified the login address's domain
+   * when the account is an active member there, otherwise the account's oldest membership.
+   */
+  private async tenantFor(accountId: string, login: string): Promise<string | null> {
+    const memberships = await activeTenantsFor(this.platform, accountId);
+    const owner = await tenantForAddress(this.platform, login);
+    if (owner && memberships.some((item) => item.org.id === owner)) return owner;
+    return memberships[0]?.org.id ?? null;
   }
 }
 
@@ -196,7 +216,8 @@ export class MailServers {
   constructor(platform: Platform) {
     this.platform = platform;
     this.accounts = new MailAccounts(platform);
-    this.settings = new SettingsStore(platform.db);
+    // Mail app listeners serve the whole installation.
+    this.settings = new SettingsStore(scopedClient(platform, PLATFORM_SCOPE));
     const ports = this.listenPorts();
     this.status = Object.fromEntries(
       LISTENER_NAMES.map((name) => [
@@ -228,7 +249,7 @@ export class MailServers {
   }
 
   private async tenantId(): Promise<string> {
-    return (await this.platform.orgs.getDefaultOrg()).id;
+    return PLATFORM_SCOPE;
   }
 
   private async load(): Promise<StoredClientSettings> {
@@ -719,10 +740,8 @@ export class MailServers {
       onAuth: (auth, session, callback) => {
         void this.accounts
           .verify(auth.username ?? '', auth.password ?? '', session.remoteAddress)
-          .then((account) =>
-            account
-              ? callback(null, { user: account })
-              : callback(new Error('Invalid credentials')),
+          .then((login) =>
+            login ? callback(null, { user: login }) : callback(new Error('Invalid credentials')),
           )
           .catch((error: Error) => callback(error));
       },
@@ -752,10 +771,17 @@ export class MailServers {
             const envelopeFrom = session.envelope.mailFrom
               ? session.envelope.mailFrom.address
               : from.address;
-            await mail.dispatch(
-              raw,
-              envelopeFrom,
-              session.envelope.rcptTo.map((item) => item.address),
+            const login = session.user as unknown as MailLogin;
+            await withSystemTenant(
+              this.platform,
+              login.tenantId,
+              () =>
+                mail.dispatch(
+                  raw,
+                  envelopeFrom,
+                  session.envelope.rcptTo.map((item) => item.address),
+                ),
+              login.accountId,
             );
           })()
             .then(() => callback())
@@ -775,9 +801,15 @@ export class MailServers {
   }
 
   private async allowed(session: SMTPServerSession, address: string): Promise<boolean> {
-    const account = session.user as string | undefined;
-    if (!account) return false;
-    return (await this.platform.mail.sendableAddresses(account)).has(address.trim().toLowerCase());
+    const login = session.user as unknown as MailLogin | undefined;
+    if (!login) return false;
+    const addresses = await withSystemTenant(
+      this.platform,
+      login.tenantId,
+      () => this.platform.mail.sendableAddresses(login.accountId),
+      login.accountId,
+    );
+    return addresses.has(address.trim().toLowerCase());
   }
 }
 

@@ -1,9 +1,12 @@
 import { createApi, created, defineRoute, ok } from '@aspec/api';
 import { ConflictError, UnauthorizedError } from '@aspec/errors';
 import { z } from 'zod';
+import { hasPlatformPermission } from '../access.js';
 import { completeSetup, getSetupState } from '../bootstrap.js';
 import { MAIL_TRANSPORT_CATALOGUE, mailCapabilityStatus } from '../mail/index.js';
+import { PLATFORM_PERMISSIONS } from '../permissions.js';
 import type { Platform } from '../platform.js';
+import { activeTenantsFor, tenantRolesFor } from '../tenancy.js';
 import { createApplicationRoutes } from './applications.js';
 import { createAuditRoutes } from './audit.js';
 import { createDiagnosticsRoutes } from './diagnostics.js';
@@ -12,6 +15,7 @@ import { createGroupRoutes } from './groups.js';
 import { createMailboxRoutes } from './mailboxes.js';
 import { createSecurityRoutes } from './security.js';
 import { createSettingsRoutes } from './settings.js';
+import { createTenantRoutes } from './tenants.js';
 import { createUserRoutes } from './users.js';
 
 const setupBody = z.object({
@@ -40,7 +44,8 @@ export function createControlPlaneApi(platform: Platform) {
     method: 'post',
     path: '/setup',
     operationId: 'completeSetup',
-    summary: 'Create the first super administrator. Closed after the first account exists.',
+    summary:
+      'Create the first account: platform operator and owner of the first tenant. Closed after the first account exists.',
     tags: ['setup'],
     request: { body: setupBody },
     responses: {
@@ -67,6 +72,7 @@ export function createControlPlaneApi(platform: Platform) {
       });
       return created({
         accountId: result.accountId,
+        tenantId: result.tenantId,
         setupRequired: false,
       });
     },
@@ -86,18 +92,32 @@ export function createControlPlaneApi(platform: Platform) {
     handler: async ({ raw }) => {
       const accountId = raw?.headers.get('x-aspectenant-account-id');
       if (!accountId) throw new UnauthorizedError('Sign in required');
-      const [account, user, org] = await Promise.all([
+      const [account, user, tenants] = await Promise.all([
         platform.auth.getAccount(accountId),
         platform.users.findUser(accountId),
-        platform.orgs.getDefaultOrg(),
+        activeTenantsFor(platform, accountId),
       ]);
       if (!account || !user) throw new UnauthorizedError('Sign in required');
-      const [membership, permissions] = await Promise.all([
-        platform.orgs.getMembership(org.id, account.id),
-        platform.rbac.permissionsFor({ id: account.id, type: 'user' }),
+      const current = platform.orgs.currentTenant();
+      const selected = current ? tenants.find((t) => t.org.id === current.orgId) : undefined;
+      const scope = selected ? { orgId: selected.org.id } : undefined;
+      const [roles, permissions, platformPermissions] = await Promise.all([
+        selected ? tenantRolesFor(platform, accountId, selected.org.id) : Promise.resolve([]),
+        scope
+          ? platform.rbac
+              .permissionsFor({ id: accountId, type: 'user', orgId: scope.orgId }, scope)
+              .then((result) => result.permissions)
+          : Promise.resolve([] as string[]),
+        Promise.all(
+          PLATFORM_PERMISSIONS.map(async (permission) =>
+            (await hasPlatformPermission(platform, accountId, permission.key))
+              ? permission.key
+              : null,
+          ),
+        ),
       ]);
+      const granted: string[] = platformPermissions.filter((key) => key !== null);
       return ok({
-        permissions: permissions.permissions,
         account: {
           id: account.id,
           email: account.email,
@@ -110,13 +130,30 @@ export function createControlPlaneApi(platform: Platform) {
           displayName: user.profile.displayName ?? null,
           status: user.status,
         },
-        organisation: {
-          id: org.id,
-          name: org.name,
-          slug: org.slug,
-          status: org.status,
+        organisation: selected
+          ? {
+              id: selected.org.id,
+              name: selected.org.name,
+              slug: selected.org.slug,
+              status: selected.org.status,
+            }
+          : null,
+        membership: selected
+          ? { role: selected.membership.role, status: selected.membership.status }
+          : null,
+        roles,
+        // Tenant permissions in the current organisation plus platform permissions.
+        permissions: [...permissions.filter((key) => !granted.includes(key)), ...granted],
+        tenants: tenants.map((t) => ({
+          id: t.org.id,
+          name: t.org.name,
+          slug: t.org.slug,
+          role: t.membership.role,
+        })),
+        platform: {
+          operator: granted.includes('tenants:read'),
+          permissions: granted,
         },
-        membership: membership ? { role: membership.role, status: membership.status } : null,
       });
     },
   });
@@ -136,16 +173,22 @@ export function createControlPlaneApi(platform: Platform) {
         product: 'ASPECTenant',
         version: platform.config.appVersion,
         setupRequired: setupState.required,
-        tenantMode: 'single',
+        tenantMode: 'multi',
         capabilities: {
           identity: { implemented: true, notes: ['Email and password sessions are available.'] },
           organisations: {
             implemented: true,
-            notes: ['Single-organisation mode. Multi-tenant isolation remains in the data model.'],
+            notes: [
+              'Multiple tenants on one installation. Each request is bound to one tenant the account belongs to.',
+              'PostgreSQL row-level security on directory and mail tables when connected as the non-superuser application role.',
+            ],
           },
           rbac: {
             implemented: true,
-            notes: ['Seeded tenant.owner, tenant.admin and tenant.auditor.'],
+            notes: [
+              'tenant.owner, tenant.admin and tenant.auditor are assigned per tenant.',
+              'platform.operator manages tenants and holds no tenant data access by itself.',
+            ],
           },
           users: {
             implemented: true,
@@ -177,7 +220,8 @@ export function createControlPlaneApi(platform: Platform) {
           domains: {
             implemented: true,
             notes: [
-              'Domain records with operator-confirmed verification. Automatic DNS checks are not implemented.',
+              'Ownership is proved with a DNS TXT record. A verified domain belongs to exactly one tenant.',
+              'Mailbox addresses and aliases must use a verified domain of their tenant.',
             ],
           },
           migration: { implemented: false },
@@ -211,6 +255,7 @@ export function createControlPlaneApi(platform: Platform) {
       ...createGroupRoutes(platform),
       ...createAuditRoutes(platform),
       ...createSettingsRoutes(platform),
+      ...createTenantRoutes(platform),
       ...createSecurityRoutes(platform),
       ...createDomainRoutes(platform),
       ...createMailboxRoutes(platform),

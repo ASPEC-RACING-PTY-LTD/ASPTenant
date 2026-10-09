@@ -18,6 +18,7 @@ import { SecurityPage } from './pages/Security.js';
 import { SettingsPage } from './pages/Settings.js';
 import { SetupPage } from './pages/Setup.js';
 import { SystemPage } from './pages/System.js';
+import { TenantsPage } from './pages/Tenants.js';
 import { UpdatesPage } from './pages/Updates.js';
 import { UsersPage } from './pages/Users.js';
 import { WebmailPage } from './pages/Webmail.js';
@@ -65,6 +66,7 @@ export function App() {
         <Route path="mail/clients" element={<MailClientsPage />} />
         <Route path="backups" element={<BackupsPage />} />
         <Route path="settings" element={<SettingsPage />} />
+        <Route path="tenants" element={<TenantsPage />} />
       </Route>
     </Routes>
   );

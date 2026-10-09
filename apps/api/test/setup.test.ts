@@ -32,8 +32,9 @@ describe('setup and session', () => {
       }),
     });
     expect(created.status).toBe(201);
-    const createdBody = (await created.json()) as { accountId: string };
+    const createdBody = (await created.json()) as { accountId: string; tenantId: string };
     expect(createdBody.accountId).toMatch(/\S/);
+    expect(createdBody.tenantId).toMatch(/\S/);
 
     const closed = await request(ctx, '/api/v1/setup', {
       method: 'POST',
@@ -66,11 +67,17 @@ describe('setup and session', () => {
       account: { email: string };
       organisation: { slug: string; name: string };
       membership: { role: string };
+      tenants: Array<{ slug: string }>;
+      platform: { operator: boolean };
+      roles: string[];
     };
     expect(sessionBody.account.email).toBe('owner@example.com');
-    expect(sessionBody.organisation.slug).toBe('default');
+    expect(sessionBody.organisation.slug).toBe('contoso');
     expect(sessionBody.organisation.name).toBe('Contoso');
     expect(sessionBody.membership.role).toBe('owner');
+    expect(sessionBody.roles).toEqual(['tenant.owner']);
+    expect(sessionBody.tenants.map((t) => t.slug)).toEqual(['contoso']);
+    expect(sessionBody.platform.operator).toBe(true);
   });
 
   it('requires the setup code from the server log', async () => {

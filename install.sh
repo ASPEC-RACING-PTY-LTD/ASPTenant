@@ -138,6 +138,7 @@ if [[ ! -f .env ]]; then
   # Generated values only. Do not edit; configure everything else in the panel.
   {
     echo "POSTGRES_PASSWORD=$(random 24)"
+    echo "POSTGRES_APP_PASSWORD=$(random 24)"
     echo "AUDIT_HMAC_KEY=$(random 32)"
   } > .env
   chmod 600 .env
@@ -175,6 +176,9 @@ elif [[ -z "$(env_get PUBLIC_URL)" ]]; then
   env_set PUBLIC_URL "http://localhost:${PANEL_PORT}"
 fi
 env_set ASPECTENANT_MAIL_PORTS "$(IFS=,; echo "${MAIL_PORTS[*]}")"
+
+# Installations from before tenant isolation have no application database role password.
+[[ -n "$(env_get POSTGRES_APP_PASSWORD)" ]] || env_set POSTGRES_APP_PASSWORD "$(random 24)"
 
 set -a
 # shellcheck disable=SC1091

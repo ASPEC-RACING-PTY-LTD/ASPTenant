@@ -9,6 +9,7 @@ import type { Platform } from './platform.js';
 import { createAdminHttp } from './routes/admin-http.js';
 import { createControlPlaneApi } from './routes/control-plane.js';
 import { createMailHttp } from './routes/mail-http.js';
+import { INTERNAL_HEADERS, resolveTenant, TENANT_HEADER, withTenant } from './tenancy.js';
 
 const TRUSTED_ORIGIN = 'http://aspectenant.internal';
 
@@ -116,9 +117,11 @@ export function createApp(platform: Platform): Hono<{ Variables: AuthVariables }
       ?.incoming?.socket?.remoteAddress;
     const ip = resolveIp(incoming, (name) => c.req.header(name) ?? undefined);
     const headers = new Headers(c.req.raw.headers);
+    for (const name of INTERNAL_HEADERS) headers.delete(name);
     if (ip) headers.set('x-aspectenant-client-ip', ip);
     const authState = c.get('auth') as { account?: { id: string } } | null | undefined;
-    if (authState?.account?.id) headers.set('x-aspectenant-account-id', authState.account.id);
+    const accountId = authState?.account?.id;
+    if (accountId) headers.set('x-aspectenant-account-id', accountId);
     return api.handle(new Request(c.req.raw, { headers }), { path: c.req.path });
   };
 
@@ -135,6 +138,16 @@ export function createApp(platform: Platform): Hono<{ Variables: AuthVariables }
   app.use('/api/*', async (c, next) => {
     if (publicApi(c.req.path) || c.req.method === 'OPTIONS') return next();
     return auth.requireAuth()(c, next);
+  });
+  // Bind every signed-in API request to one tenant the account is an active member of. Tenant
+  // routes refuse to run without it; platform routes (tenant administration) do not need it.
+  app.use('/api/*', async (c, next) => {
+    const authState = c.get('auth') as { account?: { id: string } } | null | undefined;
+    const accountId = authState?.account?.id;
+    if (!accountId) return next();
+    const tenant = await resolveTenant(platform, accountId, c.req.header(TENANT_HEADER));
+    if (!tenant) return next();
+    await withTenant(platform, tenant, accountId, () => next());
   });
   app.route(
     '/api/v1',

@@ -13,7 +13,7 @@ sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/ASPEC-RACING-PTY-LT
 - Installs into `aspectenant/` under the directory you run it from (for example `/root/aspectenant`). The panel binds to `127.0.0.1` on the first free port from 8080; the installer prints it for your `cloudflared` tunnel.
 - Menu: 1) Install (asks for the public URL; replaces any existing installation), 2) Upgrade / repair (keeps data), 3) Uninstall.
 - Nothing to configure: `.env` only holds generated secrets.
-- The installer prints a one-time **setup code**. Open `/setup`, enter it and create the super administrator (or restore a backup). Then set your **Public URL** under Settings. Everything else (domains, mailboxes, Cloudflare, SMTP, mail apps, backups, updates) is managed in the panel.
+- The installer prints a one-time **setup code**. Open `/setup`, enter it and create the first account (or restore a backup). That account is the platform operator and the owner of the first organisation; further organisations (tenants), each with their own domains, mailboxes and administrators, are created on the **Tenants** page. Then set your **Public URL** under Settings. Everything else (domains, mailboxes, Cloudflare, SMTP, mail apps, backups, updates) is managed in the panel.
 - Re-running the installer and choosing 2 upgrades in place and keeps data.
 
 Mail apps (Outlook, Apple Mail, phones) use IMAP 993 and SMTP 465/587 directly; enable them on **Mail apps** and forward those ports. Import Microsoft 365 PST exports on **Migration**. Configure encrypted R2/S3 backups on **Backups**.

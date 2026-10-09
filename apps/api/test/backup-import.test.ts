@@ -6,9 +6,12 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { directoryTarget } from '../src/backup/index.js';
 import { buildMime, importKey, mapFolderPath } from '../src/imports/pst.js';
 import {
+  addVerifiedDomain,
+  asTenant,
   createTestContext,
   destroyTestContext,
   request,
+  secondDatabase,
   setupOwner,
   type TestContext,
 } from './helpers.js';
@@ -22,11 +25,7 @@ describe('backup and restore', () => {
   it('round-trips data and stored secrets through an encrypted backup', async () => {
     ctx = await createTestContext();
     const headers = { cookie: await setupOwner(ctx) };
-    await request(ctx, '/api/v1/domains', {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ hostname: 'example.com' }),
-    });
+    await addVerifiedDomain(ctx, headers, 'example.com');
     await request(ctx, '/api/v1/mailboxes', {
       method: 'POST',
       headers,
@@ -63,7 +62,7 @@ describe('backup and restore', () => {
     expect(job.status).toBe('succeeded');
 
     // Restore onto a fresh server with a different encryption key, through first-run setup.
-    const fresh = await createTestContext();
+    const fresh = await createTestContext({ database: await secondDatabase() });
     try {
       const restored = await fresh.app.request('/api/v1/setup/restore', {
         method: 'POST',
@@ -89,9 +88,9 @@ describe('backup and restore', () => {
         target: directoryTarget(dir),
       });
       expect(result.rows).toBeGreaterThan(5);
-      const mailboxes = await fresh.platform.directory.listMailboxes();
+      const mailboxes = await asTenant(fresh, () => fresh.platform.directory.listMailboxes());
       expect(mailboxes.map((m) => m.primaryAddress)).toContain('help@example.com');
-      const settings = await fresh.platform.mail.getSettings();
+      const settings = await asTenant(fresh, () => fresh.platform.mail.getSettings());
       expect(settings.outbound.cloudflare.hasToken).toBe(true);
       await expect(
         fresh.platform.backups.restore(job.data.key, {
@@ -170,11 +169,7 @@ describe('PST import', () => {
   it('accepts a resumable chunked upload and reports a bad file', async () => {
     ctx = await createTestContext();
     const headers = { cookie: await setupOwner(ctx) };
-    await request(ctx, '/api/v1/domains', {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ hostname: 'example.com' }),
-    });
+    await addVerifiedDomain(ctx, headers, 'example.com');
     const mailbox = (await (
       await request(ctx, '/api/v1/mailboxes', {
         method: 'POST',

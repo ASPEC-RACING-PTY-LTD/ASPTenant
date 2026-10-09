@@ -2,8 +2,10 @@ import { Resolver } from 'node:dns/promises';
 import { NotFoundError, UnprocessableError } from '@aspec/errors';
 import type { Actor } from '@aspec/users';
 import type { DirectoryDomain } from '../directory/index.js';
+import { requireTenantId } from '../directory/service.js';
 import { SettingsStore } from '../mail/store.js';
 import type { Platform } from '../platform.js';
+import { tenantClient } from '../tenancy.js';
 
 const KEY = 'cloudflare';
 
@@ -336,11 +338,11 @@ export class DomainSetup {
 
   constructor(platform: Platform) {
     this.platform = platform;
-    this.settings = new SettingsStore(platform.db);
+    this.settings = new SettingsStore(tenantClient(platform));
   }
 
   private async tenantId(): Promise<string> {
-    return (await this.platform.orgs.getDefaultOrg()).id;
+    return requireTenantId(this.platform);
   }
 
   /** Cloudflare API token shared by DNS setup and certificates (stored encrypted). */

@@ -1,7 +1,9 @@
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { PLATFORM_SCOPE } from './directory/index.js';
 import { SettingsStore } from './mail/store.js';
 import type { Platform } from './platform.js';
+import { scopedClient } from './tenancy.js';
 
 const SETTINGS_KEY = 'updates';
 const CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
@@ -56,11 +58,12 @@ export class UpdateService {
 
   constructor(platform: Platform) {
     this.platform = platform;
-    this.settings = new SettingsStore(platform.db);
+    // Update settings belong to the installation.
+    this.settings = new SettingsStore(scopedClient(platform, PLATFORM_SCOPE));
   }
 
   private async tenantId(): Promise<string> {
-    return (await this.platform.orgs.getDefaultOrg()).id;
+    return PLATFORM_SCOPE;
   }
 
   private async load(): Promise<UpdateSettings> {

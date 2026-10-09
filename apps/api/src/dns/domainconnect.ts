@@ -1,8 +1,10 @@
 import { createSign, generateKeyPairSync } from 'node:crypto';
 import { Resolver } from 'node:dns/promises';
 import { UnprocessableError } from '@aspec/errors';
+import { PLATFORM_SCOPE } from '../directory/index.js';
 import { SettingsStore } from '../mail/store.js';
 import type { Platform } from '../platform.js';
+import { scopedClient } from '../tenancy.js';
 
 const KEY = 'domainconnect';
 
@@ -82,11 +84,12 @@ export class DomainConnect {
 
   constructor(platform: Platform) {
     this.platform = platform;
-    this.settings = new SettingsStore(platform.db);
+    // Domain Connect provider settings belong to the installation.
+    this.settings = new SettingsStore(scopedClient(platform, PLATFORM_SCOPE));
   }
 
   private async tenantId(): Promise<string> {
-    return (await this.platform.orgs.getDefaultOrg()).id;
+    return PLATFORM_SCOPE;
   }
 
   private async load(): Promise<StoredDomainConnect> {
