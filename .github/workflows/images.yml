@@ -93,6 +93,6 @@ jobs:
     with:
       result: ${{ needs.publish.result }}
       title: Docker Image Build
-      details: ${{ format('Validation: {0} | Image publish: {1}', needs.check.result, needs.publish.result) }}
+      details: "${{ format('Validation: {0} | Image publish: {1}', needs.check.result, needs.publish.result) }}"
     secrets: inherit
 
