@@ -29,7 +29,7 @@ describe.skipIf(!url)(
       const reset = await createDatabase({ url: url ?? '' });
       await resetPostgres(reset);
       await reset.close();
-      ctx = await createTestContext(await createDatabase({ url: url ?? '' }));
+      ctx = await createTestContext({ database: await createDatabase({ url: url ?? '' }) });
       tenants = await twoTenants(ctx);
     });
 

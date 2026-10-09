@@ -1,8 +1,10 @@
+import { AsyncLocalStorage, AsyncResource } from 'node:async_hooks';
 import { randomBytes } from 'node:crypto';
 import type { SqlClient } from '@aspec/db';
-import { ConflictError } from '@aspec/errors';
+import { ConflictError, ForbiddenError } from '@aspec/errors';
 import type { Membership, Organisation, TenantContext } from '@aspec/orgs';
 import type { Actor } from '@aspec/users';
+import { ALL_TENANTS_SCOPE, RLS_POLICY } from './directory/schema.js';
 import {
   PLATFORM_OPERATOR_ROLE,
   TENANT_ADMIN_ROLE,
@@ -66,26 +68,195 @@ export async function bindTenant(db: SqlClient, tenantId: string): Promise<void>
   await db.query(`SELECT set_config('app.tenant_id', $1, true)`, [tenantId]);
 }
 
-/** Runs fn in a transaction bound to one tenant, with the tenant context set. */
+/**
+ * Runs fn in a transaction (or savepoint) bound to one row-level security scope, then restores
+ * the previous binding so a nested scope cannot leak into the rest of an outer transaction.
+ */
+export async function inScope<T>(
+  platform: Pick<Platform, 'db'>,
+  scopeId: string,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const db = platform.db;
+  // Work started inside fn but still running after the transaction ends (for example a
+  // background queue) must not believe it is bound, so the marker is switched off at the end.
+  const marker = { scopeId, active: true };
+  try {
+    return await db.transaction(async () => {
+      if (db.dialect !== 'postgres') return boundScope.run(marker, fn);
+      const previous = await db.query<{ value: string | null }>(
+        `SELECT current_setting('app.tenant_id', true) AS value`,
+      );
+      await bindTenant(db, scopeId);
+      const result = await boundScope.run(marker, fn);
+      // On failure the savepoint rolls back and PostgreSQL restores the setting itself.
+      await bindTenant(db, previous.rows[0]?.value ?? '');
+      return result;
+    });
+  } finally {
+    marker.active = false;
+  }
+}
+
+/** Async context captured at module load, outside any request, tenant or transaction. */
+const root = new AsyncResource('aspectenant-background');
+
+/**
+ * Starts background work detached from the caller's request: it must not join the request's
+ * database transaction or inherit its tenant, because it outlives both.
+ */
+export function runDetached(task: () => Promise<void>): void {
+  root.runInAsyncScope(() => {
+    void task();
+  });
+}
+
+/** The row-level security scope the current transaction is bound to, if any. */
+const boundScope = new AsyncLocalStorage<{ scopeId: string; active: boolean }>();
+
+/**
+ * A database client for tenant data. Inside a transaction already bound to the current
+ * tenant (requests, mail sessions) it queries directly; with only a tenant context (long
+ * background jobs) it binds the tenant around each query so no transaction stays open.
+ */
+export function tenantClient(platform: Pick<Platform, 'db' | 'orgs'>): SqlClient {
+  const wanted = (): string | null => {
+    const tenant = platform.orgs.currentTenant()?.orgId ?? null;
+    if (!tenant) return null;
+    const marker = boundScope.getStore();
+    const bound = marker?.active ? marker.scopeId : undefined;
+    return bound === tenant || bound === ALL_TENANTS_SCOPE ? null : tenant;
+  };
+  return {
+    dialect: platform.db.dialect,
+    query<Row = Record<string, unknown>>(sql: string, params?: readonly unknown[]) {
+      const scope = wanted();
+      return scope
+        ? inScope(platform, scope, () => platform.db.query<Row>(sql, params))
+        : platform.db.query<Row>(sql, params);
+    },
+    transaction<T>(fn: (tx: SqlClient) => Promise<T>) {
+      const scope = wanted();
+      return scope
+        ? inScope(platform, scope, () => platform.db.transaction(fn))
+        : platform.db.transaction(fn);
+    },
+  };
+}
+
+/**
+ * Sets the tenant context without opening a transaction, for long system work such as a
+ * mailbox import. Queries through `tenantClient` bind the tenant one at a time.
+ */
+export async function inTenantContext<T>(
+  platform: Platform,
+  tenantId: string,
+  fn: () => Promise<T>,
+  userId: string = SYSTEM_SUBJECT,
+): Promise<T> {
+  const org = await platform.orgs.findOrg(tenantId);
+  if (org?.status !== 'active') {
+    throw new ForbiddenError('That organisation is not active.');
+  }
+  return platform.orgs.runWithTenant(contextFor(org, userId, null), fn);
+}
+
+/**
+ * A database client that binds one row-level security scope around every query and
+ * transaction. Installation-level services (updates, backups, mail apps) use it for the
+ * platform scope; backup and job discovery use it for all tenants.
+ */
+export function scopedClient(platform: Pick<Platform, 'db'>, scopeId: string): SqlClient {
+  return {
+    dialect: platform.db.dialect,
+    query<Row = Record<string, unknown>>(sql: string, params?: readonly unknown[]) {
+      return inScope(platform, scopeId, () => platform.db.query<Row>(sql, params));
+    },
+    transaction<T>(fn: (tx: SqlClient) => Promise<T>) {
+      return inScope(platform, scopeId, () => platform.db.transaction(fn));
+    },
+  };
+}
+
+function contextFor(org: Organisation, userId: string, role: string | null): TenantContext {
+  return {
+    orgId: org.id,
+    slug: org.slug,
+    strategy: 'shared',
+    handle: null,
+    userId,
+    roles: role ? [role] : [],
+    teamIds: [],
+  };
+}
+
+/** Runs fn bound to one tenant, with the tenant context set for a member's request. */
 export async function withTenant<T>(
   platform: Platform,
   tenant: { org: Organisation; membership?: Membership | null },
   userId: string,
   fn: () => Promise<T>,
 ): Promise<T> {
-  const ctx: TenantContext = {
-    orgId: tenant.org.id,
-    slug: tenant.org.slug,
-    strategy: 'shared',
-    handle: null,
-    userId,
-    roles: tenant.membership ? [tenant.membership.role] : [],
-    teamIds: [],
-  };
-  return platform.db.transaction(async () => {
-    await bindTenant(platform.db, tenant.org.id);
-    return platform.orgs.runWithTenant(ctx, fn);
-  });
+  const ctx = contextFor(tenant.org, userId, tenant.membership?.role ?? null);
+  return inScope(platform, tenant.org.id, () => platform.orgs.runWithTenant(ctx, fn));
+}
+
+/** Subject id used for work the system does inside a tenant (mail delivery, imports). */
+export const SYSTEM_SUBJECT = 'system';
+
+/**
+ * Runs fn bound to a tenant for system work that has no signed-in member: inbound delivery,
+ * mail app sessions after their own authentication, background jobs.
+ */
+export async function withSystemTenant<T>(
+  platform: Platform,
+  tenantId: string,
+  fn: () => Promise<T>,
+  userId: string = SYSTEM_SUBJECT,
+): Promise<T> {
+  const org = await platform.orgs.findOrg(tenantId);
+  if (org?.status !== 'active') {
+    throw new ForbiddenError('That organisation is not active.');
+  }
+  return inScope(platform, org.id, () =>
+    platform.orgs.runWithTenant(contextFor(org, userId, null), fn),
+  );
+}
+
+/** Active tenants, oldest first. */
+export async function listActiveTenants(platform: Platform): Promise<Organisation[]> {
+  const out: Organisation[] = [];
+  let cursor: string | undefined;
+  for (let i = 0; i < 100; i += 1) {
+    const page = await platform.orgs.listOrgs({
+      status: 'active',
+      limit: 100,
+      ...(cursor ? { cursor } : {}),
+    });
+    out.push(...page.items);
+    if (!page.nextCursor) break;
+    cursor = page.nextCursor;
+  }
+  return out;
+}
+
+/**
+ * Finds the tenant that owns an email address: the tenant that has verified its domain.
+ * Each tenant is checked inside its own row-level security scope.
+ */
+export async function tenantForAddress(
+  platform: Platform,
+  address: string,
+): Promise<string | null> {
+  const domain = address.trim().toLowerCase().split('@')[1] ?? '';
+  if (!domain) return null;
+  for (const org of await listActiveTenants(platform)) {
+    const found = await inScope(platform, org.id, () =>
+      platform.directory.store.findDomainByHostname(org.id, domain),
+    );
+    if (found?.status === 'verified') return org.id;
+  }
+  return null;
 }
 
 /** Assigns a tenant role in organisation scope. */
@@ -242,7 +413,7 @@ export async function rowLevelSecurityStatus(db: SqlClient): Promise<RowLevelSec
     `SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user`,
   );
   const policies = await db.query<{ n: unknown }>(
-    `SELECT COUNT(*) AS n FROM pg_policies WHERE policyname = 'orgs_tenant_isolation'
+    `SELECT COUNT(*) AS n FROM pg_policies WHERE policyname = '${RLS_POLICY}'
        AND tablename LIKE 'aspectenant_%'`,
   );
   const row = role.rows[0];

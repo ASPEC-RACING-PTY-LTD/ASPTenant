@@ -10,11 +10,13 @@ const memberParams = z.object({ id: z.string().min(1), userId: z.string().min(1)
 const createBody = z.object({
   name: z.string().min(1).max(80),
   kind: z.enum(GROUP_KINDS),
+  email: z.string().email().max(320).optional(),
   description: z.string().max(500).optional(),
 });
 const updateBody = z.object({
   name: z.string().min(1).max(80).optional(),
   kind: z.enum(GROUP_KINDS).optional(),
+  email: z.string().email().max(320).nullable().optional(),
   description: z.string().max(500).nullable().optional(),
 });
 const memberBody = z.object({ userId: z.string().min(1) });
@@ -52,6 +54,7 @@ export function createGroupRoutes(platform: Platform) {
           {
             name: body.name,
             kind: body.kind,
+            ...(body.email ? { email: body.email } : {}),
             ...(body.description ? { description: body.description } : {}),
           },
           actorFromRequest(raw, accountId),
@@ -109,6 +112,7 @@ export function createGroupRoutes(platform: Platform) {
             {
               ...(body.name !== undefined ? { name: body.name } : {}),
               ...(body.kind !== undefined ? { kind: body.kind } : {}),
+              ...(body.email !== undefined ? { email: body.email } : {}),
               ...(body.description !== undefined ? { description: body.description } : {}),
             },
             actorFromRequest(raw, accountId),

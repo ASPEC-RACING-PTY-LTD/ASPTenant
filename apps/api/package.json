@@ -1,6 +1,6 @@
 {
   "name": "@aspectenant/api",
-  "version": "0.1.0",
+  "version": "0.5.1",
   "private": true,
   "type": "module",
   "license": "MIT",
@@ -27,13 +27,25 @@
     "@aspec/rbac": "workspace:*",
     "@aspec/users": "workspace:*",
     "@aspec/validation": "workspace:*",
+    "@aws-sdk/client-s3": "^3.1145.0",
+    "@aws-sdk/lib-storage": "^3.1145.0",
     "@hono/node-server": "^1.19.5",
+    "acme-client": "^5.4.0",
     "hono": "^4.9.9",
+    "mailparser": "^3.9.33",
+    "nodemailer": "^7.0.13",
     "pg": "^8.16.3",
+    "pst-extractor": "^1.12.0",
+    "smtp-server": "^3.19.16",
     "zod": "^4.1.11"
   },
   "devDependencies": {
+    "@types/mailparser": "^3.9.0",
+    "@types/nodemailer": "^8.0.2",
     "@types/pg": "^8.15.5",
+    "@types/smtp-server": "^3.5.13",
+    "imapflow": "^2.2.1",
+    "selfsigned": "^5.5.0",
     "tsx": "^4.20.6",
     "vitest": "3.2.4"
   }

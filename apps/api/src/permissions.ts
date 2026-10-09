@@ -28,8 +28,8 @@ export const TENANT_PERMISSIONS = [
   { key: 'domains:manage', description: 'Register, verify and remove custom domains.' },
   { key: 'security:read', description: 'Read security policy and user sessions.' },
   { key: 'security:manage', description: 'Change security policy and revoke user sessions.' },
-  { key: 'migration:read', description: 'Read migration jobs. Future work.' },
-  { key: 'migration:manage', description: 'Run mailbox migrations. Future work.' },
+  { key: 'migration:read', description: 'Read mailbox import jobs.' },
+  { key: 'migration:manage', description: 'Run mailbox imports.' },
 ] as const;
 
 /** Permissions evaluated in global scope. They never grant access to a tenant's data. */

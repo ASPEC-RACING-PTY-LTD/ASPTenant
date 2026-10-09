@@ -1,11 +1,16 @@
 name: aspectenant
 
+# Written by install.sh. Re-running the installer refreshes this file and keeps .env.
+# Ports come from .env (chosen by the installer to avoid conflicts).
+
 networks:
   internal:
     driver: bridge
 
 volumes:
   postgres_data:
+  updates:
+  data:
 
 configs:
   # Same as deploy/postgres/app-role.sql in the repository. Kept inline so this file installs alone.
@@ -107,9 +112,18 @@ services:
     restart: unless-stopped
     environment:
       DATABASE_URL: postgres://aspectenant_app:${POSTGRES_APP_PASSWORD}@postgres:5432/aspec
-      PUBLIC_URL: ${PUBLIC_URL}
+      PUBLIC_URL: ${PUBLIC_URL:-http://localhost:8080}
       TRUSTED_PROXIES: private
       AUDIT_HMAC_KEY: ${AUDIT_HMAC_KEY}
+      MAIL_PUBLIC_PORTS: ${ASPECTENANT_MAIL_PORTS:-993,465,587}
+    volumes:
+      - updates:/updates
+      - data:/data
+    # Mail apps connect directly (IMAPS, SMTPS, submission). Forward these on your router.
+    ports:
+      - "${ASPECTENANT_MAIL_BIND:-0.0.0.0}:${ASPECTENANT_IMAPS_PORT:-993}:1993"
+      - "${ASPECTENANT_MAIL_BIND:-0.0.0.0}:${ASPECTENANT_SMTPS_PORT:-465}:1465"
+      - "${ASPECTENANT_MAIL_BIND:-0.0.0.0}:${ASPECTENANT_SUBMISSION_PORT:-587}:1587"
     networks:
       - internal
     depends_on:
@@ -119,10 +133,40 @@ services:
   web:
     image: ${ASPECTENANT_WEB_IMAGE:-ghcr.io/aspec-racing-pty-ltd/aspectenant-web:latest}
     restart: unless-stopped
+    # Loopback by default so only a local reverse proxy (for example cloudflared) can reach it.
     ports:
-      - "${ASPECTENANT_BIND:-0.0.0.0}:${ASPECTENANT_PORT:-8080}:80"
+      - "${ASPECTENANT_BIND:-127.0.0.1}:${ASPECTENANT_PORT:-8080}:80"
     networks:
       - internal
     depends_on:
       api:
         condition: service_healthy
+
+  # Applies updates requested from the Updates page. It only runs
+  # "docker compose pull" and "up -d" for api and web. Remove this service to
+  # disable in-app updates entirely.
+  updater:
+    image: docker:28-cli
+    restart: unless-stopped
+    network_mode: none
+    working_dir: ${INSTALL_DIR:-/opt/aspectenant}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${INSTALL_DIR:-/opt/aspectenant}:${INSTALL_DIR:-/opt/aspectenant}
+      - updates:/updates
+    command:
+      - sh
+      - -c
+      - |
+        chown 1000:1000 /updates
+        while true; do
+          date +%s > /updates/heartbeat
+          if [ -f /updates/request ]; then
+            rm -f /updates/request
+            echo "{\"state\":\"running\",\"at\":$$(date +%s)}" > /updates/status.json
+            if { docker compose pull api web && docker compose up -d api web; } > /updates/last.log 2>&1; then r=succeeded; else r=failed; fi
+            echo "{\"state\":\"$$r\",\"at\":$$(date +%s)}" > /updates/status.json
+            docker image prune -f > /dev/null 2>&1 || true
+          fi
+          sleep 10
+        done

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   createTestContext,
   destroyTestContext,
+  publishTxt,
   request,
   setupOwner,
   type TestContext,
@@ -38,8 +39,34 @@ describe('admin directory', () => {
     };
     expect(userList.items).toHaveLength(1);
     expect(userList.items[0]?.email).toBe('owner@example.com');
-    // No verified domain yet, so no mailbox record was created for the owner.
+    // example.com is not a registered domain yet, so no mailbox is provisioned.
     expect(userList.items[0]?.mailboxId).toBeNull();
+
+    const ownedDomain = await request(ctx, '/api/v1/domains', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ hostname: 'example.com' }),
+    });
+    expect(ownedDomain.status).toBe(201);
+    const owned = (await ownedDomain.json()) as {
+      id: string;
+      verification: { name: string; value: string };
+    };
+
+    // Mail addresses need a verified domain. Without the TXT record verification fails.
+    const unverified = await request(ctx, `/api/v1/domains/${owned.id}/verify`, {
+      method: 'POST',
+      headers,
+    });
+    expect(unverified.status).toBe(422);
+    expect(owned.verification.name).toBe('example.com');
+    publishTxt(ctx, owned.verification.name, owned.verification.value);
+    const verified = await request(ctx, `/api/v1/domains/${owned.id}/verify`, {
+      method: 'POST',
+      headers,
+    });
+    expect(verified.status).toBe(200);
+    expect(((await verified.json()) as { status: string }).status).toBe('verified');
 
     const createdUser = await request(ctx, '/api/v1/users', {
       method: 'POST',
@@ -48,6 +75,7 @@ describe('admin directory', () => {
         email: 'member@example.com',
         password: 'correct-horse-battery',
         displayName: 'Member',
+        orgRole: 'member',
       }),
     });
     expect(createdUser.status).toBe(201);
@@ -76,27 +104,14 @@ describe('admin directory', () => {
     expect(domain.status).toBe(201);
     const domainBody = (await domain.json()) as { id: string; status: string; primary: boolean };
     expect(domainBody.status).toBe('pending');
-    expect(domainBody.primary).toBe(true);
+    expect(domainBody.primary).toBe(false);
 
-    const unverified = await request(ctx, `/api/v1/domains/${domainBody.id}/verify`, {
+    const onPending = await request(ctx, '/api/v1/mailboxes', {
       method: 'POST',
       headers,
+      body: JSON.stringify({ kind: 'shared', primaryAddress: 'help@mail.example.com' }),
     });
-    expect(unverified.status).toBe(422);
-
-    const pending = (await (await request(ctx, '/api/v1/domains', { headers })).json()) as {
-      items: Array<{ verification: { name: string; value: string } }>;
-    };
-    const record = pending.items[0]?.verification;
-    expect(record?.name).toBe('_aspectenant.mail.example.com');
-    ctx.dns.set(record?.name ?? '', [record?.value ?? '']);
-
-    const verified = await request(ctx, `/api/v1/domains/${domainBody.id}/verify`, {
-      method: 'POST',
-      headers,
-    });
-    expect(verified.status).toBe(200);
-    expect(((await verified.json()) as { status: string }).status).toBe('verified');
+    expect(onPending.status).toBe(422);
 
     const application = await request(ctx, '/api/v1/applications', {
       method: 'POST',
@@ -113,38 +128,30 @@ describe('admin directory', () => {
     expect(mailboxes.status).toBe(200);
     const mailboxBody = (await mailboxes.json()) as {
       items: Array<{ primaryAddress: string }>;
-      messageStore: boolean;
     };
-    expect(mailboxBody.messageStore).toBe(false);
-    expect(mailboxBody.items).toHaveLength(0);
+    expect(mailboxBody.items.some((item) => item.primaryAddress === 'member@example.com')).toBe(
+      true,
+    );
 
-    const offDomain = await request(ctx, '/api/v1/mailboxes', {
+    const foreign = await request(ctx, '/api/v1/mailboxes', {
       method: 'POST',
       headers,
-      body: JSON.stringify({ kind: 'shared', primaryAddress: 'help@example.com' }),
+      body: JSON.stringify({ kind: 'shared', primaryAddress: 'help@gmail.com' }),
     });
-    expect(offDomain.status).toBe(422);
+    expect(foreign.status).toBe(422);
 
     const shared = await request(ctx, '/api/v1/mailboxes', {
       method: 'POST',
       headers,
       body: JSON.stringify({
         kind: 'shared',
-        primaryAddress: 'help@mail.example.com',
+        primaryAddress: 'help@example.com',
         displayName: 'Help',
       }),
     });
     expect(shared.status).toBe(201);
 
-    const staffer = await request(ctx, '/api/v1/users', {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ email: 'staff@mail.example.com', password: 'correct-horse-battery' }),
-    });
-    expect(staffer.status).toBe(201);
-    expect(((await staffer.json()) as { mailboxId: string | null }).mailboxId).toMatch(/\S/);
-
-    const inUse = await request(ctx, `/api/v1/domains/${domainBody.id}`, {
+    const inUse = await request(ctx, `/api/v1/domains/${owned.id}`, {
       method: 'DELETE',
       headers,
     });
@@ -168,7 +175,7 @@ describe('admin directory', () => {
     const system = await request(ctx, '/api/v1/system', { headers });
     expect(system.status).toBe(200);
     const systemBody = (await system.json()) as { counts: { users: number; groups: number } };
-    expect(systemBody.counts.users).toBe(3);
+    expect(systemBody.counts.users).toBe(2);
     expect(systemBody.counts.groups).toBe(1);
 
     const platform = await request(ctx, '/api/v1/platform');
@@ -179,7 +186,7 @@ describe('admin directory', () => {
         groups: { implemented: boolean };
       };
     };
-    expect(platformBody.capabilities.mail.implemented).toBe(false);
+    expect(platformBody.capabilities.mail.implemented).toBe(true);
     expect(platformBody.capabilities.mail.ownsMailboxes).toBe(true);
     expect(platformBody.capabilities.users.implemented).toBe(true);
     expect(platformBody.capabilities.groups.implemented).toBe(true);
@@ -194,6 +201,7 @@ describe('admin directory', () => {
       body: JSON.stringify({
         email: 'locked@example.com',
         password: 'correct-horse-battery',
+        orgRole: 'member',
       }),
     });
     const member = (await createdUser.json()) as { id: string };

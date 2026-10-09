@@ -243,7 +243,7 @@ export function createUserRoutes(platform: Platform) {
       const actor = actorFromRequest(raw, accountId);
       const user = await platform.users.updateProfile(
         id,
-        { displayName: request.body?.displayName ?? null },
+        request.body?.displayName !== undefined ? { displayName: request.body.displayName } : {},
         {},
         { actor },
       );
@@ -457,7 +457,8 @@ export function createUserRoutes(platform: Platform) {
       const userId = request.params?.userId;
       const sessionId = request.params?.sessionId;
       if (!userId || !sessionId) throw new NotFoundError('Session not found');
-      await loadMember(tenantId, userId);
+      const { membership } = await loadMember(tenantId, userId);
+      await assertCanActOn(tenantId, accountId, membership);
       if (userId !== accountId) await requireExclusiveMember(platform, tenantId, userId);
       const revoked = await platform.auth.revokeSession(userId, sessionId);
       if (!revoked) throw new NotFoundError('Session not found');

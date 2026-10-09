@@ -8,7 +8,7 @@ import {
   requirePermission,
   requirePlatformPermission,
 } from '../access.js';
-import { type DirectoryDomain, verificationRecord } from '../directory/index.js';
+import type { DirectoryDomain } from '../directory/index.js';
 import type { Platform } from '../platform.js';
 
 const idParams = z.object({ id: z.string().min(1) });
@@ -17,15 +17,16 @@ const createBody = z.object({
   primary: z.boolean().optional(),
 });
 
-function domainView(domain: DirectoryDomain) {
-  const { verificationToken: _token, ...rest } = domain;
-  return {
-    ...rest,
-    verification: domain.status === 'verified' ? null : verificationRecord(domain),
-  };
-}
-
 export function createDomainRoutes(platform: Platform) {
+  /** A domain with the TXT record that proves ownership while it is still pending. */
+  const domainView = (domain: DirectoryDomain) => ({
+    ...domain,
+    verification:
+      domain.status === 'verified'
+        ? null
+        : { type: 'TXT' as const, ...platform.directory.domainVerification(domain) },
+  });
+
   return [
     defineRoute({
       method: 'get',

@@ -429,6 +429,180 @@ describe('tenant isolation', () => {
   });
 });
 
+const message = (to: string, subject: string) =>
+  [
+    'From: Sender <sender@outside.test>',
+    `To: ${to}`,
+    `Subject: ${subject}`,
+    `Message-ID: <${subject.replace(/\s+/g, '-')}@outside.test>`,
+    'Content-Type: text/plain; charset=utf-8',
+    '',
+    'Body',
+    '',
+  ].join('\r\n');
+
+describe('mail isolation between tenants', () => {
+  let ctx: TestContext;
+
+  beforeEach(async () => {
+    ctx = await createTestContext();
+  });
+
+  afterEach(async () => {
+    await destroyTestContext(ctx);
+  });
+
+  /** Each tenant gets a verified domain, a user mailbox for its owner and an ingest token. */
+  async function mailTenants() {
+    const tenants = await twoTenants(ctx);
+    const setup = async (cookie: string, domain: string, owner: string) => {
+      await addVerifiedDomain(ctx, { cookie }, domain);
+      const userId = await userIdOf(ctx, cookie);
+      const mailbox = await json<{ id: string }>(
+        await request(ctx, '/api/v1/mailboxes', {
+          method: 'POST',
+          headers: { cookie },
+          body: JSON.stringify({ kind: 'user', userId, primaryAddress: `${owner}@${domain}` }),
+        }),
+      );
+      const { token } = await json<{ token: string }>(
+        await request(ctx, '/api/v1/mail/settings/ingest-token', {
+          method: 'POST',
+          headers: { cookie },
+        }),
+      );
+      return { mailboxId: mailbox.id, token };
+    };
+    const a = await setup(tenants.alice, 'contoso.test', 'alice');
+    const b = await setup(tenants.bob, 'fabrikam.test', 'bob');
+    return { ...tenants, a, b };
+  }
+
+  const ingest = (token: string, to: string, subject: string) =>
+    request(ctx, '/api/v1/mail/ingest', {
+      method: 'POST',
+      body: message(to, subject),
+      headers: {
+        authorization: `Bearer ${token}`,
+        'content-type': 'message/rfc822',
+        'x-envelope-to': to,
+      },
+    });
+
+  it('delivers inbound mail only into the tenant that owns the ingest token', async () => {
+    const { alice, bob, a, b } = await mailTenants();
+    expect((await ingest(a.token, 'alice@contoso.test', 'For Alice')).status).toBe(200);
+    // Contoso's token cannot drop mail into Fabrikam's mailbox.
+    expect((await ingest(a.token, 'bob@fabrikam.test', 'Cross tenant')).status).toBe(404);
+    expect((await ingest(b.token, 'bob@fabrikam.test', 'For Bob')).status).toBe(200);
+
+    const subjects = async (cookie: string, mailboxId: string) =>
+      (
+        await json<{ items: Array<{ subject: string }> }>(
+          await request(ctx, `/api/v1/mail/mailboxes/${mailboxId}/messages?folder=INBOX`, {
+            headers: { cookie },
+          }),
+        )
+      ).items.map((item) => item.subject);
+    expect(await subjects(alice, a.mailboxId)).toEqual(['For Alice']);
+    expect(await subjects(bob, b.mailboxId)).toEqual(['For Bob']);
+  });
+
+  it('keeps webmail messages and mailboxes private to their tenant', async () => {
+    const { alice, bob, a, b } = await mailTenants();
+    await ingest(a.token, 'alice@contoso.test', 'Secret');
+    const aliceMessages = await json<{ items: Array<{ id: string }> }>(
+      await request(ctx, `/api/v1/mail/mailboxes/${a.mailboxId}/messages?folder=INBOX`, {
+        headers: { cookie: alice },
+      }),
+    );
+    const secretId = aliceMessages.items[0]?.id ?? '';
+    expect(secretId).not.toBe('');
+
+    for (const path of [
+      `/api/v1/mail/messages/${secretId}`,
+      `/api/v1/mail/messages/${secretId}/raw`,
+      `/api/v1/mail/mailboxes/${a.mailboxId}/messages?folder=INBOX`,
+    ]) {
+      const response = await request(ctx, path, { headers: { cookie: bob } });
+      expect([403, 404]).toContain(response.status);
+    }
+    const bobBoxes = await json<{ items: Array<{ id: string }> }>(
+      await request(ctx, '/api/v1/mail/me', { headers: { cookie: bob } }),
+    );
+    expect(bobBoxes.items.map((item) => item.id)).toEqual([b.mailboxId]);
+
+    // Bob cannot send from Contoso's mailbox or address.
+    const spoof = await request(ctx, '/api/v1/mail/send', {
+      method: 'POST',
+      headers: { cookie: bob },
+      body: JSON.stringify({
+        mailboxId: a.mailboxId,
+        to: ['bob@fabrikam.test'],
+        subject: 'x',
+        text: 'x',
+      }),
+    });
+    expect([403, 404]).toContain(spoof.status);
+  });
+
+  it('binds mail app logins to the tenant that owns the address', async () => {
+    const { tenantA, tenantB } = await mailTenants();
+    const accounts = ctx.platform.mailServers.accounts;
+    expect(await accounts.verify('bob@fabrikam.test', PASSWORD, '127.0.0.1')).toMatchObject({
+      tenantId: tenantB,
+    });
+    expect(await accounts.verify('alice@contoso.test', PASSWORD, '127.0.0.1')).toMatchObject({
+      tenantId: tenantA,
+    });
+    expect(await accounts.verify('bob@fabrikam.test', 'wrong-password', '127.0.0.2')).toBeNull();
+  });
+
+  it('keeps installation settings away from tenant owners', async () => {
+    const { alice, bob } = await mailTenants();
+    const attempts: Array<[string, string, unknown]> = [
+      ['GET', '/api/v1/backups', undefined],
+      ['POST', '/api/v1/backups/run', undefined],
+      ['POST', '/api/v1/updates/check', undefined],
+      ['PUT', '/api/v1/updates/settings', { autoUpdate: false }],
+      ['GET', '/api/v1/integrations/domain-connect', undefined],
+      [
+        'PUT',
+        '/api/v1/mail/clients',
+        { enabled: false, hostname: 'mail.fabrikam.test', certMode: 'manual' },
+      ],
+      ['PATCH', '/api/v1/settings', { name: 'Fabrikam', publicUrl: 'https://evil.test' }],
+    ];
+    for (const [method, path, body] of attempts) {
+      const response = await request(ctx, path, {
+        method,
+        headers: { cookie: bob },
+        ...(body ? { body: JSON.stringify(body) } : {}),
+      });
+      expect(`${method} ${path} ${response.status}`).toBe(`${method} ${path} 403`);
+    }
+    // Renaming his own organisation is still allowed.
+    const rename = await request(ctx, '/api/v1/settings', {
+      method: 'PATCH',
+      headers: { cookie: bob },
+      body: JSON.stringify({ name: 'Fabrikam Ltd' }),
+    });
+    expect(rename.status).toBe(200);
+
+    // The operator can change the public URL; every tenant sees the same installation value.
+    const changed = await request(ctx, '/api/v1/settings', {
+      method: 'PATCH',
+      headers: { cookie: alice },
+      body: JSON.stringify({ name: 'Contoso', publicUrl: 'https://panel.example.test' }),
+    });
+    expect(changed.status).toBe(200);
+    const bobView = await json<{ publicUrl: string | null }>(
+      await request(ctx, '/api/v1/settings', { headers: { cookie: bob } }),
+    );
+    expect(bobView.publicUrl).toBe('https://panel.example.test');
+  });
+});
+
 describe('upgrade from single-tenant releases', () => {
   let ctx: TestContext | undefined;
 
@@ -457,7 +631,7 @@ describe('upgrade from single-tenant releases', () => {
       [aliceId, Date.now()],
     );
 
-    ctx = await createTestContext(first.database);
+    ctx = await createTestContext({ database: first.database });
     const assignments = await ctx.platform.rbac.admin.listAssignments({ subjectId: aliceId });
     const keys = assignments.items.map((a) => `${a.roleKey}@${a.orgId ?? 'global'}`).sort();
     expect(keys).toEqual([`platform.operator@global`, `tenant.owner@${tenantId}`].sort());

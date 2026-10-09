@@ -1,11 +1,20 @@
 import { defineRoute, ok } from '@aspec/api';
-import { ConflictError } from '@aspec/errors';
+import { ConflictError, UnprocessableError } from '@aspec/errors';
 import { z } from 'zod';
-import { accountIdFromRequest, actorFromRequest, requirePermission } from '../access.js';
+import {
+  accountIdFromRequest,
+  actorFromRequest,
+  requirePermission,
+  requirePlatformPermission,
+} from '../access.js';
+import { PLATFORM_SCOPE } from '../directory/index.js';
+import { SettingsStore } from '../mail/store.js';
 import type { Platform } from '../platform.js';
+import { scopedClient } from '../tenancy.js';
 
 const updateBody = z.object({
   name: z.string().min(1).max(120),
+  publicUrl: z.string().max(300).nullable().optional(),
 });
 
 export function createSettingsRoutes(platform: Platform) {
@@ -33,6 +42,7 @@ export function createSettingsRoutes(platform: Platform) {
           },
           tenantMode: 'multi',
           appName: platform.config.appName,
+          publicUrl: platform.publicUrl,
         });
       },
     }),
@@ -50,6 +60,35 @@ export function createSettingsRoutes(platform: Platform) {
         const body = request.body;
         if (!body) throw new ConflictError('Settings body is required');
         const org = await platform.orgs.getOrg(tenantId);
+        let restarting = false;
+        if (
+          body.publicUrl !== undefined &&
+          (body.publicUrl?.trim() || null) !== platform.publicUrl
+        ) {
+          // The public URL belongs to the whole installation.
+          await requirePlatformPermission(platform, accountId, 'platform:admin');
+          let next: string | null = null;
+          if (body.publicUrl?.trim()) {
+            try {
+              const url = new URL(body.publicUrl.trim());
+              if (url.protocol !== 'https:' && url.protocol !== 'http:')
+                throw new Error('protocol');
+              next = url.origin;
+            } catch {
+              throw new UnprocessableError('Enter a URL like https://mail.example.com');
+            }
+          }
+          if (next !== platform.publicUrl) {
+            await new SettingsStore(scopedClient(platform, PLATFORM_SCOPE)).set(
+              PLATFORM_SCOPE,
+              'general',
+              { publicUrl: next },
+            );
+            platform.publicUrl = next;
+            restarting = true;
+            platform.restart();
+          }
+        }
         const updated = await platform.orgs.updateOrg(
           org.id,
           { name: body.name.trim() },
@@ -66,6 +105,8 @@ export function createSettingsRoutes(platform: Platform) {
           changes: { after: { name: updated.name } },
         });
         return ok({
+          restarting,
+          publicUrl: platform.publicUrl,
           organisation: {
             id: updated.id,
             name: updated.name,

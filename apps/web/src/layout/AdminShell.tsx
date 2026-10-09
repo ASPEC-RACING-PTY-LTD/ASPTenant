@@ -1,20 +1,32 @@
+import { useState } from 'react';
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { logout } from '../api.js';
 import { useAuth } from '../auth.js';
 
-const LINKS = [
-  { to: '/', label: 'Dashboard', implemented: true },
-  { to: '/users', label: 'Users', implemented: true },
-  { to: '/groups', label: 'Groups', implemented: true },
-  { to: '/mail', label: 'Mail', implemented: true },
-  { to: '/applications', label: 'Applications', implemented: true },
-  { to: '/domains', label: 'Domains', implemented: true },
-  { to: '/security', label: 'Security', implemented: true },
-  { to: '/audit', label: 'Audit', implemented: true },
-  { to: '/migration', label: 'Migration', implemented: false },
-  { to: '/system', label: 'System', implemented: true },
-  { to: '/settings', label: 'Settings', implemented: true },
-] as const;
+const LINKS: ReadonlyArray<{
+  to: string;
+  label: string;
+  implemented: boolean;
+  permission: string | null;
+}> = [
+  { to: '/', label: 'Dashboard', implemented: true, permission: 'system:read' },
+  { to: '/mailbox', label: 'Mailbox', implemented: true, permission: null },
+  { to: '/users', label: 'Users', implemented: true, permission: 'users:read' },
+  { to: '/groups', label: 'Groups', implemented: true, permission: 'groups:read' },
+  { to: '/mail', label: 'Mail', implemented: true, permission: 'mail:read' },
+  { to: '/mail/settings', label: 'Mail settings', implemented: true, permission: 'mail:manage' },
+  { to: '/mail/clients', label: 'Mail apps', implemented: true, permission: 'platform:admin' },
+  { to: '/domains', label: 'Domains', implemented: true, permission: 'domains:read' },
+  { to: '/applications', label: 'Applications', implemented: true, permission: 'apps:read' },
+  { to: '/security', label: 'Security', implemented: true, permission: 'security:read' },
+  { to: '/audit', label: 'Audit', implemented: true, permission: 'audit:read' },
+  { to: '/migration', label: 'Migration', implemented: true, permission: 'migration:read' },
+  { to: '/system', label: 'System', implemented: true, permission: 'system:read' },
+  { to: '/backups', label: 'Backups', implemented: true, permission: 'platform:admin' },
+  { to: '/updates', label: 'Updates', implemented: true, permission: 'platform:admin' },
+  { to: '/settings', label: 'Settings', implemented: true, permission: 'orgs:settings' },
+  { to: '/tenants', label: 'Tenants', implemented: true, permission: 'tenants:read' },
+];
 
 export function AdminShell() {
   const { session, refresh, selectTenant } = useAuth();
@@ -22,10 +34,23 @@ export function AdminShell() {
   const navigate = useNavigate();
   const operator = session?.platform.operator === true;
   const tenants = session?.tenants ?? [];
-  const onPlatformPage = location.pathname.startsWith('/tenants');
-  const links = operator
-    ? [...LINKS, { to: '/tenants', label: 'Tenants', implemented: true } as const]
-    : LINKS;
+  // Installation pages work without an organisation.
+  const onPlatformPage = ['/tenants', '/backups', '/updates'].some((path) =>
+    location.pathname.startsWith(path),
+  );
+  const [theme, setTheme] = useState(
+    document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light',
+  );
+  const toggleTheme = () => {
+    const next = theme === 'dark' ? 'light' : 'dark';
+    document.documentElement.dataset.theme = next;
+    try {
+      localStorage.setItem('aspectenant-theme', next);
+    } catch {
+      // Storage can be unavailable (private mode); the toggle still works for this page.
+    }
+    setTheme(next);
+  };
 
   return (
     <div className="app-shell">
@@ -38,11 +63,13 @@ export function AdminShell() {
           </div>
         </NavLink>
         <nav className="nav" aria-label="Administration">
-          {links.map((link) => (
+          {LINKS.filter(
+            (link) => !link.permission || session?.permissions.includes(link.permission),
+          ).map((link) => (
             <NavLink
               key={link.to}
               to={link.to}
-              end={link.to === '/'}
+              end={link.to === '/' || link.to === '/mail'}
               className={({ isActive }) =>
                 [isActive ? 'active' : '', link.implemented ? '' : 'planned']
                   .filter(Boolean)
@@ -85,6 +112,15 @@ export function AdminShell() {
           </div>
           <div>
             {session?.user.email}
+            <button
+              className="btn btn-ghost theme-toggle"
+              type="button"
+              aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+              title={theme === 'dark' ? 'Light mode' : 'Dark mode'}
+              onClick={toggleTheme}
+            >
+              {theme === 'dark' ? '☀' : '☾'}
+            </button>
             <button
               className="btn btn-ghost"
               style={{ marginLeft: 12 }}

@@ -1,4 +1,5 @@
-FROM node:22.20.0-bookworm-slim
+# Build stage: install everything, compile, then produce a production-only bundle.
+FROM node:22.20.0-bookworm-slim AS build
 WORKDIR /app
 RUN corepack enable
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml tsconfig.base.json ./
@@ -8,9 +9,21 @@ COPY apps/api ./apps/api
 RUN pnpm install --frozen-lockfile
 RUN pnpm --filter @aspec/errors --filter @aspec/validation --filter @aspec/api --filter @aspec/config --filter @aspec/db --filter @aspec/observability --filter @aspec/auth --filter @aspec/users --filter @aspec/orgs --filter @aspec/rbac --filter @aspec/audit --filter @aspec/rate-limit build
 RUN pnpm --filter @aspectenant/api build
-ENV NODE_ENV=production
+RUN pnpm --filter @aspectenant/api deploy --prod --legacy /out \
+  && rm -rf /out/src /out/test /out/node_modules/.pnpm/pst-extractor@*/node_modules/pst-extractor/example \
+    /out/node_modules/.pnpm/better-sqlite3@* \
+  && find /out/node_modules -type d \( -name test -o -name tests -o -name docs -o -name templates \) -prune -exec rm -rf {} + \
+  && find /out/node_modules -type f \( -name '*.map' -o -name '*.md' -o -name '*.ts' ! -name '*.d.ts' \) -delete
+
+# Runtime stage: only compiled code and production dependencies.
+FROM node:22.20.0-bookworm-slim
+WORKDIR /app
+ARG APP_VERSION=dev
+ENV NODE_ENV=production APP_VERSION=${APP_VERSION}
+COPY --from=build --chown=node:node /out ./
+RUN mkdir -p /updates /data && chown node:node /updates /data
 USER node
-EXPOSE 3000
+EXPOSE 3000 1993 1465 1587
 HEALTHCHECK --interval=10s --timeout=5s --retries=12 --start-period=30s \
   CMD node -e "fetch('http://127.0.0.1:3000/readyz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
-CMD ["node", "apps/api/dist/index.js"]
+CMD ["node", "dist/index.js"]

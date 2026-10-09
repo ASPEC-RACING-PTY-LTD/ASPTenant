@@ -26,6 +26,7 @@ describe('setup and session', () => {
       body: JSON.stringify({
         email: 'owner@example.com',
         password: 'correct-horse-battery',
+        setupCode: ctx.platform.setupCode,
         displayName: 'Owner',
         organisationName: 'Contoso',
       }),
@@ -40,6 +41,7 @@ describe('setup and session', () => {
       body: JSON.stringify({
         email: 'other@example.com',
         password: 'correct-horse-battery',
+        setupCode: 'ABCDE-FGHIJ',
       }),
     });
     expect(closed.status).toBe(409);
@@ -78,9 +80,55 @@ describe('setup and session', () => {
     expect(sessionBody.platform.operator).toBe(true);
   });
 
+  it('requires the setup code from the server log', async () => {
+    ctx = await createTestContext();
+    expect(ctx.platform.setupCode).toMatch(/^[0-9A-F]{5}-[0-9A-F]{5}$/);
+    const wrong = await request(ctx, '/api/v1/setup', {
+      method: 'POST',
+      body: JSON.stringify({
+        email: 'owner@example.com',
+        password: 'correct-horse-battery',
+        setupCode: '00000-00000',
+      }),
+    });
+    expect(wrong.status).toBe(403);
+  });
+
   it('rejects unauthenticated session reads', async () => {
     ctx = await createTestContext();
     const response = await request(ctx, '/api/v1/session');
     expect(response.status).toBe(401);
+  });
+});
+
+describe('origin checks', () => {
+  it('rejects cross-site writes and accepts same-host ones without a public URL', async () => {
+    const { createTestContext: create, destroyTestContext: destroy } = await import('./helpers.js');
+    const ctx = await create();
+    ctx.platform.publicUrl = null;
+    try {
+      const cross = await ctx.app.request('http://panel.local/api/v1/setup', {
+        method: 'POST',
+        headers: { origin: 'https://evil.example', 'content-type': 'application/json' },
+        body: '{}',
+      });
+      expect(cross.status).toBe(403);
+      const same = await ctx.app.request('http://panel.local/api/v1/setup', {
+        method: 'POST',
+        headers: {
+          origin: 'http://panel.local',
+          host: 'panel.local',
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: 'a@b.co',
+          password: 'correct-horse-battery',
+          setupCode: ctx.platform.setupCode,
+        }),
+      });
+      expect(same.status).toBe(201);
+    } finally {
+      await destroy(ctx);
+    }
   });
 });

@@ -6,6 +6,10 @@ import { closePlatform, createPlatform } from './platform.js';
 const config = loadAppConfig();
 const platform = await createPlatform({ config });
 const app = createApp(platform);
+platform.updates.start();
+void platform.mailServers.start();
+platform.imports.kick();
+platform.backups.start();
 
 const server = serve(
   {

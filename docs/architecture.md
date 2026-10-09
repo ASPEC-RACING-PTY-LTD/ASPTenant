@@ -13,15 +13,17 @@ The control plane is a working administrative foundation:
 - RBAC per tenant (`tenant.owner`, `tenant.admin`, `tenant.auditor`) and a global `platform.operator`
 - User directory (create, profile, suspend/reinstate)
 - Security and distribution groups with membership
-- Custom domains verified by DNS TXT record, each verified domain owned by one tenant
-- Mailbox directory records and aliases (no message store)
+- Custom domains verified by DNS TXT record (or Domain Connect / Cloudflare), with MX/SPF/DMARC checks; each verified domain belongs to one tenant
+- Mailboxes with stored messages, aliases, delegates and distribution groups
+- Inbound mail through Cloudflare Email Routing (Worker to ingest API) and outbound through Cloudflare Email Sending or SMTP, configured per tenant
+- Built-in webmail and live mail settings in the panel
+- In-app updates through an updater sidecar
 - Application registration records (no OIDC/SAML IdP)
 - Organisation settings
 - Searchable audit history
 - Health, readiness and system diagnostics
-- Mail transport contracts that keep mailbox ownership in ASPECTenant
 
-Mailbox ingest, IMAP, webmail, outbound sending, MFA UI, SAML, SCIM, LDAP, mailbox migration and SoftDock integration are specified, not shipped.
+IMAP, MFA UI, SAML, SCIM, LDAP, mailbox migration and SoftDock integration are specified, not shipped.
 
 ## Component boundaries
 
@@ -91,7 +93,7 @@ New tables that hold tenant data must carry `tenant_id`, be added to `TENANT_TAB
 - Profile and lifecycle records: `@aspec/users`, keyed by the auth account id
 - Authorisation: `@aspec/rbac`. `tenant.owner`, `tenant.admin` and `tenant.auditor` are assigned per tenant; `platform.operator` is assigned globally
 - Public self-registration is disabled. The only bootstrap is `POST /api/v1/setup` while no users exist. Later accounts are created by tenant administrators or platform operators
-- CSRF origin checks use `PUBLIC_URL`
+- CSRF: state-changing requests must come from the panel's own host or the public URL saved in Settings
 - MFA, WebAuthn, OIDC client, SAML, SCIM and LDAP are present as library capabilities or future work. They are not exposed as working product features in this scaffold
 
 Service identities for SoftDock and other platforms will use `@aspec/api-keys` (vendored, not wired) and later OAuth client credentials. They must not share the human session cookie.

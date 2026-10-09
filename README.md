@@ -10,15 +10,19 @@ On a host with Docker Engine and the Compose plugin:
 sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/ASPEC-RACING-PTY-LTD/ASPTenant/main/install.sh)"
 ```
 
-Unattended:
+- Installs into `aspectenant/` under the directory you run it from (for example `/root/aspectenant`). The panel binds to `127.0.0.1` on the first free port from 8080; the installer prints it for your `cloudflared` tunnel.
+- Menu: 1) Install (asks for the public URL; replaces any existing installation), 2) Upgrade / repair (keeps data), 3) Uninstall.
+- Nothing to configure: `.env` only holds generated secrets.
+- The installer prints a one-time **setup code**. Open `/setup`, enter it and create the first account (or restore a backup). That account is the platform operator and the owner of the first organisation; further organisations (tenants), each with their own domains, mailboxes and administrators, are created on the **Tenants** page. Then set your **Public URL** under Settings. Everything else (domains, mailboxes, Cloudflare, SMTP, mail apps, backups, updates) is managed in the panel.
+- Re-running the installer and choosing 2 upgrades in place and keeps data.
 
-```sh
-sudo env PUBLIC_URL=https://tenant.example.com bash -c "$(curl -fsSL https://raw.githubusercontent.com/ASPEC-RACING-PTY-LTD/ASPTenant/main/install.sh)"
-```
+Mail apps (Outlook, Apple Mail, phones) use IMAP 993 and SMTP 465/587 directly; enable them on **Mail apps** and forward those ports. Import Microsoft 365 PST exports on **Migration**. Configure encrypted R2/S3 backups on **Backups**.
 
-Open `/setup` and create the first account. It becomes the platform operator and the owner of the first organisation; further organisations (tenants) are created on the Tenants page. `.env` only needs the public URL and generated store credentials. Everything else is collected on that first-run page.
+Then follow **Mail settings** in the panel to connect Cloudflare Email Routing (inbound) and Cloudflare Email Sending or any SMTP relay (outbound).
 
-Published images:
+Updates: the **Updates** page checks GitHub releases and installs them through the bundled updater container. Automatic updates can be switched off there.
+
+Releases are published by pushing a `vX.Y.Z` tag. Images:
 
 - `ghcr.io/aspec-racing-pty-ltd/aspectenant-api`
 - `ghcr.io/aspec-racing-pty-ltd/aspectenant-web`
@@ -26,11 +30,10 @@ Published images:
 ## Local development
 
 ```sh
-cp .env.example .env
 docker compose up --build
 ```
 
-Open http://localhost:8080/setup. Host-side development is documented in [docs/development.md](docs/development.md).
+Open http://localhost:8080/setup and use the setup code from `docker compose logs api`. Host-side development is documented in [docs/development.md](docs/development.md).
 
 ## Documentation
 

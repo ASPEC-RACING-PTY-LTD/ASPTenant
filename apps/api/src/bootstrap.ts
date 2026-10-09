@@ -1,5 +1,5 @@
-import { randomUUID } from 'node:crypto';
-import { ConflictError, UnprocessableError } from '@aspec/errors';
+import { randomUUID, timingSafeEqual } from 'node:crypto';
+import { ConflictError, ForbiddenError, UnprocessableError } from '@aspec/errors';
 import type { Organisation } from '@aspec/orgs';
 import { PLATFORM_OPERATOR_ROLE, TENANT_OWNER_ROLE } from './permissions.js';
 import type { Platform } from './platform.js';
@@ -8,6 +8,7 @@ import { assignTenantRole, createTenant } from './tenancy.js';
 export interface SetupInput {
   email: string;
   password: string;
+  setupCode: string;
   displayName?: string;
   organisationName?: string;
   ip?: string;
@@ -34,12 +35,23 @@ export async function completeSetup(
   platform: Platform,
   input: SetupInput,
 ): Promise<{ accountId: string; tenantId: string }> {
+  const expected = Buffer.from(platform.setupCode ?? '');
+  const given = Buffer.from(input.setupCode.trim().toUpperCase());
+  if (
+    expected.length === 0 ||
+    expected.length !== given.length ||
+    !timingSafeEqual(expected, given)
+  ) {
+    throw new ForbiddenError(
+      'The setup code is not correct. Find it in the API container log (docker compose logs api).',
+    );
+  }
   const email = input.email.trim();
   if (!email || !input.password) {
     throw new UnprocessableError('Email and password are required');
   }
 
-  return platform.db.transaction(async () => {
+  const result = await platform.db.transaction(async () => {
     const existing = await platform.users.listUsers({ limit: 1 });
     if (existing.items.length > 0) {
       throw new ConflictError('Setup is already complete. Sign in instead.');
@@ -117,4 +129,6 @@ export async function completeSetup(
 
     return { accountId: registered.account.id, tenantId: org.id };
   });
+  platform.setupCode = null;
+  return result;
 }

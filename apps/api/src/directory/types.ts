@@ -13,6 +13,7 @@ export interface DirectoryGroup {
   name: string;
   slug: string;
   kind: GroupKind;
+  email: string | null;
   description: string | null;
   memberCount: number;
   createdAt: number;
@@ -34,8 +35,6 @@ export interface DirectoryDomain {
   createdAt: number;
   updatedAt: number;
   verifiedAt: number | null;
-  /** Value the tenant publishes in DNS to prove ownership. */
-  verificationToken: string;
 }
 
 export interface DirectoryMailbox {

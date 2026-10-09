@@ -21,6 +21,7 @@ import { createUserRoutes } from './users.js';
 const setupBody = z.object({
   email: z.string().email().max(320),
   password: z.string().min(12).max(1024),
+  setupCode: z.string().min(1).max(32),
   displayName: z.string().min(1).max(120).optional(),
   organisationName: z.string().min(1).max(120).optional(),
 });
@@ -63,6 +64,7 @@ export function createControlPlaneApi(platform: Platform) {
       const result = await completeSetup(platform, {
         email: body.email,
         password: body.password,
+        setupCode: body.setupCode,
         ...(body.displayName ? { displayName: body.displayName } : {}),
         ...(body.organisationName ? { organisationName: body.organisationName } : {}),
         ...(ip ? { ip } : {}),
@@ -140,7 +142,8 @@ export function createControlPlaneApi(platform: Platform) {
           ? { role: selected.membership.role, status: selected.membership.status }
           : null,
         roles,
-        permissions: permissions.filter((key) => !granted.includes(key)),
+        // Tenant permissions in the current organisation plus platform permissions.
+        permissions: [...permissions.filter((key) => !granted.includes(key)), ...granted],
         tenants: tenants.map((t) => ({
           id: t.org.id,
           name: t.org.name,
@@ -168,7 +171,7 @@ export function createControlPlaneApi(platform: Platform) {
       return ok({
         name: platform.config.appName,
         product: 'ASPECTenant',
-        version: '0.1.0',
+        version: platform.config.appVersion,
         setupRequired: setupState.required,
         tenantMode: 'multi',
         capabilities: {
@@ -177,7 +180,7 @@ export function createControlPlaneApi(platform: Platform) {
             implemented: true,
             notes: [
               'Multiple tenants on one installation. Each request is bound to one tenant the account belongs to.',
-              'PostgreSQL row-level security on directory tables when connected as the non-superuser application role.',
+              'PostgreSQL row-level security on directory and mail tables when connected as the non-superuser application role.',
             ],
           },
           rbac: {
@@ -237,7 +240,7 @@ export function createControlPlaneApi(platform: Platform) {
   return createApi({
     info: {
       title: 'ASPECTenant Control Plane',
-      version: '0.1.0',
+      version: platform.config.appVersion,
       description:
         'Self-hosted identity and administration API. Mailbox message storage, IMAP and SoftDock are documented but not implemented.',
     },

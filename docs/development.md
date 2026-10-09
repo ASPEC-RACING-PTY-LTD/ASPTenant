@@ -52,7 +52,7 @@ docker compose exec postgres psql -U aspec -d aspec -c "CREATE DATABASE aspec_te
 ASPECTENANT_TEST_DATABASE_URL=postgres://aspectenant_app:aspectenant@127.0.0.1:5432/aspec_test pnpm --filter @aspectenant/api test
 ```
 
-That runs `test/postgres.test.ts`. Add `ASPECTENANT_TEST_ALL_POSTGRES=1` and `--no-file-parallelism` to run every API suite against PostgreSQL. The suites drop the tables the application role owns in that database.
+That runs `test/postgres.test.ts`. Add `ASPECTENANT_TEST_ALL_POSTGRES=1` and `--no-file-parallelism` to run every API suite against PostgreSQL. The backup and restore test needs a second database for the second server: create `aspec_test2` the same way and set `ASPECTENANT_TEST_DATABASE_URL_2`. The suites drop the tables the application role owns in those databases.
 
 If port 5432 is taken on your machine, set `ASPECTENANT_DB_PORT` before `docker compose up`.
 
@@ -60,6 +60,6 @@ Vendored module suites can be run with `pnpm test:modules`. They are the upstrea
 
 ## Configuration
 
-`.env.example` lists only what is required to launch: `DATABASE_URL` and `PUBLIC_URL`. `DATABASE_URL` uses the non-superuser `aspectenant_app` role so row-level security applies during development too. The super administrator and organisation name are created on the first-run setup page. Optional overrides (`LOG_LEVEL`, `AUDIT_HMAC_KEY`, `TRUSTED_PROXIES`) have defaults and do not belong in a normal launch file.
+`.env.example` only has `DATABASE_URL` for host-side runs. It uses the non-superuser `aspectenant_app` role so row-level security applies during development too. The public URL is set on the Settings page; `PUBLIC_URL` remains an optional override. The first account and organisation name are created on the first-run setup page. Optional overrides (`LOG_LEVEL`, `AUDIT_HMAC_KEY`, `TRUSTED_PROXIES`) have defaults and do not belong in a normal launch file.
 
 Secret values also accept `NAME_FILE` (from `@aspec/config`) so Docker secrets can be mounted later without new variable names.

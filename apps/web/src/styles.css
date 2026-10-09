@@ -459,6 +459,29 @@ input {
   }
 }
 
+.code {
+  background: #0f1724;
+  color: #d7deea;
+  padding: var(--space-3);
+  border-radius: var(--radius);
+  overflow: auto;
+  max-height: 420px;
+  font-family: var(--mono);
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.steps li {
+  margin-bottom: var(--space-3);
+}
+
+.toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
 .tenant-switch {
   display: flex;
   align-items: center;
@@ -474,7 +497,8 @@ input {
   border: 1px solid var(--line);
   border-radius: var(--radius);
   padding: 6px 8px;
-  background: #fff;
+  background: var(--bg-elevated);
+  color: var(--ink);
   font: inherit;
 }
 
@@ -482,4 +506,223 @@ input {
   font-family: var(--mono);
   font-size: 12px;
   word-break: break-all;
+}
+
+.webmail {
+  display: grid;
+  grid-template-columns: 200px minmax(260px, 340px) 1fr;
+  gap: var(--space-4);
+  height: calc(100vh - 120px);
+}
+
+.webmail > * {
+  background: var(--bg-elevated);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: var(--space-3);
+  overflow: auto;
+  min-width: 0;
+}
+
+.wm-folders {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.wm-address {
+  word-break: break-all;
+}
+
+.wm-folders nav {
+  display: flex;
+  flex-direction: column;
+}
+
+.wm-folders nav button,
+.wm-list li button {
+  display: flex;
+  width: 100%;
+  border: 0;
+  background: none;
+  text-align: left;
+  padding: var(--space-2);
+  border-radius: var(--radius);
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+
+.wm-folders nav button {
+  justify-content: space-between;
+}
+
+.wm-folders nav button.active,
+.wm-list li button.active {
+  background: #e8edfb;
+}
+
+.wm-list input {
+  width: 100%;
+  margin-bottom: var(--space-2);
+}
+
+.wm-list ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.wm-list li {
+  border-bottom: 1px solid var(--line);
+}
+
+.wm-list li button {
+  flex-direction: column;
+  gap: 2px;
+}
+
+.wm-list li button.unread .wm-from,
+.wm-list li button.unread .wm-subject {
+  font-weight: 700;
+}
+
+.wm-row {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.wm-from,
+.wm-subject,
+.wm-snippet {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wm-snippet {
+  font-size: 12px;
+}
+
+.wm-headers {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 2px var(--space-3);
+  font-size: 13px;
+}
+
+.wm-headers dt {
+  color: var(--ink-muted);
+}
+
+.wm-headers dd {
+  margin: 0;
+  word-break: break-all;
+}
+
+.wm-actions {
+  flex-wrap: wrap;
+  margin-bottom: var(--space-3);
+}
+
+.wm-body {
+  width: 100%;
+  height: 60vh;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #fff;
+}
+
+.wm-text {
+  white-space: pre-wrap;
+  font-family: var(--font);
+}
+
+.wm-attachments {
+  padding-left: var(--space-4);
+}
+
+.wm-compose {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.wm-compose label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 13px;
+  color: var(--ink-muted);
+}
+
+.wm-compose textarea {
+  font: inherit;
+  width: 100%;
+}
+
+@media (max-width: 1000px) {
+  .webmail {
+    grid-template-columns: 1fr;
+    height: auto;
+  }
+}
+
+/* Dark mode: set by the header toggle (data-theme on <html>), defaults to the OS preference. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0f141c;
+  --bg-elevated: #171e29;
+  --ink: #e3e8ef;
+  --ink-muted: #9aa6b5;
+  --line: #2a3442;
+  --brand: #5b7cf0;
+  --brand-ink: #ffffff;
+  --sidebar: #0a0e14;
+  --sidebar-active: #1b2638;
+  --danger: #f2756a;
+  --ok: #4ccf8a;
+  --warn: #f0a556;
+  --focus: #7b96f5;
+}
+
+:root[data-theme="dark"] .badge-ok {
+  background: #12301f;
+}
+
+:root[data-theme="dark"] .badge-warn,
+:root[data-theme="dark"] .notice {
+  background: #33240f;
+  color: #f3c27f;
+}
+
+:root[data-theme="dark"] .badge-off {
+  background: #222b37;
+}
+
+:root[data-theme="dark"] .notice-error {
+  background: #3a1814;
+  color: #f7b4ac;
+}
+
+:root[data-theme="dark"] .field input,
+:root[data-theme="dark"] .field textarea,
+:root[data-theme="dark"] select,
+:root[data-theme="dark"] input,
+:root[data-theme="dark"] textarea {
+  background: #0f141c;
+  color: var(--ink);
+  border-color: var(--line);
+}
+
+:root[data-theme="dark"] .wm-list li button.active,
+:root[data-theme="dark"] .wm-folders nav button.active {
+  background: #1f2b40;
+}
+
+.theme-toggle {
+  margin-left: 12px;
+  font-size: 16px;
+  line-height: 1;
 }

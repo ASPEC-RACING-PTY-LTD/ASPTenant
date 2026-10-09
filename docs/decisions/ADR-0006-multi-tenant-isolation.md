@@ -24,12 +24,20 @@ One installation must host several organisations, each with its own domains, mai
 - Account-wide changes (profile, sessions, sign-in) by a tenant administrator are refused for accounts that also belong to another tenant. Suspension and removal then affect only the membership in the acting tenant.
 
 ### Domains and mail addresses
-- Ownership of a domain is proved with a TXT record `_aspectenant.<domain>` = `aspectenant-verification=<token>`. Platform operators can confirm without DNS for private networks.
+- Ownership of a domain is proved with the TXT record the Domains page shows (by hand, with Cloudflare or with Domain Connect). Platform operators can confirm without DNS for private networks.
 - A partial unique index allows one verified row per hostname across all tenants.
-- Mailbox addresses and aliases must use a verified domain of their own tenant. Primary addresses and aliases are unique across the installation, so a future ingest path can map a recipient to exactly one tenant.
+- Mailbox addresses, aliases and group addresses must use a verified domain of their own tenant. Primary addresses and aliases are unique across the installation.
+
+### Mail
+- Each tenant has its own ingest token. The token identifies the tenant, and inbound mail is delivered only to that tenant's mailboxes.
+- Mail app logins (IMAP, SMTP submission) are bound to one tenant: the tenant that verified the login address's domain when the account is an active member there, otherwise the account's oldest membership. Every command in the session runs bound to that tenant.
+- Outbound transport, Cloudflare DNS tokens and the ingest token are tenant settings. The public URL, mail app listeners, updates, backups and Domain Connect are installation settings, stored under the `__platform__` scope and changed only by platform operators.
+- Webmail and local delivery resolve recipients within the sender's tenant. An address of another tenant on the same installation is external and leaves through the outbound transport.
 
 ### Database isolation
-- Every directory table has PostgreSQL row-level security with `FORCE ROW LEVEL SECURITY`. Policies compare `tenant_id` to `current_setting('app.tenant_id')`.
+- Every directory and mail table (groups, domains, mailboxes, aliases, delegations, applications, settings, messages, folders, jobs) has PostgreSQL row-level security with `FORCE ROW LEVEL SECURITY`. Policies compare `tenant_id` to `current_setting('app.tenant_id')`.
+- The binding `*` lets installation code see every tenant: backup, restore and the import queue use it. Request handlers never bind it.
+- Long background work (mailbox imports) runs with a tenant context but no open transaction; each query binds the tenant for itself.
 - Each tenant-bound request runs in one transaction that sets `app.tenant_id` locally. A query that forgets its tenant filter still sees only the current tenant, and a row for another tenant cannot be written.
 - The API connects as `aspectenant_app`, a non-superuser role without `BYPASSRLS`. Compose creates it on every start (`deploy/postgres/app-role.sql`) and hands existing tables to it. Diagnostics report whether RLS is enforced for the current connection.
 

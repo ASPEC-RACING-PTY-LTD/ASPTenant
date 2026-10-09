@@ -8,8 +8,8 @@ export const configShape = {
     .example('postgres://aspec:aspec@127.0.0.1:5432/aspec'),
   publicUrl: env
     .url('PUBLIC_URL', { protocols: ['http', 'https'] })
-    .description('Public origin of the admin UI.')
-    .example('http://localhost:8080'),
+    .optional()
+    .description('Optional. Public origin of the admin UI; normally set on the Settings page.'),
   appName: env
     .string('APP_NAME')
     .default('ASPECTenant')
@@ -28,6 +28,39 @@ export const configShape = {
     .optional()
     .secret()
     .description('Optional HMAC key for the audit hash chain.'),
+  appVersion: env
+    .string('APP_VERSION')
+    .default('dev')
+    .description('Release version baked into published images.'),
+  updateRepo: env
+    .string('UPDATE_REPO')
+    .default('ASPEC-RACING-PTY-LTD/ASPTenant')
+    .description('GitHub repository checked for new releases.'),
+  updatesDir: env
+    .string('UPDATES_DIR')
+    .default('/updates')
+    .description('Directory shared with the updater sidecar.'),
+  mailPublicPorts: env
+    .string('MAIL_PUBLIC_PORTS')
+    .default('993,465,587')
+    .description('Host ports for IMAPS, SMTPS and submission, as shown to users.'),
+  mailListenHost: env
+    .string('MAIL_LISTEN_HOST')
+    .default('0.0.0.0')
+    .description('Address the IMAP and SMTP listeners bind inside the container.'),
+  mailListenPorts: env
+    .string('MAIL_LISTEN_PORTS')
+    .default('1993,1465,1587')
+    .description('Container ports for IMAPS, SMTPS and submission.'),
+  dataDir: env
+    .string('DATA_DIR')
+    .default('/data')
+    .description('Writable directory for uploads and backup staging.'),
+  secretKey: env
+    .string('SECRET_KEY', { min: 32 })
+    .optional()
+    .secret()
+    .description('Key for encrypting stored credentials. Defaults to AUDIT_HMAC_KEY.'),
   cookieSecure: env
     .boolean('COOKIE_SECURE')
     .optional()
@@ -40,13 +73,9 @@ export function loadAppConfig(options: DefineConfigOptions = {}): AppConfig {
   return defineConfig(configShape, options);
 }
 
-export function publicOrigin(config: AppConfig): string {
-  return new URL(config.publicUrl).origin;
-}
-
-export function cookieSecure(config: AppConfig): boolean {
+export function cookieSecure(config: AppConfig, publicUrl: string | null): boolean {
   if (config.cookieSecure !== undefined) return config.cookieSecure;
-  return new URL(config.publicUrl).protocol === 'https:';
+  return publicUrl ? new URL(publicUrl).protocol === 'https:' : false;
 }
 
 export function trustedProxyList(config: AppConfig): string[] {

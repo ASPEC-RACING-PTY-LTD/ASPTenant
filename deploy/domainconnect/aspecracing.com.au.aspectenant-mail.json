@@ -1,0 +1,19 @@
+{
+  "providerId": "aspecracing.com.au",
+  "providerName": "ASPEC TECH",
+  "serviceId": "aspectenant-mail",
+  "serviceName": "ASPECTenant mail",
+  "version": 1,
+  "logoUrl": "https://raw.githubusercontent.com/ASPEC-RACING-PTY-LTD/ASPTenant/main/logo.png",
+  "description": "Verifies a domain for ASPECTenant and adds Cloudflare Email Routing MX, SPF and DMARC records.",
+  "syncBlock": false,
+  "syncPubKeyDomain": "aspecracing.com.au",
+  "records": [
+    { "type": "TXT", "host": "@", "data": "%verification%", "ttl": 3600 },
+    { "type": "MX", "host": "@", "pointsTo": "route1.mx.cloudflare.net", "priority": 10, "ttl": 3600 },
+    { "type": "MX", "host": "@", "pointsTo": "route2.mx.cloudflare.net", "priority": 20, "ttl": 3600 },
+    { "type": "MX", "host": "@", "pointsTo": "route3.mx.cloudflare.net", "priority": 30, "ttl": 3600 },
+    { "type": "SPFM", "host": "@", "spfRules": "include:_spf.mx.cloudflare.net" },
+    { "type": "TXT", "host": "_dmarc", "data": "v=DMARC1; p=quarantine; adkim=r; aspf=r", "ttl": 3600 }
+  ]
+}

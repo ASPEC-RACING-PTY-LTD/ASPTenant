@@ -1,4 +1,6 @@
-import { resolveTxt as dnsResolveTxt } from 'node:dns/promises';
+import { randomBytes } from 'node:crypto';
+import type { MxRecord } from 'node:dns';
+import { Resolver } from 'node:dns/promises';
 import { createAuditLogger } from '@aspec/audit';
 import { createSqlAuditStore, migrate as migrateAudit } from '@aspec/audit/sql';
 import { type Auth, createAuth } from '@aspec/auth';
@@ -11,14 +13,36 @@ import { createRbac, type Rbac } from '@aspec/rbac';
 import { createSqlStore as createSqlRbacStore, migrate as migrateRbac } from '@aspec/rbac/sql';
 import { createUsers, type UsersService } from '@aspec/users';
 import { createSqlUsersStore, migrate as migrateUsers } from '@aspec/users/sql';
+import { BackupService } from './backup/index.js';
 import type { AppConfig } from './config.js';
 import { loadAppConfig } from './config.js';
-import { DirectoryService, migrateDirectory } from './directory/index.js';
+import { DirectoryService, migrateDirectory, PLATFORM_SCOPE } from './directory/index.js';
+import { DomainConnect } from './dns/domainconnect.js';
+import { DomainSetup } from './dns/index.js';
+import { PstImporter } from './imports/pst.js';
+import { MailService } from './mail/service.js';
+import { SettingsStore } from './mail/store.js';
+import { MailServers } from './mailserver/index.js';
 import { platformRbacDefinition } from './permissions.js';
-import { reconcileLegacyRoleAssignments, rowLevelSecurityStatus } from './tenancy.js';
+import { SecretBox } from './secrets.js';
+import { inScope, reconcileLegacyRoleAssignments, rowLevelSecurityStatus } from './tenancy.js';
+import { UpdateService } from './updates.js';
 
-/** Looks up TXT records. Each record is returned as its character-string chunks. */
-export type TxtResolver = (name: string) => Promise<string[][]>;
+/** DNS lookups used for domain verification and checks. */
+export interface DnsLookup {
+  /** TXT records, each as its character-string chunks. */
+  resolveTxt(name: string): Promise<string[][]>;
+  resolveMx(name: string): Promise<MxRecord[]>;
+}
+
+function publicDns(): DnsLookup {
+  const resolver = new Resolver({ timeout: 4000, tries: 2 });
+  resolver.setServers(['1.1.1.1', '8.8.8.8']);
+  return {
+    resolveTxt: (name) => resolver.resolveTxt(name),
+    resolveMx: (name) => resolver.resolveMx(name),
+  };
+}
 
 export interface Platform {
   readonly config: AppConfig;
@@ -30,7 +54,21 @@ export interface Platform {
   readonly rbac: Rbac;
   readonly audit: ReturnType<typeof createAuditLogger>;
   readonly directory: DirectoryService;
-  readonly resolveTxt: TxtResolver;
+  readonly mail: MailService;
+  readonly updates: UpdateService;
+  readonly mailServers: MailServers;
+  readonly imports: PstImporter;
+  readonly backups: BackupService;
+  readonly domainSetup: DomainSetup;
+  readonly domainConnect: DomainConnect;
+  readonly secrets: SecretBox;
+  readonly dns: DnsLookup;
+  /** Public origin from Settings (or PUBLIC_URL). Changing it restarts the API. */
+  publicUrl: string | null;
+  /** Restart after settings that are read at boot change. Disabled in tests. */
+  restart: () => void;
+  /** One-time code printed to the log while first-run setup is open. */
+  setupCode: string | null;
   readonly startedAt: number;
 }
 
@@ -38,8 +76,8 @@ export interface CreatePlatformOptions {
   config?: AppConfig;
   database?: Database;
   logger?: Logger;
-  /** DNS TXT lookup used for domain verification. Defaults to the system resolver. */
-  resolveTxt?: TxtResolver;
+  /** DNS used for domain verification. Defaults to public resolvers. */
+  dns?: DnsLookup;
 }
 
 export async function createPlatform(options: CreatePlatformOptions = {}): Promise<Platform> {
@@ -105,7 +143,7 @@ export async function createPlatform(options: CreatePlatformOptions = {}): Promi
     invitations: { appName: config.appName },
   });
 
-  const platform = {
+  const platform: Platform = {
     config,
     db,
     logger,
@@ -115,20 +153,57 @@ export async function createPlatform(options: CreatePlatformOptions = {}): Promi
     rbac,
     audit,
     directory: undefined as unknown as DirectoryService,
-    resolveTxt: options.resolveTxt ?? dnsResolveTxt,
+    mail: undefined as unknown as MailService,
+    updates: undefined as unknown as UpdateService,
+    mailServers: undefined as unknown as MailServers,
+    imports: undefined as unknown as PstImporter,
+    backups: undefined as unknown as BackupService,
+    domainSetup: undefined as unknown as DomainSetup,
+    domainConnect: undefined as unknown as DomainConnect,
+    secrets: new SecretBox(config),
+    dns: options.dns ?? publicDns(),
+    publicUrl: config.publicUrl ? new URL(config.publicUrl).origin : null,
+    restart: () => {
+      setTimeout(() => process.exit(0), 1500).unref();
+    },
+    setupCode: null,
     startedAt: Date.now(),
   };
-  platform.directory = new DirectoryService(platform);
-
+  Object.assign(platform, {
+    directory: new DirectoryService(platform),
+    mail: new MailService(platform),
+    updates: new UpdateService(platform),
+    mailServers: new MailServers(platform),
+    imports: new PstImporter(platform),
+    backups: new BackupService(platform),
+    domainSetup: new DomainSetup(platform),
+    domainConnect: new DomainConnect(platform),
+  });
   await reconcileLegacyRoleAssignments(platform);
   if (db.dialect === 'postgres') {
     const rls = await rowLevelSecurityStatus(db);
     if (!rls.enforced) logger.warn({ rls }, rls.detail);
   }
+  const general = await inScope(platform, PLATFORM_SCOPE, () =>
+    new SettingsStore(db).get<{ publicUrl?: string }>(PLATFORM_SCOPE, 'general'),
+  );
+  if (general?.publicUrl) platform.publicUrl = general.publicUrl;
+  const firstUser = await users.listUsers({ limit: 1 });
+  if (firstUser.items.length === 0) {
+    const code = randomBytes(5).toString('hex').toUpperCase();
+    platform.setupCode = `${code.slice(0, 5)}-${code.slice(5)}`;
+    logger.warn(
+      `Setup code: ${platform.setupCode} (enter it on /setup to create the administrator)`,
+    );
+  }
   return platform;
 }
 
 export async function closePlatform(platform: Platform): Promise<void> {
+  platform.updates.stop();
+  platform.mailServers.shutdown();
+  platform.imports.stop();
+  platform.backups.stop();
   await platform.auth.idle();
   await platform.db.close();
 }
