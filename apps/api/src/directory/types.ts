@@ -34,6 +34,8 @@ export interface DirectoryDomain {
   createdAt: number;
   updatedAt: number;
   verifiedAt: number | null;
+  /** Value the tenant publishes in DNS to prove ownership. */
+  verificationToken: string;
 }
 
 export interface DirectoryMailbox {

@@ -44,6 +44,7 @@ function toDomain(row: Row): DirectoryDomain {
     createdAt: num(row.created_at),
     updatedAt: num(row.updated_at),
     verifiedAt: numOrNull(row.verified_at),
+    verificationToken: String(row.verification_token ?? ''),
   };
 }
 
@@ -90,8 +91,7 @@ export class DirectoryStore {
     );
     const counts = await this.db.query<{ group_id: string; n: unknown }>(
       `SELECT group_id, COUNT(*) AS n FROM aspectenant_group_members
-       WHERE group_id IN (SELECT id FROM aspectenant_groups WHERE tenant_id = $1)
-       GROUP BY group_id`,
+       WHERE tenant_id = $1 GROUP BY group_id`,
       [tenantId],
     );
     const countById = new Map(counts.rows.map((row) => [String(row.group_id), num(row.n)]));
@@ -106,8 +106,8 @@ export class DirectoryStore {
     const row = result.rows[0];
     if (!row) return null;
     const count = await this.db.query<{ n: unknown }>(
-      `SELECT COUNT(*) AS n FROM aspectenant_group_members WHERE group_id = $1`,
-      [id],
+      `SELECT COUNT(*) AS n FROM aspectenant_group_members WHERE group_id = $1 AND tenant_id = $2`,
+      [id, tenantId],
     );
     return toGroup(row, num(count.rows[0]?.n ?? 0));
   }
@@ -168,7 +168,10 @@ export class DirectoryStore {
   }
 
   async deleteGroup(tenantId: string, id: string): Promise<boolean> {
-    await this.db.query(`DELETE FROM aspectenant_group_members WHERE group_id = $1`, [id]);
+    await this.db.query(
+      `DELETE FROM aspectenant_group_members WHERE group_id = $1 AND tenant_id = $2`,
+      [id, tenantId],
+    );
     const result = await this.db.query(
       `DELETE FROM aspectenant_groups WHERE id = $1 AND tenant_id = $2`,
       [id, tenantId],
@@ -176,11 +179,11 @@ export class DirectoryStore {
     return result.rowCount > 0;
   }
 
-  async listGroupMembers(groupId: string): Promise<DirectoryGroupMember[]> {
+  async listGroupMembers(tenantId: string, groupId: string): Promise<DirectoryGroupMember[]> {
     const result = await this.db.query(
       `SELECT group_id, user_id, added_at FROM aspectenant_group_members
-       WHERE group_id = $1 ORDER BY added_at ASC`,
-      [groupId],
+       WHERE tenant_id = $1 AND group_id = $2 ORDER BY added_at ASC`,
+      [tenantId, groupId],
     );
     return result.rows.map((row) => ({
       groupId: String(row.group_id),
@@ -189,29 +192,45 @@ export class DirectoryStore {
     }));
   }
 
-  async addGroupMember(groupId: string, userId: string): Promise<DirectoryGroupMember> {
+  async addGroupMember(
+    tenantId: string,
+    groupId: string,
+    userId: string,
+  ): Promise<DirectoryGroupMember> {
     const addedAt = Date.now();
     await this.db.query(
-      `INSERT INTO aspectenant_group_members (group_id, user_id, added_at) VALUES ($1, $2, $3)`,
-      [groupId, userId, addedAt],
+      `INSERT INTO aspectenant_group_members (tenant_id, group_id, user_id, added_at)
+       VALUES ($1, $2, $3, $4)`,
+      [tenantId, groupId, userId, addedAt],
     );
     return { groupId, userId, addedAt };
   }
 
-  async hasGroupMember(groupId: string, userId: string): Promise<boolean> {
+  async hasGroupMember(tenantId: string, groupId: string, userId: string): Promise<boolean> {
     const result = await this.db.query(
-      `SELECT 1 FROM aspectenant_group_members WHERE group_id = $1 AND user_id = $2`,
-      [groupId, userId],
+      `SELECT 1 FROM aspectenant_group_members
+       WHERE tenant_id = $1 AND group_id = $2 AND user_id = $3`,
+      [tenantId, groupId, userId],
     );
     return result.rows.length > 0;
   }
 
-  async removeGroupMember(groupId: string, userId: string): Promise<boolean> {
+  async removeGroupMember(tenantId: string, groupId: string, userId: string): Promise<boolean> {
     const result = await this.db.query(
-      `DELETE FROM aspectenant_group_members WHERE group_id = $1 AND user_id = $2`,
-      [groupId, userId],
+      `DELETE FROM aspectenant_group_members
+       WHERE tenant_id = $1 AND group_id = $2 AND user_id = $3`,
+      [tenantId, groupId, userId],
     );
     return result.rowCount > 0;
+  }
+
+  /** Removes a user from every group in one tenant (membership ended). */
+  async removeUserFromGroups(tenantId: string, userId: string): Promise<number> {
+    const result = await this.db.query(
+      `DELETE FROM aspectenant_group_members WHERE tenant_id = $1 AND user_id = $2`,
+      [tenantId, userId],
+    );
+    return result.rowCount;
   }
 
   async listDomains(tenantId: string): Promise<DirectoryDomain[]> {
@@ -240,18 +259,41 @@ export class DirectoryStore {
     return row ? toDomain(row) : null;
   }
 
+  /**
+   * Verified owner of a hostname in any tenant. Under row-level security only the caller's own
+   * rows are visible; the partial unique index still refuses a second verified owner.
+   */
+  async findVerifiedDomain(hostname: string): Promise<DirectoryDomain | null> {
+    const result = await this.db.query(
+      `SELECT * FROM aspectenant_domains WHERE hostname = $1 AND status = 'verified'`,
+      [hostname],
+    );
+    const row = result.rows[0];
+    return row ? toDomain(row) : null;
+  }
+
   async insertDomain(input: {
     tenantId: string;
     hostname: string;
     primary: boolean;
+    verificationToken: string;
   }): Promise<DirectoryDomain> {
     const now = Date.now();
     const id = randomUUID();
     await this.db.query(
       `INSERT INTO aspectenant_domains
-        (id, tenant_id, hostname, status, is_primary, created_at, updated_at, verified_at)
-       VALUES ($1, $2, $3, 'pending', $4, $5, $6, NULL)`,
-      [id, input.tenantId, input.hostname, input.primary ? 1 : 0, now, now],
+        (id, tenant_id, hostname, status, is_primary, created_at, updated_at, verified_at,
+         verification_token)
+       VALUES ($1, $2, $3, 'pending', $4, $5, $6, NULL, $7)`,
+      [
+        id,
+        input.tenantId,
+        input.hostname,
+        input.primary ? 1 : 0,
+        now,
+        now,
+        input.verificationToken,
+      ],
     );
     return {
       id,
@@ -262,6 +304,7 @@ export class DirectoryStore {
       createdAt: now,
       updatedAt: now,
       verifiedAt: null,
+      verificationToken: input.verificationToken,
     };
   }
 
@@ -290,6 +333,21 @@ export class DirectoryStore {
       `UPDATE aspectenant_domains SET is_primary = 0, updated_at = $1 WHERE tenant_id = $2 AND is_primary = 1`,
       [Date.now(), tenantId],
     );
+  }
+
+  /** Mailbox addresses and aliases in one tenant that use a hostname. */
+  async countAddressesOnDomain(tenantId: string, hostname: string): Promise<number> {
+    const suffix = `%@${hostname}`;
+    const primary = await this.db.query<{ n: unknown }>(
+      `SELECT COUNT(*) AS n FROM aspectenant_mailboxes
+       WHERE tenant_id = $1 AND primary_address LIKE $2`,
+      [tenantId, suffix],
+    );
+    const aliases = await this.db.query<{ n: unknown }>(
+      `SELECT COUNT(*) AS n FROM aspectenant_mailbox_aliases WHERE tenant_id = $1 AND alias LIKE $2`,
+      [tenantId, suffix],
+    );
+    return num(primary.rows[0]?.n ?? 0) + num(aliases.rows[0]?.n ?? 0);
   }
 
   async deleteDomain(tenantId: string, id: string): Promise<boolean> {
@@ -327,7 +385,7 @@ export class DirectoryStore {
     const alias = await this.db.query(
       `SELECT m.* FROM aspectenant_mailboxes m
        INNER JOIN aspectenant_mailbox_aliases a ON a.mailbox_id = m.id
-       WHERE m.tenant_id = $1 AND a.alias = $2`,
+       WHERE m.tenant_id = $1 AND a.tenant_id = $1 AND a.alias = $2`,
       [tenantId, address],
     );
     const aliasRow = alias.rows[0];
@@ -402,7 +460,10 @@ export class DirectoryStore {
   }
 
   async deleteMailbox(tenantId: string, id: string): Promise<boolean> {
-    await this.db.query(`DELETE FROM aspectenant_mailbox_aliases WHERE mailbox_id = $1`, [id]);
+    await this.db.query(
+      `DELETE FROM aspectenant_mailbox_aliases WHERE mailbox_id = $1 AND tenant_id = $2`,
+      [id, tenantId],
+    );
     const result = await this.db.query(
       `DELETE FROM aspectenant_mailboxes WHERE id = $1 AND tenant_id = $2`,
       [id, tenantId],
@@ -410,17 +471,19 @@ export class DirectoryStore {
     return result.rowCount > 0;
   }
 
-  async addAlias(mailboxId: string, alias: string): Promise<void> {
+  async addAlias(tenantId: string, mailboxId: string, alias: string): Promise<void> {
     await this.db.query(
-      `INSERT INTO aspectenant_mailbox_aliases (mailbox_id, alias, created_at) VALUES ($1, $2, $3)`,
-      [mailboxId, alias, Date.now()],
+      `INSERT INTO aspectenant_mailbox_aliases (tenant_id, mailbox_id, alias, created_at)
+       VALUES ($1, $2, $3, $4)`,
+      [tenantId, mailboxId, alias, Date.now()],
     );
   }
 
-  async removeAlias(mailboxId: string, alias: string): Promise<boolean> {
+  async removeAlias(tenantId: string, mailboxId: string, alias: string): Promise<boolean> {
     const result = await this.db.query(
-      `DELETE FROM aspectenant_mailbox_aliases WHERE mailbox_id = $1 AND alias = $2`,
-      [mailboxId, alias],
+      `DELETE FROM aspectenant_mailbox_aliases
+       WHERE tenant_id = $1 AND mailbox_id = $2 AND alias = $3`,
+      [tenantId, mailboxId, alias],
     );
     return result.rowCount > 0;
   }
@@ -530,8 +593,9 @@ export class DirectoryStore {
 
   private async hydrateMailbox(row: Row): Promise<DirectoryMailbox> {
     const aliases = await this.db.query<{ alias: string }>(
-      `SELECT alias FROM aspectenant_mailbox_aliases WHERE mailbox_id = $1 ORDER BY alias ASC`,
-      [String(row.id)],
+      `SELECT alias FROM aspectenant_mailbox_aliases
+       WHERE mailbox_id = $1 AND tenant_id = $2 ORDER BY alias ASC`,
+      [String(row.id), String(row.tenant_id)],
     );
     return toMailbox(
       row,

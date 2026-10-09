@@ -23,9 +23,10 @@ export function createAuditRoutes(platform: Platform) {
       responses: { '200': { description: 'Audit events' } },
       handler: async ({ raw, request }) => {
         const accountId = accountIdFromRequest(raw);
-        await requirePermission(platform, accountId, 'audit:read');
+        const tenantId = await requirePermission(platform, accountId, 'audit:read');
         const query = request.query;
         const result = await platform.audit.query({
+          tenantId,
           limit: query?.limit ?? 50,
           ...(query?.actionPrefix ? { actionPrefix: query.actionPrefix } : {}),
           ...(query?.category ? { category: query.category } : {}),

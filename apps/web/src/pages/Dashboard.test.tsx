@@ -11,6 +11,10 @@ vi.mock('../auth.js', () => ({
       user: { id: '1', email: 'owner@example.com', displayName: 'Alex Rivera', status: 'active' },
       organisation: { id: 'default', name: 'Contoso', slug: 'contoso', status: 'active' },
       membership: { role: 'owner', status: 'active' },
+      roles: ['tenant.owner'],
+      permissions: ['users:read'],
+      tenants: [{ id: 'default', name: 'Contoso', slug: 'contoso', role: 'owner' }],
+      platform: { operator: true, permissions: ['tenants:read'] },
     },
     refresh: async () => undefined,
   }),
@@ -55,7 +59,8 @@ describe('DashboardPage', () => {
       </MemoryRouter>,
     );
     expect(await screen.findByRole('heading', { name: 'Contoso' })).toBeTruthy();
-    expect(screen.getByText(/Super administrator/)).toBeTruthy();
+    expect(screen.getByText(/Owner/)).toBeTruthy();
+    expect(screen.getByText(/Platform operator/)).toBeTruthy();
     expect(screen.getByText('Ready')).toBeTruthy();
     expect(screen.getByText('People')).toBeTruthy();
     expect(screen.getByText('3')).toBeTruthy();

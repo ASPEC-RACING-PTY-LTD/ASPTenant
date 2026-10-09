@@ -1,4 +1,5 @@
 import { createMigrator, type SqlClient } from '@aspec/db';
+import { generateRlsPolicySql } from '@aspec/orgs';
 
 function schemaSql(dialect: 'postgres' | 'sqlite'): string {
   const big = dialect === 'postgres' ? 'BIGINT' : 'INTEGER';
@@ -78,6 +79,44 @@ CREATE UNIQUE INDEX IF NOT EXISTS aspectenant_applications_client_uq
 `;
 }
 
+/** Tables that hold tenant data and carry `tenant_id`. Row-level security applies to each. */
+export const TENANT_TABLES = [
+  'aspectenant_groups',
+  'aspectenant_group_members',
+  'aspectenant_domains',
+  'aspectenant_mailboxes',
+  'aspectenant_mailbox_aliases',
+  'aspectenant_applications',
+] as const;
+
+function tenancySql(dialect: 'postgres' | 'sqlite'): string {
+  const token = dialect === 'postgres' ? `md5(random()::text || id)` : `lower(hex(randomblob(16)))`;
+  return `
+ALTER TABLE aspectenant_group_members ADD COLUMN tenant_id TEXT NOT NULL DEFAULT '';
+UPDATE aspectenant_group_members SET tenant_id = (
+  SELECT g.tenant_id FROM aspectenant_groups g WHERE g.id = aspectenant_group_members.group_id
+);
+CREATE INDEX IF NOT EXISTS aspectenant_group_members_tenant_idx
+  ON aspectenant_group_members (tenant_id, group_id);
+
+ALTER TABLE aspectenant_mailbox_aliases ADD COLUMN tenant_id TEXT NOT NULL DEFAULT '';
+UPDATE aspectenant_mailbox_aliases SET tenant_id = (
+  SELECT m.tenant_id FROM aspectenant_mailboxes m WHERE m.id = aspectenant_mailbox_aliases.mailbox_id
+);
+CREATE INDEX IF NOT EXISTS aspectenant_mailbox_aliases_tenant_idx
+  ON aspectenant_mailbox_aliases (tenant_id, mailbox_id);
+
+ALTER TABLE aspectenant_domains ADD COLUMN verification_token TEXT NOT NULL DEFAULT '';
+UPDATE aspectenant_domains SET verification_token = ${token} WHERE verification_token = '';
+CREATE UNIQUE INDEX IF NOT EXISTS aspectenant_domains_verified_uq
+  ON aspectenant_domains (hostname) WHERE status = 'verified';
+
+DROP INDEX IF EXISTS aspectenant_mailboxes_address_uq;
+CREATE UNIQUE INDEX IF NOT EXISTS aspectenant_mailboxes_address_global_uq
+  ON aspectenant_mailboxes (primary_address);
+`;
+}
+
 export async function migrateDirectory(client: SqlClient): Promise<void> {
   const migrator = createMigrator(client, {
     tablePrefix: 'aspectenant_',
@@ -86,6 +125,16 @@ export async function migrateDirectory(client: SqlClient): Promise<void> {
         id: '0001_directory',
         postgres: schemaSql('postgres'),
         sqlite: schemaSql('sqlite'),
+      },
+      {
+        id: '0002_tenancy',
+        postgres: tenancySql('postgres'),
+        sqlite: tenancySql('sqlite'),
+      },
+      {
+        id: '0003_row_level_security',
+        postgres: generateRlsPolicySql({ tables: TENANT_TABLES }),
+        sqlite: 'SELECT 1;',
       },
     ],
   });

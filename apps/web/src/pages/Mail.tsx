@@ -69,7 +69,8 @@ export function MailPage() {
       </div>
       <p className="notice">
         No message store, ingest, IMAP, outbound submission or webmail is running. Addresses can be
-        reserved here so later mail services have a directory to attach to.
+        reserved here so later mail services have a directory to attach to. Every address and alias
+        must use a domain this organisation has verified on the Domains page.
       </p>
       {error ? (
         <p className="notice notice-error" role="alert">

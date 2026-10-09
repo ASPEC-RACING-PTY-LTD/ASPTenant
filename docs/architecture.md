@@ -1,18 +1,19 @@
 # ASPECTenant architecture
 
-ASPECTenant is an open-source, self-hosted control plane for a single organisation today, with a data model that can isolate multiple tenants later. It administers identities, access, domains, applications and mail. It does not replace Word, Excel, PowerPoint, OneDrive, SharePoint, Teams, Intune or SoftDock.
+ASPECTenant is an open-source, self-hosted control plane that hosts one or more organisations (tenants) on one installation, each isolated from the others. It administers identities, access, domains, applications and mail. It does not replace Word, Excel, PowerPoint, OneDrive, SharePoint, Teams, Intune or SoftDock.
 
 ## What exists now
 
 The control plane is a working administrative foundation:
 
 - Docker Compose: PostgreSQL, control-plane API, admin UI
-- First-time setup of one organisation owner
+- First-time setup of the platform operator and the first tenant
+- Multiple tenants: create, archive, restore, add members (platform operators)
 - Email/password sessions, session revoke and password change
-- Seeded RBAC (`tenant.owner`, `tenant.admin`, `tenant.auditor`)
+- RBAC per tenant (`tenant.owner`, `tenant.admin`, `tenant.auditor`) and a global `platform.operator`
 - User directory (create, profile, suspend/reinstate)
 - Security and distribution groups with membership
-- Custom domain records with operator-confirmed verification
+- Custom domains verified by DNS TXT record, each verified domain owned by one tenant
 - Mailbox directory records and aliases (no message store)
 - Application registration records (no OIDC/SAML IdP)
 - Organisation settings
@@ -73,16 +74,23 @@ No SaaS mailbox provider is the system of record. A relay may see a message in t
 
 ## Tenant model
 
-`@aspec/orgs` runs in `single` mode. Setup creates the implicit default organisation (`id=default`) and adds the first user as owner.
+See ADR-0006. In short:
 
-The store already supports multi-organisation records, memberships, teams and optional tenant provisioning strategies (`schema` / `database` / application-level). Do not assume a shared global user table will remain acceptable. New domain tables should carry `tenant_id` (the organisation id) from the start.
+- `@aspec/orgs` runs in `multi` mode with the `shared` strategy. A tenant is an organisation.
+- Accounts are global and join tenants through memberships. One account can belong to several tenants.
+- Every authenticated API request is bound to one tenant the account is an active member of (`x-aspectenant-tenant` header from the admin UI, otherwise the oldest membership). Tenant routes take the tenant from that binding only.
+- Tenant roles are assigned in organisation scope. `platform.operator` is global and grants no tenant data access.
+- Every directory table carries `tenant_id` and has PostgreSQL row-level security. The request runs in a transaction that sets `app.tenant_id`; the API connects as the non-superuser `aspectenant_app` role so the policies apply.
+- A verified domain belongs to one tenant. Mailbox addresses and aliases must use a verified domain of their tenant and are unique across the installation.
+
+New tables that hold tenant data must carry `tenant_id`, be added to `TENANT_TABLES` in `apps/api/src/directory/schema.ts` so they get a row-level security policy, and be read through `DirectoryService` (or another service that takes the tenant from the request context).
 
 ## Authentication model
 
 - Local accounts and cookie sessions: `@aspec/auth`
 - Profile and lifecycle records: `@aspec/users`, keyed by the auth account id
-- Authorisation: `@aspec/rbac` with seeded `tenant.owner`, `tenant.admin` and `tenant.auditor`
-- Public self-registration is disabled. The only bootstrap is `POST /api/v1/setup` while no users exist
+- Authorisation: `@aspec/rbac`. `tenant.owner`, `tenant.admin` and `tenant.auditor` are assigned per tenant; `platform.operator` is assigned globally
+- Public self-registration is disabled. The only bootstrap is `POST /api/v1/setup` while no users exist. Later accounts are created by tenant administrators or platform operators
 - CSRF origin checks use `PUBLIC_URL`
 - MFA, WebAuthn, OIDC client, SAML, SCIM and LDAP are present as library capabilities or future work. They are not exposed as working product features in this scaffold
 

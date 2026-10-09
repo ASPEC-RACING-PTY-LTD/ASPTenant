@@ -10,11 +10,11 @@ import {
 } from '../api.js';
 import { useAuth } from '../auth.js';
 
-function roleLabel(role: string | undefined): string {
-  if (role === 'owner') return 'Super administrator';
-  if (role === 'admin') return 'Administrator';
-  if (role === 'auditor') return 'Auditor';
-  return role ?? 'Member';
+function roleLabel(roles: string[] | undefined, membershipRole: string | undefined): string {
+  if (roles?.includes('tenant.owner') || membershipRole === 'owner') return 'Owner';
+  if (roles?.includes('tenant.admin')) return 'Administrator';
+  if (roles?.includes('tenant.auditor')) return 'Auditor';
+  return 'Member';
 }
 
 function formatWhen(timestamp: number): string {
@@ -52,10 +52,11 @@ export function DashboardPage() {
     <>
       <div className="page-header dash-head">
         <div>
-          <h1>{session?.organisation.name ?? 'Organisation'}</h1>
+          <h1>{session?.organisation?.name ?? 'Organisation'}</h1>
           <p>
             {displayName}
-            {session?.membership?.role ? ` · ${roleLabel(session.membership.role)}` : ''}
+            {session ? ` · ${roleLabel(session.roles, session.membership?.role)}` : ''}
+            {session?.platform.operator ? ' · Platform operator' : ''}
           </p>
         </div>
         <span className={`badge ${ready ? 'badge-ok' : health ? 'badge-warn' : 'badge-off'}`}>

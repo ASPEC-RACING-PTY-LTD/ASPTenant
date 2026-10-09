@@ -16,7 +16,7 @@ Unattended:
 sudo env PUBLIC_URL=https://tenant.example.com bash -c "$(curl -fsSL https://raw.githubusercontent.com/ASPEC-RACING-PTY-LTD/ASPTenant/main/install.sh)"
 ```
 
-Open `/setup` and create the super administrator. `.env` only needs the public URL and generated store credentials. Everything else is collected on that first-run page.
+Open `/setup` and create the first account. It becomes the platform operator and the owner of the first organisation; further organisations (tenants) are created on the Tenants page. `.env` only needs the public URL and generated store credentials. Everything else is collected on that first-run page.
 
 Published images:
 

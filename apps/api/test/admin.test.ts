@@ -1,33 +1,11 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import {
-  cookieHeader,
   createTestContext,
   destroyTestContext,
   request,
+  setupOwner,
   type TestContext,
 } from './helpers.js';
-
-async function setupOwner(ctx: TestContext): Promise<string> {
-  const created = await request(ctx, '/api/v1/setup', {
-    method: 'POST',
-    body: JSON.stringify({
-      email: 'owner@example.com',
-      password: 'correct-horse-battery',
-      displayName: 'Owner',
-      organisationName: 'Contoso',
-    }),
-  });
-  expect(created.status).toBe(201);
-  const login = await request(ctx, '/auth/login', {
-    method: 'POST',
-    body: JSON.stringify({
-      email: 'owner@example.com',
-      password: 'correct-horse-battery',
-    }),
-  });
-  expect(login.status).toBe(200);
-  return cookieHeader(login);
-}
 
 describe('admin directory', () => {
   let ctx: TestContext;
@@ -60,7 +38,8 @@ describe('admin directory', () => {
     };
     expect(userList.items).toHaveLength(1);
     expect(userList.items[0]?.email).toBe('owner@example.com');
-    expect(userList.items[0]?.mailboxId).toMatch(/\S/);
+    // No verified domain yet, so no mailbox record was created for the owner.
+    expect(userList.items[0]?.mailboxId).toBeNull();
 
     const createdUser = await request(ctx, '/api/v1/users', {
       method: 'POST',
@@ -69,7 +48,6 @@ describe('admin directory', () => {
         email: 'member@example.com',
         password: 'correct-horse-battery',
         displayName: 'Member',
-        orgRole: 'member',
       }),
     });
     expect(createdUser.status).toBe(201);
@@ -100,6 +78,19 @@ describe('admin directory', () => {
     expect(domainBody.status).toBe('pending');
     expect(domainBody.primary).toBe(true);
 
+    const unverified = await request(ctx, `/api/v1/domains/${domainBody.id}/verify`, {
+      method: 'POST',
+      headers,
+    });
+    expect(unverified.status).toBe(422);
+
+    const pending = (await (await request(ctx, '/api/v1/domains', { headers })).json()) as {
+      items: Array<{ verification: { name: string; value: string } }>;
+    };
+    const record = pending.items[0]?.verification;
+    expect(record?.name).toBe('_aspectenant.mail.example.com');
+    ctx.dns.set(record?.name ?? '', [record?.value ?? '']);
+
     const verified = await request(ctx, `/api/v1/domains/${domainBody.id}/verify`, {
       method: 'POST',
       headers,
@@ -125,20 +116,39 @@ describe('admin directory', () => {
       messageStore: boolean;
     };
     expect(mailboxBody.messageStore).toBe(false);
-    expect(mailboxBody.items.some((item) => item.primaryAddress === 'owner@example.com')).toBe(
-      true,
-    );
+    expect(mailboxBody.items).toHaveLength(0);
+
+    const offDomain = await request(ctx, '/api/v1/mailboxes', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ kind: 'shared', primaryAddress: 'help@example.com' }),
+    });
+    expect(offDomain.status).toBe(422);
 
     const shared = await request(ctx, '/api/v1/mailboxes', {
       method: 'POST',
       headers,
       body: JSON.stringify({
         kind: 'shared',
-        primaryAddress: 'help@example.com',
+        primaryAddress: 'help@mail.example.com',
         displayName: 'Help',
       }),
     });
     expect(shared.status).toBe(201);
+
+    const staffer = await request(ctx, '/api/v1/users', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ email: 'staff@mail.example.com', password: 'correct-horse-battery' }),
+    });
+    expect(staffer.status).toBe(201);
+    expect(((await staffer.json()) as { mailboxId: string | null }).mailboxId).toMatch(/\S/);
+
+    const inUse = await request(ctx, `/api/v1/domains/${domainBody.id}`, {
+      method: 'DELETE',
+      headers,
+    });
+    expect(inUse.status).toBe(409);
 
     const settings = await request(ctx, '/api/v1/settings', {
       method: 'PATCH',
@@ -158,7 +168,7 @@ describe('admin directory', () => {
     const system = await request(ctx, '/api/v1/system', { headers });
     expect(system.status).toBe(200);
     const systemBody = (await system.json()) as { counts: { users: number; groups: number } };
-    expect(systemBody.counts.users).toBe(2);
+    expect(systemBody.counts.users).toBe(3);
     expect(systemBody.counts.groups).toBe(1);
 
     const platform = await request(ctx, '/api/v1/platform');
@@ -184,7 +194,6 @@ describe('admin directory', () => {
       body: JSON.stringify({
         email: 'locked@example.com',
         password: 'correct-horse-battery',
-        orgRole: 'member',
       }),
     });
     const member = (await createdUser.json()) as { id: string };

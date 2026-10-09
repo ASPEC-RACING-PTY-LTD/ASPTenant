@@ -1,7 +1,7 @@
 # ADR-0003: Single-organisation mode with multi-tenant-ready data
 
 ## Status
-Accepted
+Superseded by ADR-0006
 
 ## Date
 2026-10-02

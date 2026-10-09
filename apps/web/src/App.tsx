@@ -14,6 +14,7 @@ import { SecurityPage } from './pages/Security.js';
 import { SettingsPage } from './pages/Settings.js';
 import { SetupPage } from './pages/Setup.js';
 import { SystemPage } from './pages/System.js';
+import { TenantsPage } from './pages/Tenants.js';
 import { UsersPage } from './pages/Users.js';
 
 function RequireSession({ children }: { children: ReactNode }) {
@@ -47,6 +48,7 @@ export function App() {
         <Route path="audit" element={<AuditPage />} />
         <Route path="migration" element={<PlannedPage area="migration" />} />
         <Route path="settings" element={<SettingsPage />} />
+        <Route path="tenants" element={<TenantsPage />} />
       </Route>
     </Routes>
   );

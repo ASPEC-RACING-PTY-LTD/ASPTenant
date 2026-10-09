@@ -49,16 +49,23 @@ if [[ ! -f .env ]]; then
     fi
   fi
   POSTGRES_PASSWORD="$(openssl rand -hex 24 2>/dev/null || tr -dc 'A-Za-z0-9' </dev/urandom | head -c 48)"
+  POSTGRES_APP_PASSWORD="$(openssl rand -hex 24 2>/dev/null || tr -dc 'A-Za-z0-9' </dev/urandom | head -c 48)"
   AUDIT_HMAC_KEY="$(openssl rand -hex 32 2>/dev/null || tr -dc 'A-Za-z0-9' </dev/urandom | head -c 64)"
   cat > .env <<EOF
 PUBLIC_URL=${PUBLIC_URL}
 POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+POSTGRES_APP_PASSWORD=${POSTGRES_APP_PASSWORD}
 AUDIT_HMAC_KEY=${AUDIT_HMAC_KEY}
 ASPECTENANT_PORT=${ASPECTENANT_PORT:-8080}
 ASPECTENANT_API_IMAGE=${API_IMAGE}
 ASPECTENANT_WEB_IMAGE=${WEB_IMAGE}
 EOF
   chmod 600 .env
+fi
+
+# Installations from before tenant isolation have no application database role password.
+if ! grep -q '^POSTGRES_APP_PASSWORD=' .env; then
+  echo "POSTGRES_APP_PASSWORD=$(openssl rand -hex 24 2>/dev/null || tr -dc 'A-Za-z0-9' </dev/urandom | head -c 48)" >> .env
 fi
 
 # shellcheck disable=SC1091

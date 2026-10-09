@@ -7,6 +7,7 @@ import { cookieSecure, publicOrigin } from './config.js';
 import { createPlatformIpResolver } from './http/client-ip.js';
 import type { Platform } from './platform.js';
 import { createControlPlaneApi } from './routes/control-plane.js';
+import { INTERNAL_HEADERS, resolveTenant, TENANT_HEADER, withTenant } from './tenancy.js';
 
 export function createApp(platform: Platform): Hono<{ Variables: AuthVariables }> {
   const resolveIp = createPlatformIpResolver(platform.config);
@@ -95,10 +96,19 @@ export function createApp(platform: Platform): Hono<{ Variables: AuthVariables }
       ?.incoming?.socket?.remoteAddress;
     const ip = resolveIp(incoming, (name) => c.req.header(name) ?? undefined);
     const headers = new Headers(c.req.raw.headers);
+    for (const name of INTERNAL_HEADERS) headers.delete(name);
     if (ip) headers.set('x-aspectenant-client-ip', ip);
     const authState = c.get('auth') as { account?: { id: string } } | null | undefined;
-    if (authState?.account?.id) headers.set('x-aspectenant-account-id', authState.account.id);
-    return api.handle(new Request(c.req.raw, { headers }), { path: c.req.path });
+    const accountId = authState?.account?.id;
+    if (accountId) headers.set('x-aspectenant-account-id', accountId);
+    const forward = () => api.handle(new Request(c.req.raw, { headers }), { path: c.req.path });
+    if (!accountId) return forward();
+
+    // Bind the request to one tenant the account is an active member of. Tenant routes refuse
+    // to run without it; platform routes do not need it.
+    const tenant = await resolveTenant(platform, accountId, c.req.header(TENANT_HEADER));
+    if (!tenant) return forward();
+    return withTenant(platform, tenant, accountId, forward);
   };
 
   const publicApi = (path: string) =>

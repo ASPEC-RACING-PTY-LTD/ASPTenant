@@ -20,8 +20,8 @@ export function createSettingsRoutes(platform: Platform) {
       responses: { '200': { description: 'Settings' } },
       handler: async ({ raw }) => {
         const accountId = accountIdFromRequest(raw);
-        await requirePermission(platform, accountId, 'orgs:read');
-        const org = await platform.orgs.getDefaultOrg();
+        const tenantId = await requirePermission(platform, accountId, 'orgs:read');
+        const org = await platform.orgs.getOrg(tenantId);
         return ok({
           organisation: {
             id: org.id,
@@ -31,7 +31,7 @@ export function createSettingsRoutes(platform: Platform) {
             createdAt: org.createdAt,
             updatedAt: org.updatedAt,
           },
-          tenantMode: 'single',
+          tenantMode: 'multi',
           appName: platform.config.appName,
         });
       },
@@ -46,15 +46,15 @@ export function createSettingsRoutes(platform: Platform) {
       responses: { '200': { description: 'Updated' } },
       handler: async ({ raw, request }) => {
         const accountId = accountIdFromRequest(raw);
-        await requirePermission(platform, accountId, 'orgs:settings');
+        const tenantId = await requirePermission(platform, accountId, 'orgs:settings');
         const body = request.body;
         if (!body) throw new ConflictError('Settings body is required');
-        const org = await platform.orgs.getDefaultOrg();
+        const org = await platform.orgs.getOrg(tenantId);
         const updated = await platform.orgs.updateOrg(
           org.id,
           { name: body.name.trim() },
           {},
-          { actor: actorFromRequest(raw, accountId) },
+          { actor: actorFromRequest(raw, accountId), tenantId },
         );
         await platform.audit.record({
           action: 'organisation.settings.updated',

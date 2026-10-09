@@ -1,4 +1,4 @@
-import { NavLink, Outlet } from 'react-router-dom';
+import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { logout } from '../api.js';
 import { useAuth } from '../auth.js';
 
@@ -17,7 +17,15 @@ const LINKS = [
 ] as const;
 
 export function AdminShell() {
-  const { session, refresh } = useAuth();
+  const { session, refresh, selectTenant } = useAuth();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const operator = session?.platform.operator === true;
+  const tenants = session?.tenants ?? [];
+  const onPlatformPage = location.pathname.startsWith('/tenants');
+  const links = operator
+    ? [...LINKS, { to: '/tenants', label: 'Tenants', implemented: true } as const]
+    : LINKS;
 
   return (
     <div className="app-shell">
@@ -30,7 +38,7 @@ export function AdminShell() {
           </div>
         </NavLink>
         <nav className="nav" aria-label="Administration">
-          {LINKS.map((link) => (
+          {links.map((link) => (
             <NavLink
               key={link.to}
               to={link.to}
@@ -51,7 +59,30 @@ export function AdminShell() {
       </aside>
       <div className="main">
         <header className="topbar">
-          <div>{session?.organisation.name ?? 'ASPECTenant'}</div>
+          <div className="tenant-switch">
+            {tenants.length > 1 ? (
+              <>
+                <label htmlFor="tenant-select">Organisation</label>
+                <select
+                  id="tenant-select"
+                  value={session?.organisation?.id ?? ''}
+                  onChange={(event) => {
+                    void selectTenant(event.target.value).then(() => {
+                      if (!onPlatformPage) navigate('/');
+                    });
+                  }}
+                >
+                  {tenants.map((tenant) => (
+                    <option key={tenant.id} value={tenant.id}>
+                      {tenant.name}
+                    </option>
+                  ))}
+                </select>
+              </>
+            ) : (
+              <strong>{session?.organisation?.name ?? 'No organisation'}</strong>
+            )}
+          </div>
           <div>
             {session?.user.email}
             <button
@@ -67,7 +98,23 @@ export function AdminShell() {
           </div>
         </header>
         <div className="content">
-          <Outlet />
+          {session?.organisation || onPlatformPage ? (
+            <Outlet key={session?.organisation?.id ?? 'platform'} />
+          ) : (
+            <section className="panel">
+              <h2>No organisation</h2>
+              <p>
+                This account is not an active member of any organisation, or its organisation has
+                been archived. Ask an administrator of your organisation to add or reinstate you.
+              </p>
+              {operator ? (
+                <p>
+                  As a platform operator you can manage organisations on the{' '}
+                  <Link to="/tenants">Tenants</Link> page.
+                </p>
+              ) : null}
+            </section>
+          )}
         </div>
       </div>
     </div>

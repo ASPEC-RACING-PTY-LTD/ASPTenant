@@ -7,6 +7,10 @@ networks:
 volumes:
   postgres_data:
 
+configs:
+  db_roles:
+    file: ./deploy/postgres/app-role.sql
+
 services:
   postgres:
     image: postgres:17.6-alpine
@@ -20,12 +24,32 @@ services:
     networks:
       - internal
     ports:
-      - "127.0.0.1:5432:5432"
+      - "127.0.0.1:${ASPECTENANT_DB_PORT:-5432}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U aspec -d aspec"]
       interval: 3s
       timeout: 3s
       retries: 30
+
+  # Creates the non-superuser role the API connects as, so row-level security applies.
+  db-roles:
+    image: postgres:17.6-alpine
+    restart: "no"
+    environment:
+      PGHOST: postgres
+      PGUSER: aspec
+      PGDATABASE: aspec
+      PGPASSWORD: ${POSTGRES_PASSWORD:-aspec}
+      APP_DB_PASSWORD: ${POSTGRES_APP_PASSWORD:-aspectenant}
+    configs:
+      - source: db_roles
+        target: /app-role.sql
+    command: ["sh", "-c", "psql -v ON_ERROR_STOP=1 -v app_password=\"$$APP_DB_PASSWORD\" -f /app-role.sql"]
+    networks:
+      - internal
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   api:
     build:
@@ -34,15 +58,15 @@ services:
     image: ${ASPECTENANT_API_IMAGE:-aspectenant-api:local}
     restart: unless-stopped
     environment:
-      DATABASE_URL: postgres://aspec:${POSTGRES_PASSWORD:-aspec}@postgres:5432/aspec
+      DATABASE_URL: postgres://aspectenant_app:${POSTGRES_APP_PASSWORD:-aspectenant}@postgres:5432/aspec
       PUBLIC_URL: ${PUBLIC_URL:-http://localhost:8080}
       TRUSTED_PROXIES: private
       AUDIT_HMAC_KEY: ${AUDIT_HMAC_KEY:-}
     networks:
       - internal
     depends_on:
-      postgres:
-        condition: service_healthy
+      db-roles:
+        condition: service_completed_successfully
 
   web:
     build:

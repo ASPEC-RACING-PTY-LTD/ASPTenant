@@ -37,7 +37,7 @@ export function SettingsPage() {
     <>
       <div className="page-header">
         <h1>Settings</h1>
-        <p>Organisation identity for this single-tenant installation.</p>
+        <p>Identity of the organisation you are working in.</p>
       </div>
       {error ? (
         <p className="notice notice-error" role="alert">
@@ -56,7 +56,10 @@ export function SettingsPage() {
             <label htmlFor="org-slug">Slug</label>
             <input id="org-slug" value={slug} disabled />
           </div>
-          <p>Tenant mode is single. Multi-tenant isolation remains in the data model only.</p>
+          <p>
+            Each organisation is a separate tenant. Its users, groups, domains, mailboxes,
+            applications and audit history are not visible to other organisations.
+          </p>
           <button className="btn" type="submit">
             Save
           </button>

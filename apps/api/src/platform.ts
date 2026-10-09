@@ -1,3 +1,4 @@
+import { resolveTxt as dnsResolveTxt } from 'node:dns/promises';
 import { createAuditLogger } from '@aspec/audit';
 import { createSqlAuditStore, migrate as migrateAudit } from '@aspec/audit/sql';
 import { type Auth, createAuth } from '@aspec/auth';
@@ -14,6 +15,10 @@ import type { AppConfig } from './config.js';
 import { loadAppConfig } from './config.js';
 import { DirectoryService, migrateDirectory } from './directory/index.js';
 import { platformRbacDefinition } from './permissions.js';
+import { reconcileLegacyRoleAssignments, rowLevelSecurityStatus } from './tenancy.js';
+
+/** Looks up TXT records. Each record is returned as its character-string chunks. */
+export type TxtResolver = (name: string) => Promise<string[][]>;
 
 export interface Platform {
   readonly config: AppConfig;
@@ -25,6 +30,7 @@ export interface Platform {
   readonly rbac: Rbac;
   readonly audit: ReturnType<typeof createAuditLogger>;
   readonly directory: DirectoryService;
+  readonly resolveTxt: TxtResolver;
   readonly startedAt: number;
 }
 
@@ -32,6 +38,8 @@ export interface CreatePlatformOptions {
   config?: AppConfig;
   database?: Database;
   logger?: Logger;
+  /** DNS TXT lookup used for domain verification. Defaults to the system resolver. */
+  resolveTxt?: TxtResolver;
 }
 
 export async function createPlatform(options: CreatePlatformOptions = {}): Promise<Platform> {
@@ -89,19 +97,13 @@ export async function createPlatform(options: CreatePlatformOptions = {}): Promi
   });
 
   const orgs = createOrgs({
-    mode: 'single',
+    mode: 'multi',
     store: createSqlOrgsStore(db),
     audit,
     permissions: rbac,
     logger,
-    single: {
-      id: 'default',
-      name: config.appName,
-      slug: 'default',
-    },
     invitations: { appName: config.appName },
   });
-  await orgs.getDefaultOrg();
 
   const platform = {
     config,
@@ -113,9 +115,16 @@ export async function createPlatform(options: CreatePlatformOptions = {}): Promi
     rbac,
     audit,
     directory: undefined as unknown as DirectoryService,
+    resolveTxt: options.resolveTxt ?? dnsResolveTxt,
     startedAt: Date.now(),
   };
   platform.directory = new DirectoryService(platform);
+
+  await reconcileLegacyRoleAssignments(platform);
+  if (db.dialect === 'postgres') {
+    const rls = await rowLevelSecurityStatus(db);
+    if (!rls.enforced) logger.warn({ rls }, rls.detail);
+  }
   return platform;
 }
 

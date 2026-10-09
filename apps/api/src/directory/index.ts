@@ -1,5 +1,12 @@
-export { migrateDirectory } from './schema.js';
-export { DirectoryService } from './service.js';
+export { migrateDirectory, TENANT_TABLES } from './schema.js';
+export {
+  DirectoryService,
+  type DomainVerificationRecord,
+  isUniqueViolation,
+  VERIFICATION_LABEL,
+  VERIFICATION_PREFIX,
+  verificationRecord,
+} from './service.js';
 export { DirectoryStore } from './store.js';
 export type {
   DirectoryApplication,

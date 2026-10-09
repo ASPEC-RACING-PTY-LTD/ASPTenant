@@ -458,3 +458,28 @@ input {
     display: none;
   }
 }
+
+.tenant-switch {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.tenant-switch label {
+  color: var(--ink-muted);
+  font-size: 13px;
+}
+
+.tenant-switch select {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 6px 8px;
+  background: #fff;
+  font: inherit;
+}
+
+.dns-record {
+  font-family: var(--mono);
+  font-size: 12px;
+  word-break: break-all;
+}
