@@ -83,16 +83,60 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: v${{ steps.version.outputs.version }}
         run: gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --target "$GITHUB_SHA" --generate-notes --title "$TAG"
+  # Same message as the org's shared discord-deploy-notify workflow. That workflow lives in a
+  # private repository, which a public repository cannot call, so the step is inlined here.
   notify:
     name: Discord notification
     if: ${{ always() }}
     needs:
       - check
       - publish
-    uses: ASPEC-RACING-PTY-LTD/.github/.github/workflows/discord-deploy-notify.yml@main
-    with:
-      result: ${{ needs.publish.result }}
-      title: Docker Image Build
-      details: "${{ format('Validation: {0} | Image publish: {1}', needs.check.result, needs.publish.result) }}"
-    secrets: inherit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send Discord notification
+        env:
+          WEBHOOK: ${{ secrets.DISCORD_DEPLOY_WEBHOOK }}
+          RESULT: ${{ needs.publish.result }}
+          TITLE: Docker Image Build
+          DETAILS: "${{ format('Validation: {0} | Image publish: {1}', needs.check.result, needs.publish.result) }}"
+          REPOSITORY: ${{ github.repository }}
+          BRANCH: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+          ACTOR: ${{ github.actor }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "$WEBHOOK" ]; then
+            echo "::warning::DISCORD_DEPLOY_WEBHOOK is not available; skipping the notification."
+            exit 0
+          fi
+          python3 - <<'PY' > /tmp/payload.json
+          import json
+          import os
+
+          ok = os.environ["RESULT"] == "success"
+          fields = [
+              {"name": "Repository", "value": os.environ["REPOSITORY"], "inline": False},
+              {"name": "Branch", "value": os.environ["BRANCH"], "inline": True},
+              {"name": "Commit", "value": os.environ["SHA"][:7], "inline": True},
+              {"name": "Triggered by", "value": os.environ["ACTOR"], "inline": True},
+          ]
+          details = os.environ.get("DETAILS", "").strip()
+          if details:
+              fields.append({"name": "Details", "value": details[:1024], "inline": False})
+          status = "SUCCESS" if ok else "FAILED"
+          icon = "✅" if ok else "❌"
+          print(json.dumps({
+              "username": "GitHub Deployments",
+              "embeds": [{
+                  "title": f'{icon} {os.environ["TITLE"]} {status}',
+                  "color": 5763719 if ok else 15548997,
+                  "url": os.environ["RUN_URL"],
+                  "fields": fields,
+                  "footer": {"text": "GitHub Actions"},
+              }],
+          }))
+          PY
+          curl --fail-with-body -H "Content-Type: application/json" -d @/tmp/payload.json "$WEBHOOK"
 
