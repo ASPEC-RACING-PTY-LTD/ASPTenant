@@ -81,7 +81,7 @@ See ADR-0006. In short:
 - `@aspec/orgs` runs in `multi` mode with the `shared` strategy. A tenant is an organisation.
 - Accounts are global and join tenants through memberships. One account can belong to several tenants.
 - Every authenticated API request is bound to one tenant the account is an active member of (`x-aspectenant-tenant` header from the admin UI, otherwise the oldest membership). Tenant routes take the tenant from that binding only.
-- Tenant roles are assigned in organisation scope. `platform.operator` is global and grants no tenant data access.
+- Tenant roles are assigned in organisation scope. `platform.operator` is global and grants no tenant permission. Its only reach into tenant data is `mailboxes:access`: operators can open any tenant's mailboxes, and every use is audited in that tenant (see ADR-0006).
 - Every directory table carries `tenant_id` and has PostgreSQL row-level security. The request runs in a transaction that sets `app.tenant_id`; the API connects as the non-superuser `aspectenant_app` role so the policies apply.
 - A verified domain belongs to one tenant. Mailbox addresses and aliases must use a verified domain of their tenant and are unique across the installation.
 

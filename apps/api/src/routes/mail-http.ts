@@ -145,7 +145,8 @@ export function createMailHttp(
 
   // Webmail
   app.get('/mail/me', async (c) => {
-    const mailboxes = await platform.directory.listAccessibleMailboxes(accountId(c));
+    // Operators with mailboxes:access also get every other mailbox of the tenant.
+    const mailboxes = await platform.mail.mailboxesFor(accountId(c));
     const items = await Promise.all(
       mailboxes.map(async (mailbox) => {
         await platform.mail.messages.ensureFolders(mailbox.tenantId, mailbox.id);

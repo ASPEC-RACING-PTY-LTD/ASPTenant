@@ -102,6 +102,7 @@ export function AdminShell() {
                   {tenants.map((tenant) => (
                     <option key={tenant.id} value={tenant.id}>
                       {tenant.name}
+                      {tenant.role === 'operator' ? ' (mailboxes only)' : ''}
                     </option>
                   ))}
                 </select>

@@ -151,6 +151,11 @@ export interface SecurityRole {
   permissions: string[];
 }
 
+/** Set by platform operators. importWorkers 0 pauses the tenant's imports. */
+export interface TenantLimits {
+  importWorkers: number;
+}
+
 export interface TenantSummary {
   id: string;
   name: string;
@@ -159,6 +164,7 @@ export interface TenantSummary {
   createdAt: number;
   members: number;
   joined: boolean;
+  limits: TenantLimits;
 }
 
 export interface TenantDetail {
@@ -174,6 +180,7 @@ export interface TenantDetail {
     status: string;
     roles: string[];
   }>;
+  limits: TenantLimits;
 }
 
 const TENANT_KEY = 'aspectenant.tenant';
@@ -504,6 +511,10 @@ export async function addTenantMember(
   });
 }
 
+export async function setTenantLimits(id: string, limits: TenantLimits): Promise<TenantLimits> {
+  return api(`/api/v1/tenants/${id}/limits`, { method: 'PUT', body: JSON.stringify(limits) });
+}
+
 export async function archiveTenant(id: string): Promise<void> {
   await api(`/api/v1/tenants/${id}/archive`, { method: 'POST' });
 }
@@ -526,6 +537,8 @@ export interface MailFolderInfo {
 
 export interface MyMailbox extends DirectoryMailbox {
   folders: MailFolderInfo[];
+  /** Opened through platform operator access rather than membership. Every use is audited. */
+  operator: boolean;
 }
 
 export interface MessageSummary {
@@ -788,8 +801,14 @@ export type ImportJob = JobInfo<
   }
 >;
 
-export async function listImports(): Promise<ImportJob[]> {
-  return (await api<{ items: ImportJob[] }>('/api/v1/imports')).items;
+export interface ImportList {
+  items: ImportJob[];
+  /** This organisation's import worker limit and how many imports are running now. */
+  workers: { limit: number; running: number };
+}
+
+export async function listImports(): Promise<ImportList> {
+  return api('/api/v1/imports');
 }
 
 export async function createImport(input: {

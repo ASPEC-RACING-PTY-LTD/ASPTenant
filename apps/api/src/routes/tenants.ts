@@ -8,6 +8,7 @@ import {
   isAuthEmailTaken,
   requirePlatformPermission,
 } from '../access.js';
+import { MAX_IMPORT_WORKERS } from '../limits.js';
 import { ASSIGNABLE_TENANT_ROLES } from '../permissions.js';
 import type { Platform } from '../platform.js';
 import { assignTenantRole, createTenant, membershipRoleFor, tenantRolesFor } from '../tenancy.js';
@@ -33,6 +34,10 @@ const createBody = z.object({
 
 const memberBody = accountInput.extend({
   role: z.enum(ASSIGNABLE_TENANT_ROLES).nullable().optional(),
+});
+
+const limitsBody = z.object({
+  importWorkers: z.number().int().min(0).max(MAX_IMPORT_WORKERS),
 });
 
 const listQuery = z.object({
@@ -130,6 +135,7 @@ export function createTenantRoutes(platform: Platform) {
               ...tenantView(org),
               members: await memberCount(org.id),
               joined: membership?.status === 'active',
+              limits: await platform.limits.get(org.id),
             };
           }),
         );
@@ -199,7 +205,7 @@ export function createTenantRoutes(platform: Platform) {
             roles: await tenantRolesFor(platform, membership.userId, org.id),
           });
         }
-        return ok({ ...tenantView(org), members });
+        return ok({ ...tenantView(org), members, limits: await platform.limits.get(org.id) });
       },
     }),
     defineRoute({
@@ -255,6 +261,37 @@ export function createTenantRoutes(platform: Platform) {
           status: result.status,
           roles: role ? [role] : [],
         });
+      },
+    }),
+    defineRoute({
+      method: 'put',
+      path: '/tenants/:id/limits',
+      operationId: 'setTenantLimits',
+      summary:
+        'Platform operators: set resource limits for a tenant, such as how many mailbox imports it may run at once (0 pauses them)',
+      tags: ['tenants'],
+      request: { params: idParams, body: limitsBody },
+      responses: { '200': { description: 'Limits' } },
+      handler: async ({ raw, request }) => {
+        const accountId = accountIdFromRequest(raw);
+        await requirePlatformPermission(platform, accountId, 'tenants:manage');
+        const org = await requireOrg(request.params?.id ?? '');
+        const body = request.body;
+        if (!body) throw new UnprocessableError('Limits body is required');
+        const before = await platform.limits.get(org.id);
+        const after = await platform.limits.set(org.id, body);
+        await platform.audit.record({
+          action: 'platform.tenant.limits_changed',
+          outcome: 'success',
+          category: 'admin',
+          actor: actorFromRequest(raw, accountId),
+          resource: { type: 'organisation', id: org.id },
+          tenantId: org.id,
+          changes: { before, after },
+        });
+        // A raised limit can start waiting imports straight away.
+        platform.imports.kick();
+        return ok(after);
       },
     }),
     defineRoute({

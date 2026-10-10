@@ -6,7 +6,12 @@ import { completeSetup, getSetupState } from '../bootstrap.js';
 import { MAIL_TRANSPORT_CATALOGUE, mailCapabilityStatus } from '../mail/index.js';
 import { PLATFORM_PERMISSIONS } from '../permissions.js';
 import type { Platform } from '../platform.js';
-import { activeTenantsFor, tenantRolesFor } from '../tenancy.js';
+import {
+  activeTenantsFor,
+  canOverseeMailboxes,
+  listActiveOrgs,
+  tenantRolesFor,
+} from '../tenancy.js';
 import { createApplicationRoutes } from './applications.js';
 import { createAuditRoutes } from './audit.js';
 import { createDiagnosticsRoutes } from './diagnostics.js';
@@ -99,7 +104,14 @@ export function createControlPlaneApi(platform: Platform) {
       ]);
       if (!account || !user) throw new UnauthorizedError('Sign in required');
       const current = platform.orgs.currentTenant();
-      const selected = current ? tenants.find((t) => t.org.id === current.orgId) : undefined;
+      // Operators who may open any mailbox can switch to tenants they are not a member of.
+      const others = (await canOverseeMailboxes(platform, accountId))
+        ? (await listActiveOrgs(platform))
+            .filter((org) => !tenants.some((t) => t.org.id === org.id))
+            .map((org) => ({ org, membership: null }))
+        : [];
+      const available = [...tenants, ...others];
+      const selected = current ? available.find((t) => t.org.id === current.orgId) : undefined;
       const scope = selected ? { orgId: selected.org.id } : undefined;
       const [roles, permissions, platformPermissions] = await Promise.all([
         selected ? tenantRolesFor(platform, accountId, selected.org.id) : Promise.resolve([]),
@@ -138,17 +150,17 @@ export function createControlPlaneApi(platform: Platform) {
               status: selected.org.status,
             }
           : null,
-        membership: selected
+        membership: selected?.membership
           ? { role: selected.membership.role, status: selected.membership.status }
           : null,
         roles,
         // Tenant permissions in the current organisation plus platform permissions.
         permissions: [...permissions.filter((key) => !granted.includes(key)), ...granted],
-        tenants: tenants.map((t) => ({
+        tenants: available.map((t) => ({
           id: t.org.id,
           name: t.org.name,
           slug: t.org.slug,
-          role: t.membership.role,
+          role: t.membership?.role ?? 'operator',
         })),
         platform: {
           operator: granted.includes('tenants:read'),

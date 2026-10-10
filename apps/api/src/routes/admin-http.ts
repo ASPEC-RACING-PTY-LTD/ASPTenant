@@ -5,6 +5,7 @@ import { type Context, Hono } from 'hono';
 import { z } from 'zod';
 import { requirePermission, requirePlatformPermission } from '../access.js';
 import { s3Target } from '../backup/index.js';
+import { requireTenantId } from '../directory/service.js';
 import { IMPORT_KIND, MAX_CHUNK } from '../imports/pst.js';
 import type { Platform } from '../platform.js';
 
@@ -85,7 +86,13 @@ export function createAdminHttp(
   // PST imports
   app.get('/imports', async (c) => {
     await requirePermission(platform, accountId(c), 'migration:read');
-    return c.json({ items: await platform.imports.jobs.list(IMPORT_KIND) });
+    const tenantId = requireTenantId(platform);
+    const { importWorkers } = await platform.limits.get(tenantId);
+    return c.json({
+      items: await platform.imports.jobs.list(IMPORT_KIND),
+      // Set by platform operators on the Tenants page.
+      workers: { limit: importWorkers, running: platform.imports.runningFor(tenantId) },
+    });
   });
 
   app.post('/imports', async (c) => {

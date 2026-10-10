@@ -20,6 +20,7 @@ import { DirectoryService, migrateDirectory, PLATFORM_SCOPE } from './directory/
 import { DomainConnect } from './dns/domainconnect.js';
 import { DomainSetup } from './dns/index.js';
 import { PstImporter } from './imports/pst.js';
+import { TenantLimitsService } from './limits.js';
 import { MailService } from './mail/service.js';
 import { SettingsStore } from './mail/store.js';
 import { MailServers } from './mailserver/index.js';
@@ -58,6 +59,7 @@ export interface Platform {
   readonly updates: UpdateService;
   readonly mailServers: MailServers;
   readonly imports: PstImporter;
+  readonly limits: TenantLimitsService;
   readonly backups: BackupService;
   readonly domainSetup: DomainSetup;
   readonly domainConnect: DomainConnect;
@@ -157,6 +159,7 @@ export async function createPlatform(options: CreatePlatformOptions = {}): Promi
     updates: undefined as unknown as UpdateService,
     mailServers: undefined as unknown as MailServers,
     imports: undefined as unknown as PstImporter,
+    limits: undefined as unknown as TenantLimitsService,
     backups: undefined as unknown as BackupService,
     domainSetup: undefined as unknown as DomainSetup,
     domainConnect: undefined as unknown as DomainConnect,
@@ -174,6 +177,7 @@ export async function createPlatform(options: CreatePlatformOptions = {}): Promi
     mail: new MailService(platform),
     updates: new UpdateService(platform),
     mailServers: new MailServers(platform),
+    limits: new TenantLimitsService(platform),
     imports: new PstImporter(platform),
     backups: new BackupService(platform),
     domainSetup: new DomainSetup(platform),

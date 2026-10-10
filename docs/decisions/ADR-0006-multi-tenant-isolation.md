@@ -19,7 +19,9 @@ One installation must host several organisations, each with its own domains, mai
 
 ### Roles
 - `tenant.owner`, `tenant.admin` and `tenant.auditor` are assignable only in organisation scope. Holding one in tenant A grants nothing in tenant B.
-- `platform.operator` is assignable only in global scope. It creates, archives and restores tenants, adds members to them and may confirm a domain without DNS. It grants no tenant permission: an operator reads a tenant's data only as a member of that tenant.
+- `platform.operator` is assignable only in global scope. It creates, archives and restores tenants, adds members to them, sets per-tenant limits and may confirm a domain without DNS. It grants no tenant permission: an operator administers a tenant only as a member of that tenant.
+- The one exception is `mailboxes:access`, held by platform operators. It lets an operator select any active tenant, without a membership, and open every mailbox of that tenant on the Mailbox page as if it were the owner: read, flag, move, delete and send. The tenant is bound without a membership, so all tenant admin routes still answer 403. Opening a mailbox this way is recorded in that tenant's audit log as `mail.mailbox.operator_access` (at most hourly per operator and mailbox) and every send as `mail.mailbox.operator_sent`.
+- Per-tenant limits are installation settings that only platform operators change. `importWorkers` (default 1, 0 pauses, at most 16) is how many PST imports a tenant may run at once. The queue is re-checked every 30 seconds. All import workers run in the API process and share its CPU.
 - The setup account becomes platform operator and owner of the first tenant.
 - Account-wide changes (profile, sessions, sign-in) by a tenant administrator are refused for accounts that also belong to another tenant. Suspension and removal then affect only the membership in the acting tenant.
 

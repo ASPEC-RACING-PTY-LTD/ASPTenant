@@ -32,7 +32,10 @@ export const TENANT_PERMISSIONS = [
   { key: 'migration:manage', description: 'Run mailbox imports.' },
 ] as const;
 
-/** Permissions evaluated in global scope. They never grant access to a tenant's data. */
+/**
+ * Permissions evaluated in global scope. Only mailboxes:access reaches tenant data, and every
+ * use of it is audited.
+ */
 export const PLATFORM_PERMISSIONS = [
   { key: 'platform:admin', description: 'Operate the ASPECTenant installation.' },
   { key: 'tenants:read', description: 'List tenants and their memberships.' },
@@ -40,6 +43,11 @@ export const PLATFORM_PERMISSIONS = [
   {
     key: 'domains:override',
     description: 'Confirm domain ownership without a DNS check (operator override).',
+  },
+  {
+    key: 'mailboxes:access',
+    description:
+      'Open any mailbox in any tenant and act as its owner: read, send, move and delete mail. Audited.',
   },
 ] as const;
 
@@ -105,7 +113,7 @@ export const platformRbacDefinition = defineRbac({
       key: PLATFORM_OPERATOR_ROLE,
       name: 'Platform operator',
       description:
-        'Runs the installation: creates and archives tenants. Holds no access to tenant data unless also a member of that tenant.',
+        'Runs the installation: creates and archives tenants, and can open any mailbox (audited). Holds no other access to tenant data unless also a member of that tenant.',
       permissions: PLATFORM_PERMISSIONS.map((permission) => permission.key),
       assignableScopes: ['global'],
     },

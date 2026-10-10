@@ -248,6 +248,7 @@ export function WebmailPage() {
             {mailboxes.map((item) => (
               <option key={item.id} value={item.id}>
                 {item.primaryAddress}
+                {item.operator ? ' (operator access)' : ''}
               </option>
             ))}
           </select>
@@ -338,6 +339,12 @@ export function WebmailPage() {
           </p>
         ) : null}
         {notice && !error ? <p className="notice">{notice}</p> : null}
+        {mailbox?.operator ? (
+          <p className="notice">
+            You are using {mailbox.primaryAddress} through platform operator access. You act as its
+            owner, and opening it and sending from it are recorded in the audit log.
+          </p>
+        ) : null}
         {draft && mailbox ? (
           <form className="wm-compose" onSubmit={(event) => void onSend(event)}>
             <h2>{draft.inReplyTo ? 'Reply' : 'New message'}</h2>

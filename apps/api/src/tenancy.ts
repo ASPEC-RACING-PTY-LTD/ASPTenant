@@ -42,21 +42,40 @@ export async function activeTenantsFor(
   return out;
 }
 
+/** True when the account may open mailboxes in tenants it does not belong to. */
+export async function canOverseeMailboxes(platform: Platform, userId: string): Promise<boolean> {
+  return platform.rbac.can({ id: userId, type: 'user' }, 'mailboxes:access', undefined, {
+    scope: {},
+  });
+}
+
+/** Active tenants, oldest first, for operators who may open any tenant's mailboxes. */
+export async function listActiveOrgs(platform: Platform): Promise<Organisation[]> {
+  const page = await platform.orgs.listOrgs({ status: 'active', limit: 100 });
+  return [...page.items].sort((a, b) => a.createdAt - b.createdAt);
+}
+
 /**
  * Chooses the tenant for a signed-in account. An explicit selection must be one of the
  * account's active memberships; otherwise no tenant is bound and tenant routes answer 403.
+ * Operators with mailboxes:access may also select any other active tenant. They are bound
+ * without a membership, so tenant permissions stay empty and only mailbox access applies.
  */
 export async function resolveTenant(
   platform: Platform,
   userId: string,
   requested: string | undefined,
-): Promise<TenantMembership | null> {
+): Promise<{ org: Organisation; membership: Membership | null } | null> {
   const tenants = await activeTenantsFor(platform, userId);
   const selector = requested?.trim();
-  if (selector) {
-    return tenants.find((t) => t.org.id === selector || t.org.slug === selector) ?? null;
-  }
-  return tenants[0] ?? null;
+  if (!selector) return tenants[0] ?? null;
+  const member = tenants.find((t) => t.org.id === selector || t.org.slug === selector);
+  if (member) return member;
+  if (!(await canOverseeMailboxes(platform, userId))) return null;
+  const org = (await listActiveOrgs(platform)).find(
+    (item) => item.id === selector || item.slug === selector,
+  );
+  return org ? { org, membership: null } : null;
 }
 
 /**

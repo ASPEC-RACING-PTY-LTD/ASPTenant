@@ -7,6 +7,7 @@ import {
   getTenant,
   listTenants,
   restoreTenant,
+  setTenantLimits,
   type TenantDetail,
   type TenantRole,
   type TenantSummary,
@@ -14,6 +15,10 @@ import {
 import { useAuth } from '../auth.js';
 
 type RoleChoice = 'member' | TenantRole;
+
+function workersLabel(workers: number): string {
+  return workers === 0 ? 'Paused' : String(workers);
+}
 
 function memberRoleLabel(member: TenantDetail['members'][number]): string {
   if (member.role === 'owner') return 'Owner';
@@ -40,6 +45,13 @@ export function TenantsPage() {
   const [memberEmail, setMemberEmail] = useState('');
   const [memberPassword, setMemberPassword] = useState('');
   const [memberRole, setMemberRoleChoice] = useState<RoleChoice>('member');
+  const [importWorkers, setImportWorkers] = useState('1');
+  const canOpenMailboxes = session?.permissions.includes('mailboxes:access') ?? false;
+
+  const open = (next: TenantDetail) => {
+    setDetail(next);
+    setImportWorkers(String(next.limits.importWorkers));
+  };
 
   const fail = (fallback: string) => (err: unknown) => {
     setError(err instanceof Error ? err.message : fallback);
@@ -48,7 +60,7 @@ export function TenantsPage() {
   const reload = async (openId?: string) => {
     setTenants(await listTenants());
     const id = openId ?? detail?.id;
-    if (id) setDetail(await getTenant(id));
+    if (id) open(await getTenant(id));
   };
 
   useEffect(() => {
@@ -111,6 +123,24 @@ export function TenantsPage() {
     }
   };
 
+  const onSaveLimits = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!detail) return;
+    setError(null);
+    setNotice(null);
+    try {
+      const limits = await setTenantLimits(detail.id, { importWorkers: Number(importWorkers) });
+      setNotice(
+        limits.importWorkers === 0
+          ? `Imports for ${detail.name} are paused.`
+          : `${detail.name} can now run ${limits.importWorkers} import${limits.importWorkers === 1 ? '' : 's'} at once.`,
+      );
+      await reload();
+    } catch (err) {
+      fail('Could not save the limits.')(err);
+    }
+  };
+
   return (
     <>
       <div className="page-header">
@@ -118,7 +148,9 @@ export function TenantsPage() {
         <p>
           Each tenant is a separate organisation with its own users, roles, groups, domains,
           mailboxes, applications and audit history. Operating the installation does not grant
-          access to a tenant's data; join it as a member for that.
+          access to a tenant's data, with one exception: operators can open any tenant's mailboxes
+          from the Mailbox page, and every use is recorded in that tenant's audit log. Join a tenant
+          as a member to administer it.
         </p>
       </div>
       {error ? (
@@ -208,6 +240,7 @@ export function TenantsPage() {
               <th>Slug</th>
               <th>Status</th>
               <th>Active members</th>
+              <th>Import workers</th>
               <th />
             </tr>
           </thead>
@@ -227,26 +260,29 @@ export function TenantsPage() {
                   </span>
                 </td>
                 <td>{tenant.members}</td>
+                <td>{workersLabel(tenant.limits.importWorkers)}</td>
                 <td className="btn-row">
-                  {tenant.joined && tenant.status === 'active' ? (
+                  {tenant.status === 'active' && (tenant.joined || canOpenMailboxes) ? (
                     <button
                       className="btn btn-ghost"
                       type="button"
                       onClick={() => {
-                        void selectTenant(tenant.id).then(() => navigate('/'));
+                        void selectTenant(tenant.id).then(() =>
+                          navigate(tenant.joined ? '/' : '/mailbox'),
+                        );
                       }}
                     >
-                      Open
+                      {tenant.joined ? 'Open' : 'Open mailboxes'}
                     </button>
                   ) : null}
                   <button
                     className="btn btn-ghost"
                     type="button"
                     onClick={() => {
-                      void getTenant(tenant.id).then(setDetail).catch(fail('Could not load.'));
+                      void getTenant(tenant.id).then(open).catch(fail('Could not load.'));
                     }}
                   >
-                    Members
+                    Manage
                   </button>
                   {tenant.status === 'active' ? (
                     <button
@@ -283,7 +319,34 @@ export function TenantsPage() {
       </section>
       {detail ? (
         <section className="panel">
-          <h2>Members of {detail.name}</h2>
+          <h2>{detail.name}</h2>
+          <h3>Limits</h3>
+          <p>
+            Import workers is how many mailbox imports this tenant can run at the same time. Its
+            other imports wait in the queue until a worker is free. Set 0 to pause its imports. All
+            workers share this server's CPU and disk, so raise it only as far as the server can
+            handle alongside the other tenants.
+          </p>
+          <form className="form-grid" onSubmit={(event) => void onSaveLimits(event)}>
+            <div className="field">
+              <label htmlFor="limit-import-workers">Import workers</label>
+              <input
+                id="limit-import-workers"
+                type="number"
+                min={0}
+                max={16}
+                required
+                value={importWorkers}
+                onChange={(e) => setImportWorkers(e.target.value)}
+              />
+            </div>
+            <div className="field field-action">
+              <button className="btn" type="submit">
+                Save limits
+              </button>
+            </div>
+          </form>
+          <h3>Members</h3>
           <table className="data-table">
             <thead>
               <tr>

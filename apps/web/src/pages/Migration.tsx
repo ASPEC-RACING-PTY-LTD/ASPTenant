@@ -4,6 +4,7 @@ import {
   type DirectoryMailbox,
   deleteImport,
   type ImportJob,
+  type ImportList,
   listImports,
   listMailboxes,
   retryImport,
@@ -28,20 +29,24 @@ async function readChunk(file: File, offset: number): Promise<ArrayBuffer> {
 export function MigrationPage() {
   const [mailboxes, setMailboxes] = useState<DirectoryMailbox[]>([]);
   const [jobs, setJobs] = useState<ImportJob[]>([]);
+  const [workers, setWorkers] = useState<ImportList['workers'] | null>(null);
   const [mailboxId, setMailboxId] = useState('');
   const [file, setFile] = useState<File | null>(null);
   const [upload, setUpload] = useState<{ sent: number; total: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
-    setJobs(await listImports());
+    const list = await listImports();
+    setJobs(list.items);
+    setWorkers(list.workers);
   }, []);
 
   useEffect(() => {
     void Promise.all([listMailboxes(), listImports()])
-      .then(([boxes, items]) => {
+      .then(([boxes, list]) => {
         setMailboxes(boxes);
-        setJobs(items);
+        setJobs(list.items);
+        setWorkers(list.workers);
       })
       .catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)));
   }, []);
@@ -92,6 +97,17 @@ export function MigrationPage() {
         `${err instanceof Error ? err.message : String(err)}. Choose the same file again to resume the upload.`,
       );
     }
+  };
+
+  // Why a queued import has not started yet.
+  const queuedReason = (): string => {
+    if (!workers) return 'Waiting to start.';
+    if (workers.limit === 0)
+      return 'Imports for this organisation are paused by the platform operator.';
+    if (workers.running >= workers.limit) {
+      return `Waiting for a free import worker (${workers.running} of ${workers.limit} in use).`;
+    }
+    return 'Starting shortly.';
   };
 
   const mailboxName = (id: string) =>
@@ -209,6 +225,7 @@ export function MigrationPage() {
                     {job.status}
                   </span>
                   {job.error ? <div className="muted">{job.error}</div> : null}
+                  {job.status === 'queued' ? <div className="muted">{queuedReason()}</div> : null}
                 </td>
                 <td>
                   {job.status === 'uploading'

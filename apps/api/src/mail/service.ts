@@ -7,7 +7,7 @@ import MailComposer from 'nodemailer/lib/mail-composer/index.js';
 import type { DirectoryMailbox } from '../directory/index.js';
 import { requireTenantId } from '../directory/service.js';
 import type { Platform } from '../platform.js';
-import { inScope, listActiveTenants, tenantClient } from '../tenancy.js';
+import { canOverseeMailboxes, inScope, listActiveTenants, tenantClient } from '../tenancy.js';
 import { type MailAddress, MessageStore, SettingsStore, type StoredMessage } from './store.js';
 
 export const OUTBOUND_KINDS = ['none', 'cloudflare', 'smtp'] as const;
@@ -118,10 +118,15 @@ function cleanList(values: string[] | undefined): string[] {
   return out;
 }
 
+/** Operator access to one mailbox is audited at most this often (every send is audited). */
+const OPERATOR_AUDIT_INTERVAL_MS = 60 * 60 * 1000;
+
 export class MailService {
   readonly messages: MessageStore;
   private readonly settings: SettingsStore;
   private readonly platform: Platform;
+  /** Last audit time of each operator and mailbox pair, so polling does not flood the log. */
+  private readonly operatorAudited = new Map<string, number>();
 
   constructor(platform: Platform) {
     this.platform = platform;
@@ -388,11 +393,58 @@ export class MailService {
     return { accepted, rejected };
   }
 
+  /**
+   * Mailboxes the account can open in the request tenant. Operators with mailboxes:access see
+   * every mailbox of the tenant; the ones they are not a member of are marked operator access.
+   */
+  async mailboxesFor(accountId: string): Promise<Array<DirectoryMailbox & { operator: boolean }>> {
+    const own = await this.platform.directory.listAccessibleMailboxes(accountId);
+    const items = own.map((mailbox) => ({ ...mailbox, operator: false }));
+    if (!(await canOverseeMailboxes(this.platform, accountId))) return items;
+    const others = (await this.platform.directory.listMailboxes())
+      .filter((mailbox) => !own.some((item) => item.id === mailbox.id))
+      .sort((a, b) => a.primaryAddress.localeCompare(b.primaryAddress))
+      .map((mailbox) => ({ ...mailbox, operator: true }));
+    return [...items, ...others];
+  }
+
   async canAccess(accountId: string, mailboxId: string): Promise<DirectoryMailbox> {
+    return (await this.access(accountId, mailboxId)).mailbox;
+  }
+
+  /** The mailbox, and whether it is opened through operator access rather than membership. */
+  private async access(
+    accountId: string,
+    mailboxId: string,
+  ): Promise<{ mailbox: DirectoryMailbox; operator: boolean }> {
     const mailboxes = await this.platform.directory.listAccessibleMailboxes(accountId);
     const mailbox = mailboxes.find((item) => item.id === mailboxId);
-    if (!mailbox) throw new ForbiddenError('You do not have access to this mailbox.');
-    return mailbox;
+    if (mailbox) return { mailbox, operator: false };
+    if (await canOverseeMailboxes(this.platform, accountId)) {
+      // Only mailboxes of the bound tenant are visible here.
+      const any = await this.platform.directory.getMailbox(mailboxId).catch(() => null);
+      if (any) {
+        await this.auditOperatorAccess(accountId, any);
+        return { mailbox: any, operator: true };
+      }
+    }
+    throw new ForbiddenError('You do not have access to this mailbox.');
+  }
+
+  private async auditOperatorAccess(accountId: string, mailbox: DirectoryMailbox): Promise<void> {
+    const key = `${accountId}:${mailbox.id}`;
+    const last = this.operatorAudited.get(key) ?? 0;
+    if (Date.now() - last < OPERATOR_AUDIT_INTERVAL_MS) return;
+    this.operatorAudited.set(key, Date.now());
+    await this.platform.audit.record({
+      action: 'mail.mailbox.operator_access',
+      outcome: 'success',
+      category: 'security',
+      actor: { id: accountId, type: 'user' },
+      resource: { type: 'mailbox', id: mailbox.id },
+      tenantId: mailbox.tenantId,
+      changes: { after: { address: mailbox.primaryAddress } },
+    });
   }
 
   async messageFor(accountId: string, messageId: string): Promise<StoredMessage> {
@@ -403,7 +455,7 @@ export class MailService {
   }
 
   async send(accountId: string, input: SendInput): Promise<StoredMessage> {
-    const mailbox = await this.canAccess(accountId, input.mailboxId);
+    const { mailbox, operator } = await this.access(accountId, input.mailboxId);
     const fromAddress = (input.from ?? mailbox.primaryAddress).toLowerCase();
     if (fromAddress !== mailbox.primaryAddress && !mailbox.aliases.includes(fromAddress)) {
       throw new ForbiddenError('You can only send from this mailbox address or its aliases.');
@@ -434,6 +486,17 @@ export class MailService {
     await this.dispatch(raw, fromAddress, all);
     const [sent] = await this.deliver(raw, [mailbox], 'Sent', true);
     if (!sent) throw new Error('Sent copy was not stored');
+    if (operator) {
+      await this.platform.audit.record({
+        action: 'mail.mailbox.operator_sent',
+        outcome: 'success',
+        category: 'security',
+        actor: { id: accountId, type: 'user' },
+        resource: { type: 'mailbox', id: mailbox.id },
+        tenantId: mailbox.tenantId,
+        changes: { after: { from: fromAddress, recipients: all.length, subject: input.subject } },
+      });
+    }
     return sent;
   }
 

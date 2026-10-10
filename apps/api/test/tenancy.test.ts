@@ -601,6 +601,141 @@ describe('mail isolation between tenants', () => {
     );
     expect(bobView.publicUrl).toBe('https://panel.example.test');
   });
+
+  it('lets platform operators open any tenant mailbox, audited, with no other tenant access', async () => {
+    const { alice, bob, tenantA, tenantB, a, b } = await mailTenants();
+    await ingest(b.token, 'bob@fabrikam.test', 'For Bob');
+    const inB = { cookie: alice, 'x-aspectenant-tenant': tenantB };
+
+    // The operator can switch to a tenant it is not a member of, with no tenant permissions.
+    const session = await json<Session & { membership: unknown }>(
+      await request(ctx, '/api/v1/session', { headers: inB }),
+    );
+    expect(session.organisation?.id).toBe(tenantB);
+    expect(session.membership).toBeNull();
+    expect(session.permissions).not.toContain('users:read');
+    expect(session.permissions).toContain('mailboxes:access');
+    expect(session.tenants.find((t) => t.id === tenantB)?.role).toBe('operator');
+    expect((await request(ctx, '/api/v1/users', { headers: inB })).status).toBe(403);
+    expect((await request(ctx, '/api/v1/mailboxes', { headers: inB })).status).toBe(403);
+
+    // Every mailbox of the tenant is listed and usable as its owner.
+    const boxes = await json<{ items: Array<{ id: string; operator: boolean }> }>(
+      await request(ctx, '/api/v1/mail/me', { headers: inB }),
+    );
+    expect(boxes.items).toEqual([expect.objectContaining({ id: b.mailboxId, operator: true })]);
+    const list = await json<{ items: Array<{ id: string; subject: string }> }>(
+      await request(ctx, `/api/v1/mail/mailboxes/${b.mailboxId}/messages?folder=INBOX`, {
+        headers: inB,
+      }),
+    );
+    expect(list.items.map((item) => item.subject)).toEqual(['For Bob']);
+    const messageId = list.items[0]?.id ?? '';
+    expect(
+      (await request(ctx, `/api/v1/mail/messages/${messageId}`, { headers: inB })).status,
+    ).toBe(200);
+    const flag = await request(ctx, `/api/v1/mail/messages/${messageId}`, {
+      method: 'PATCH',
+      headers: inB,
+      body: JSON.stringify({ flagged: true }),
+    });
+    expect(flag.status).toBe(200);
+    const sent = await request(ctx, '/api/v1/mail/send', {
+      method: 'POST',
+      headers: inB,
+      body: JSON.stringify({
+        mailboxId: b.mailboxId,
+        to: ['bob@fabrikam.test'],
+        subject: 'From the operator',
+        text: 'x',
+      }),
+    });
+    expect(sent.status).toBe(201);
+
+    // In its own tenant the operator still sees only that tenant's mailboxes.
+    const own = await json<{ items: Array<{ id: string; operator: boolean }> }>(
+      await request(ctx, '/api/v1/mail/me', { headers: { cookie: alice } }),
+    );
+    expect(own.items.map((item) => [item.id, item.operator])).toEqual([[a.mailboxId, false]]);
+    // Without switching tenant, the other tenant's mailbox stays out of reach.
+    const crossed = await request(ctx, `/api/v1/mail/mailboxes/${b.mailboxId}/messages`, {
+      headers: { cookie: alice, 'x-aspectenant-tenant': tenantA },
+    });
+    expect([403, 404]).toContain(crossed.status);
+
+    // The tenant owner sees the operator's access and send in the tenant's audit log.
+    const audit = await json<{ items: Array<{ action: string }> }>(
+      await request(ctx, '/api/v1/audit?actionPrefix=mail.mailbox.operator', {
+        headers: { cookie: bob },
+      }),
+    );
+    expect(audit.items.map((item) => item.action).sort()).toEqual([
+      'mail.mailbox.operator_access',
+      'mail.mailbox.operator_sent',
+    ]);
+
+    // A tenant owner cannot select a tenant it does not belong to.
+    const bobInA = await request(ctx, '/api/v1/mail/me', {
+      headers: { cookie: bob, 'x-aspectenant-tenant': tenantA },
+    });
+    expect(bobInA.status).toBe(403);
+  });
+
+  it('runs imports up to the import worker limit the operator sets per tenant', async () => {
+    const { alice, bob, tenantB, b } = await mailTenants();
+    const limits = (cookie: string, importWorkers: number) =>
+      request(ctx, `/api/v1/tenants/${tenantB}/limits`, {
+        method: 'PUT',
+        headers: { cookie },
+        body: JSON.stringify({ importWorkers }),
+      });
+    // Only platform operators set limits.
+    expect((await limits(bob, 5)).status).toBe(403);
+    expect((await limits(alice, 0)).status).toBe(200);
+    const tenants = await json<{ items: Array<{ id: string; limits: { importWorkers: number } }> }>(
+      await request(ctx, '/api/v1/tenants', { headers: { cookie: alice } }),
+    );
+    expect(tenants.items.find((t) => t.id === tenantB)?.limits.importWorkers).toBe(0);
+
+    const job = await json<{ id: string }>(
+      await request(ctx, '/api/v1/imports', {
+        method: 'POST',
+        headers: { cookie: bob },
+        body: JSON.stringify({ mailboxId: b.mailboxId, filename: 'old.pst', size: 5 }),
+      }),
+    );
+    const upload = await ctx.app.request(`/api/v1/imports/${job.id}/chunk?offset=0`, {
+      method: 'PUT',
+      headers: { cookie: bob, origin: ctx.origin, 'content-type': 'application/octet-stream' },
+      body: 'notpst',
+    });
+    expect(upload.status).toBe(422);
+    const uploaded = await ctx.app.request(`/api/v1/imports/${job.id}/chunk?offset=0`, {
+      method: 'PUT',
+      headers: { cookie: bob, origin: ctx.origin, 'content-type': 'application/octet-stream' },
+      body: 'nopst',
+    });
+    expect(uploaded.status).toBe(200);
+    const imports = async () =>
+      json<{ items: Array<{ status: string }>; workers: { limit: number; running: number } }>(
+        await request(ctx, '/api/v1/imports', { headers: { cookie: bob } }),
+      );
+    await ctx.platform.imports.idle();
+    // Paused: the upload is complete but the import waits.
+    expect(await imports()).toMatchObject({
+      items: [{ status: 'queued' }],
+      workers: { limit: 0, running: 0 },
+    });
+
+    // Raising the limit starts it straight away (this file is not a PST, so it fails).
+    expect((await limits(alice, 2)).status).toBe(200);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    await ctx.platform.imports.idle();
+    expect(await imports()).toMatchObject({
+      items: [{ status: 'failed' }],
+      workers: { limit: 2, running: 0 },
+    });
+  });
 });
 
 describe('upgrade from single-tenant releases', () => {

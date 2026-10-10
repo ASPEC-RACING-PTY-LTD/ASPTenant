@@ -9,11 +9,14 @@ import type { DirectoryMailbox } from '../directory/index.js';
 import { ALL_TENANTS_SCOPE } from '../directory/index.js';
 import { requireTenantId } from '../directory/service.js';
 import { type Job, JobStore } from '../jobs/store.js';
+import { DEFAULT_LIMITS } from '../limits.js';
 import type { Platform } from '../platform.js';
 import { inTenantContext, runDetached, scopedClient, tenantClient } from '../tenancy.js';
 
 export const IMPORT_KIND = 'pst-import';
 export const MAX_CHUNK = 32 * 1024 * 1024;
+/** How often the queue is re-checked for imports that can start. */
+const QUEUE_CHECK_MS = 30_000;
 
 export interface ImportData {
   mailboxId: string;
@@ -176,13 +179,24 @@ export class PstImporter {
   /** Every tenant's jobs, for the background queue only. */
   private readonly queue: JobStore;
   private readonly platform: Platform;
-  private running = false;
+  /** Imports running in this process, by job id, with the tenant each belongs to. */
+  private readonly active = new Map<string, string>();
+  private scheduling = false;
+  private rescan = false;
   private stopped = false;
+  private timer: NodeJS.Timeout | null = null;
 
   constructor(platform: Platform) {
     this.platform = platform;
     this.jobs = new JobStore(tenantClient(platform), () => requireTenantId(platform));
     this.queue = new JobStore(scopedClient(platform, ALL_TENANTS_SCOPE));
+  }
+
+  /** Imports of one tenant running right now. */
+  runningFor(tenantId: string): number {
+    let count = 0;
+    for (const owner of this.active.values()) if (owner === tenantId) count += 1;
+    return count;
   }
 
   private dir(): string {
@@ -276,44 +290,86 @@ export class PstImporter {
     await this.jobs.delete(id);
   }
 
-  /** Resumes queued or interrupted imports (called at startup and after uploads). */
+  /**
+   * Starts queued or interrupted imports, up to each tenant's import worker limit. Called at
+   * startup, after uploads and when an import ends; a timer also re-checks the queue so a
+   * missed start or a raised limit never leaves an import waiting.
+   */
   kick(): void {
-    if (this.running || this.stopped) return;
-    this.running = true;
+    if (this.stopped) return;
+    if (!this.timer) {
+      this.timer = setInterval(() => this.kick(), QUEUE_CHECK_MS);
+      this.timer.unref();
+    }
+    if (this.scheduling) {
+      this.rescan = true;
+      return;
+    }
+    this.scheduling = true;
     // Uploads finish inside a request; the queue must run outside its transaction and tenant.
     runDetached(async () => {
       try {
-        for (;;) {
-          const [next] = await this.queue.withStatus<ImportData, ImportProgress>(IMPORT_KIND, [
-            'running',
-            'queued',
-          ]);
-          if (!next || this.stopped) break;
-          // Each import runs in its own tenant, without a long-lived transaction.
-          await inTenantContext(this.platform, next.tenantId, () => this.process(next)).catch(
-            async (error: unknown) => {
-              await this.queue.update(next.id, {
-                status: 'failed',
-                error: error instanceof Error ? error.message : String(error),
-              });
-            },
-          );
-        }
+        do {
+          this.rescan = false;
+          await this.schedule();
+        } while (this.rescan && !this.stopped);
       } catch (error) {
-        this.platform.logger.error({ err: error }, 'import loop failed');
+        this.platform.logger.error({ err: error }, 'import queue check failed');
       } finally {
-        this.running = false;
+        this.scheduling = false;
+      }
+    });
+  }
+
+  private async schedule(): Promise<void> {
+    const waiting = await this.queue.withStatus<ImportData, ImportProgress>(IMPORT_KIND, [
+      'running',
+      'queued',
+    ]);
+    if (waiting.length === 0) return;
+    const limits = await this.platform.limits.all();
+    for (const job of waiting) {
+      if (this.stopped) return;
+      if (this.active.has(job.id)) continue;
+      const limit = (limits.get(job.tenantId) ?? DEFAULT_LIMITS).importWorkers;
+      if (this.runningFor(job.tenantId) >= limit) continue;
+      this.start(job);
+    }
+  }
+
+  private start(job: Job<ImportData, ImportProgress>): void {
+    this.active.set(job.id, job.tenantId);
+    runDetached(async () => {
+      try {
+        // Each import runs in its own tenant, without a long-lived transaction.
+        await inTenantContext(this.platform, job.tenantId, () => this.process(job));
+      } catch (error) {
+        await this.queue
+          .update(job.id, {
+            status: 'failed',
+            error: error instanceof Error ? error.message : String(error),
+          })
+          .catch((err: unknown) =>
+            this.platform.logger.error({ err, job: job.id }, 'import status update failed'),
+          );
+      } finally {
+        this.active.delete(job.id);
+        this.kick();
       }
     });
   }
 
   stop(): void {
     this.stopped = true;
+    if (this.timer) clearInterval(this.timer);
+    this.timer = null;
   }
 
-  /** Waits until no import is running (tests). */
+  /** Waits until no import is running or being started (tests). */
   async idle(): Promise<void> {
-    while (this.running) await new Promise((resolve) => setTimeout(resolve, 50));
+    while (this.scheduling || this.active.size > 0) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
   }
 
   private async process(job: Job<ImportData, ImportProgress>): Promise<void> {
