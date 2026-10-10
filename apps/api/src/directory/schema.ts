@@ -178,8 +178,8 @@ CREATE INDEX IF NOT EXISTS aspectenant_jobs_kind_idx ON aspectenant_jobs (kind, 
 `;
 }
 
-/** Tables that hold tenant data and carry `tenant_id`. Row-level security applies to each. */
-export const TENANT_TABLES = [
+/** Tables migration 0005 put under row-level security. Fixed: later tables get their own. */
+const RLS_0005_TABLES = [
   'aspectenant_groups',
   'aspectenant_group_members',
   'aspectenant_domains',
@@ -192,6 +192,40 @@ export const TENANT_TABLES = [
   'aspectenant_mail_folders',
   'aspectenant_jobs',
 ] as const;
+
+/** Tables that hold tenant data and carry `tenant_id`. Row-level security applies to each. */
+export const TENANT_TABLES = [...RLS_0005_TABLES, 'aspectenant_service_credentials'] as const;
+
+/**
+ * Service credentials: IMAP and SMTP logins for applications and shared mailboxes, limited to
+ * the mailboxes and permissions in `grants` and optionally to `allowed_ips`.
+ */
+function credentialsSql(dialect: 'postgres' | 'sqlite'): string {
+  const big = dialect === 'postgres' ? 'BIGINT' : 'INTEGER';
+  return `
+CREATE TABLE IF NOT EXISTS aspectenant_service_credentials (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  name TEXT NOT NULL,
+  username TEXT NOT NULL,
+  secret_hash TEXT NOT NULL,
+  grants TEXT NOT NULL,
+  allowed_ips TEXT NOT NULL,
+  enabled INTEGER NOT NULL,
+  expires_at ${big},
+  last_used_at ${big},
+  last_used_ip TEXT,
+  created_by TEXT,
+  created_at ${big} NOT NULL,
+  updated_at ${big} NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS aspectenant_service_credentials_username_uq
+  ON aspectenant_service_credentials (username);
+CREATE INDEX IF NOT EXISTS aspectenant_service_credentials_tenant_idx
+  ON aspectenant_service_credentials (tenant_id);
+`;
+}
 
 /** `tenant_id` of installation-wide settings (public URL, updates, backups, mail apps). */
 export const PLATFORM_SCOPE = '__platform__';
@@ -295,8 +329,14 @@ export async function migrateDirectory(client: SqlClient): Promise<void> {
       },
       {
         id: '0005_row_level_security',
-        postgres: rowLevelSecuritySql(TENANT_TABLES),
+        postgres: rowLevelSecuritySql(RLS_0005_TABLES),
         sqlite: 'SELECT 1;',
+      },
+      {
+        id: '0006_service_credentials',
+        postgres: `${credentialsSql('postgres')}
+${rowLevelSecuritySql(['aspectenant_service_credentials'])}`,
+        sqlite: credentialsSql('sqlite'),
       },
     ],
   });

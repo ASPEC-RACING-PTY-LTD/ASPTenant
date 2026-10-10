@@ -133,6 +133,27 @@ export function runDetached(task: () => Promise<void>): void {
 /** The row-level security scope the current transaction is bound to, if any. */
 const boundScope = new AsyncLocalStorage<{ scopeId: string; active: boolean }>();
 
+/** Work a request asked to run once its transaction has committed. */
+const commitHooks = new AsyncLocalStorage<Array<() => void>>();
+
+/**
+ * Runs fn after the current request transaction commits, so background work started by a
+ * request (such as the import queue) sees what the request wrote. Runs at once elsewhere.
+ */
+export function afterCommit(fn: () => void): void {
+  const hooks = commitHooks.getStore();
+  if (hooks) hooks.push(fn);
+  else fn();
+}
+
+/** Runs a request, then the work it deferred with afterCommit once it has succeeded. */
+export async function withCommitHooks<T>(fn: () => Promise<T>): Promise<T> {
+  const hooks: Array<() => void> = [];
+  const result = await commitHooks.run(hooks, fn);
+  for (const hook of hooks) hook();
+  return result;
+}
+
 /**
  * A database client for tenant data. Inside a transaction already bound to the current
  * tenant (requests, mail sessions) it queries directly; with only a tenant context (long

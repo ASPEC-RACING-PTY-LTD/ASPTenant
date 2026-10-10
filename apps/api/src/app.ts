@@ -9,7 +9,13 @@ import type { Platform } from './platform.js';
 import { createAdminHttp } from './routes/admin-http.js';
 import { createControlPlaneApi } from './routes/control-plane.js';
 import { createMailHttp } from './routes/mail-http.js';
-import { INTERNAL_HEADERS, resolveTenant, TENANT_HEADER, withTenant } from './tenancy.js';
+import {
+  INTERNAL_HEADERS,
+  resolveTenant,
+  TENANT_HEADER,
+  withCommitHooks,
+  withTenant,
+} from './tenancy.js';
 
 const TRUSTED_ORIGIN = 'http://aspectenant.internal';
 
@@ -147,7 +153,7 @@ export function createApp(platform: Platform): Hono<{ Variables: AuthVariables }
     if (!accountId) return next();
     const tenant = await resolveTenant(platform, accountId, c.req.header(TENANT_HEADER));
     if (!tenant) return next();
-    await withTenant(platform, tenant, accountId, () => next());
+    await withCommitHooks(() => withTenant(platform, tenant, accountId, () => next()));
   });
   app.route(
     '/api/v1',

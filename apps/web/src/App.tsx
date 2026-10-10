@@ -5,6 +5,7 @@ import { AdminShell } from './layout/AdminShell.js';
 import { ApplicationsPage } from './pages/Applications.js';
 import { AuditPage } from './pages/Audit.js';
 import { BackupsPage } from './pages/Backups.js';
+import { CredentialsPage } from './pages/Credentials.js';
 import { DashboardPage } from './pages/Dashboard.js';
 import { DomainConnectDonePage } from './pages/DomainConnectDone.js';
 import { DomainsPage } from './pages/Domains.js';
@@ -64,6 +65,7 @@ export function App() {
         <Route path="audit" element={<AuditPage />} />
         <Route path="migration" element={<MigrationPage />} />
         <Route path="mail/clients" element={<MailClientsPage />} />
+        <Route path="mail/credentials" element={<CredentialsPage />} />
         <Route path="backups" element={<BackupsPage />} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="tenants" element={<TenantsPage />} />

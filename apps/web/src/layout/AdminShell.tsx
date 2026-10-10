@@ -15,6 +15,12 @@ const LINKS: ReadonlyArray<{
   { to: '/groups', label: 'Groups', implemented: true, permission: 'groups:read' },
   { to: '/mail', label: 'Mail', implemented: true, permission: 'mail:read' },
   { to: '/mail/settings', label: 'Mail settings', implemented: true, permission: 'mail:manage' },
+  {
+    to: '/mail/credentials',
+    label: 'Service credentials',
+    implemented: true,
+    permission: 'mail:read',
+  },
   { to: '/mail/clients', label: 'Mail apps', implemented: true, permission: 'platform:admin' },
   { to: '/domains', label: 'Domains', implemented: true, permission: 'domains:read' },
   { to: '/applications', label: 'Applications', implemented: true, permission: 'apps:read' },

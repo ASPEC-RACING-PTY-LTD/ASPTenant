@@ -62,6 +62,31 @@ function accountId(c: Context<Env>): string {
   return id;
 }
 
+const grantBody = z.object({
+  mailboxId: z.string().min(1),
+  read: z.boolean(),
+  write: z.boolean(),
+  send: z.boolean(),
+});
+
+const credentialBody = z.object({
+  kind: z.enum(['service', 'mailbox']),
+  name: z.string().max(120).optional(),
+  mailboxId: z.string().min(1).optional(),
+  grants: z.array(grantBody).max(200).optional(),
+  allowedIps: z.array(z.string().max(64)).max(100).optional(),
+  expiresAt: z.number().int().positive().nullable().optional(),
+  password: z.string().min(12).max(1024).optional(),
+});
+
+const credentialPatchBody = z.object({
+  name: z.string().max(120).optional(),
+  grants: z.array(grantBody).max(200).optional(),
+  allowedIps: z.array(z.string().max(64)).max(100).optional(),
+  enabled: z.boolean().optional(),
+  expiresAt: z.number().int().positive().nullable().optional(),
+});
+
 async function json<T>(c: Context<Env>, schema: z.ZodType<T>): Promise<T> {
   let body: unknown;
   try {
@@ -351,6 +376,61 @@ export function createMailHttp(
       c.req.param('userId'),
       actor(c),
     );
+    return c.json({ ok: true });
+  });
+
+  // Service credentials: IMAP and SMTP logins for applications and shared mailboxes
+  app.get('/mail/credentials', async (c) => {
+    await requirePermission(platform, accountId(c), 'mail:read');
+    return c.json({ items: await platform.credentials.list() });
+  });
+
+  app.post('/mail/credentials', async (c) => {
+    await requirePermission(platform, accountId(c), 'mail:manage');
+    const body = await json(c, credentialBody);
+    const created = await platform.credentials.create(
+      {
+        kind: body.kind,
+        ...(body.name ? { name: body.name } : {}),
+        ...(body.mailboxId ? { mailboxId: body.mailboxId } : {}),
+        ...(body.grants ? { grants: body.grants } : {}),
+        ...(body.allowedIps ? { allowedIps: body.allowedIps } : {}),
+        ...(body.expiresAt !== undefined ? { expiresAt: body.expiresAt } : {}),
+        ...(body.password ? { password: body.password } : {}),
+      },
+      actor(c),
+    );
+    return c.json(created, 201);
+  });
+
+  app.patch('/mail/credentials/:id', async (c) => {
+    await requirePermission(platform, accountId(c), 'mail:manage');
+    const body = await json(c, credentialPatchBody);
+    return c.json(
+      await platform.credentials.update(
+        c.req.param('id'),
+        {
+          ...(body.name !== undefined ? { name: body.name } : {}),
+          ...(body.grants ? { grants: body.grants } : {}),
+          ...(body.allowedIps ? { allowedIps: body.allowedIps } : {}),
+          ...(body.enabled !== undefined ? { enabled: body.enabled } : {}),
+          ...(body.expiresAt !== undefined ? { expiresAt: body.expiresAt } : {}),
+        },
+        actor(c),
+      ),
+    );
+  });
+
+  app.post('/mail/credentials/:id/rotate', async (c) => {
+    await requirePermission(platform, accountId(c), 'mail:manage');
+    const body = await json(c, z.object({ password: z.string().min(12).max(1024).optional() }));
+    const password = await platform.credentials.rotate(c.req.param('id'), actor(c), body.password);
+    return c.json({ password });
+  });
+
+  app.delete('/mail/credentials/:id', async (c) => {
+    await requirePermission(platform, accountId(c), 'mail:manage');
+    await platform.credentials.remove(c.req.param('id'), actor(c));
     return c.json({ ok: true });
   });
 

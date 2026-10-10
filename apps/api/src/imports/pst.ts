@@ -11,7 +11,13 @@ import { requireTenantId } from '../directory/service.js';
 import { type Job, JobStore } from '../jobs/store.js';
 import { DEFAULT_LIMITS } from '../limits.js';
 import type { Platform } from '../platform.js';
-import { inTenantContext, runDetached, scopedClient, tenantClient } from '../tenancy.js';
+import {
+  afterCommit,
+  inTenantContext,
+  runDetached,
+  scopedClient,
+  tenantClient,
+} from '../tenancy.js';
 
 export const IMPORT_KIND = 'pst-import';
 export const MAX_CHUNK = 32 * 1024 * 1024;
@@ -296,9 +302,14 @@ export class PstImporter {
    * missed start or a raised limit never leaves an import waiting.
    */
   kick(): void {
+    // Called from a request, the queue must wait until the request's writes are committed.
+    afterCommit(() => this.check());
+  }
+
+  private check(): void {
     if (this.stopped) return;
     if (!this.timer) {
-      this.timer = setInterval(() => this.kick(), QUEUE_CHECK_MS);
+      this.timer = setInterval(() => this.check(), QUEUE_CHECK_MS);
       this.timer.unref();
     }
     if (this.scheduling) {

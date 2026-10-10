@@ -16,6 +16,7 @@ import { createSqlUsersStore, migrate as migrateUsers } from '@aspec/users/sql';
 import { BackupService } from './backup/index.js';
 import type { AppConfig } from './config.js';
 import { loadAppConfig } from './config.js';
+import { ServiceCredentials } from './credentials.js';
 import { DirectoryService, migrateDirectory, PLATFORM_SCOPE } from './directory/index.js';
 import { DomainConnect } from './dns/domainconnect.js';
 import { DomainSetup } from './dns/index.js';
@@ -60,6 +61,7 @@ export interface Platform {
   readonly mailServers: MailServers;
   readonly imports: PstImporter;
   readonly limits: TenantLimitsService;
+  readonly credentials: ServiceCredentials;
   readonly backups: BackupService;
   readonly domainSetup: DomainSetup;
   readonly domainConnect: DomainConnect;
@@ -160,6 +162,7 @@ export async function createPlatform(options: CreatePlatformOptions = {}): Promi
     mailServers: undefined as unknown as MailServers,
     imports: undefined as unknown as PstImporter,
     limits: undefined as unknown as TenantLimitsService,
+    credentials: undefined as unknown as ServiceCredentials,
     backups: undefined as unknown as BackupService,
     domainSetup: undefined as unknown as DomainSetup,
     domainConnect: undefined as unknown as DomainConnect,
@@ -178,6 +181,7 @@ export async function createPlatform(options: CreatePlatformOptions = {}): Promi
     updates: new UpdateService(platform),
     mailServers: new MailServers(platform),
     limits: new TenantLimitsService(platform),
+    credentials: new ServiceCredentials(platform),
     imports: new PstImporter(platform),
     backups: new BackupService(platform),
     domainSetup: new DomainSetup(platform),

@@ -985,3 +985,66 @@ export async function startDomainConnect(
 > {
   return api(`/api/v1/domains/${id}/domain-connect`, { method: 'POST' });
 }
+
+/** What a service credential may do with one mailbox. */
+export interface MailboxGrant {
+  mailboxId: string;
+  read: boolean;
+  write: boolean;
+  send: boolean;
+}
+
+export interface ServiceCredential {
+  id: string;
+  kind: 'service' | 'mailbox';
+  name: string;
+  username: string;
+  grants: MailboxGrant[];
+  allowedIps: string[];
+  enabled: boolean;
+  expiresAt: number | null;
+  lastUsedAt: number | null;
+  lastUsedIp: string | null;
+  createdAt: number;
+}
+
+export async function listCredentials(): Promise<ServiceCredential[]> {
+  return (await api<{ items: ServiceCredential[] }>('/api/v1/mail/credentials')).items;
+}
+
+export async function createCredential(input: {
+  kind: 'service' | 'mailbox';
+  name?: string;
+  mailboxId?: string;
+  grants?: MailboxGrant[];
+  allowedIps?: string[];
+  expiresAt?: number | null;
+  password?: string;
+}): Promise<{ credential: ServiceCredential; password: string }> {
+  return api('/api/v1/mail/credentials', { method: 'POST', body: JSON.stringify(input) });
+}
+
+export async function updateCredential(
+  id: string,
+  patch: {
+    name?: string;
+    grants?: MailboxGrant[];
+    allowedIps?: string[];
+    enabled?: boolean;
+    expiresAt?: number | null;
+  },
+): Promise<ServiceCredential> {
+  return api(`/api/v1/mail/credentials/${id}`, { method: 'PATCH', body: JSON.stringify(patch) });
+}
+
+export async function rotateCredential(id: string, password?: string): Promise<string> {
+  const body = await api<{ password: string }>(`/api/v1/mail/credentials/${id}/rotate`, {
+    method: 'POST',
+    body: JSON.stringify(password ? { password } : {}),
+  });
+  return body.password;
+}
+
+export async function deleteCredential(id: string): Promise<void> {
+  await api(`/api/v1/mail/credentials/${id}`, { method: 'DELETE' });
+}

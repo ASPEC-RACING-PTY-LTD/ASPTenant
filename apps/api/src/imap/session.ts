@@ -25,10 +25,26 @@ import {
   type Token,
 } from './parser.js';
 
+/** What a service credential may do with one mailbox. */
+export interface MailboxGrant {
+  mailboxId: string;
+  /** Read mail over IMAP. */
+  read: boolean;
+  /** Change the mailbox over IMAP: flags, moves, deletes, folders and appends. */
+  write: boolean;
+  /** Send over SMTP from the mailbox address and its aliases. */
+  send: boolean;
+}
+
 /** An authenticated mail app login, bound to the tenant whose mailboxes it opens. */
 export interface MailLogin {
   accountId: string;
   tenantId: string;
+  /**
+   * Set for service credential logins: the only mailboxes the login reaches. Account logins
+   * leave it unset and reach the mailboxes the account is a member of.
+   */
+  grants?: MailboxGrant[];
 }
 
 export interface MailAuthenticator {
@@ -92,6 +108,7 @@ export class ImapSession {
   private queue: Promise<void> = Promise.resolve();
   private account: string | null = null;
   private tenant: string | null = null;
+  private grants: MailboxGrant[] | null = null;
   private selected: Selected | null = null;
   private idle: { tag: string; timer: NodeJS.Timeout } | null = null;
   private authTag: string | null = null;
@@ -252,7 +269,7 @@ export class ImapSession {
       case 'EXAMINE':
         await this.select(asString(args[0]), name === 'EXAMINE');
         this.send(
-          `${tag} OK [${name === 'EXAMINE' ? 'READ-ONLY' : 'READ-WRITE'}] ${name} completed`,
+          `${tag} OK [${this.selected?.readOnly ? 'READ-ONLY' : 'READ-WRITE'}] ${name} completed`,
         );
         return;
       case 'CREATE': {
@@ -267,6 +284,7 @@ export class ImapSession {
       }
       case 'DELETE': {
         const target = await this.resolve(asString(args[0]));
+        this.platformCheckWrite(target.mailbox);
         if (['INBOX', 'Sent', 'Drafts', 'Trash', 'Junk', 'Archive'].includes(target.folder)) {
           throw new NoError('System folders cannot be deleted');
         }
@@ -276,6 +294,7 @@ export class ImapSession {
       case 'RENAME': {
         const from = await this.resolve(asString(args[0]));
         const to = await this.resolve(asString(args[1]));
+        this.platformCheckWrite(from.mailbox);
         if (from.mailbox.id !== to.mailbox.id || from.folder === 'INBOX') {
           throw new NoError('Cannot rename this folder');
         }
@@ -356,8 +375,17 @@ export class ImapSession {
     this.send(`${tag} OK ${name} completed`);
   }
 
-  private platformCheckWrite(_mailbox: DirectoryMailbox): void {
+  /** False when a service credential may read this mailbox but not change it. */
+  private canWrite(mailbox: DirectoryMailbox): boolean {
+    if (!this.grants) return true;
+    return this.grants.some((grant) => grant.mailboxId === mailbox.id && grant.write);
+  }
+
+  private platformCheckWrite(mailbox: DirectoryMailbox): void {
     this.requireAuth();
+    if (!this.canWrite(mailbox)) {
+      throw new NoError('[NOPERM] This login can read this mailbox but not change it');
+    }
   }
 
   private async login(email: string, password: string): Promise<void> {
@@ -368,6 +396,7 @@ export class ImapSession {
     }
     this.account = login.accountId;
     this.tenant = login.tenantId;
+    this.grants = login.grants ?? null;
   }
 
   private async finishPlain(tag: string, payload: string): Promise<void> {
@@ -385,11 +414,30 @@ export class ImapSession {
 
   private async views(): Promise<View[]> {
     const account = this.requireAuth();
+    if (this.grants) return this.grantViews(this.grants);
     const mailboxes = await this.platform.directory.listAccessibleMailboxes(account);
     const own = mailboxes.find((item) => item.kind === 'user' && item.userId === account);
     return mailboxes.map((mailbox) => ({
       mailbox,
       prefix: mailbox === own ? '' : `${SHARED}/${mailbox.primaryAddress}/`,
+    }));
+  }
+
+  /**
+   * Mailboxes a service credential may read. A single one appears at the top level like a
+   * personal mailbox; several appear under Shared/<address>/.
+   */
+  private async grantViews(grants: MailboxGrant[]): Promise<View[]> {
+    const mailboxes: DirectoryMailbox[] = [];
+    for (const grant of grants) {
+      if (!grant.read) continue;
+      const mailbox = await this.platform.directory.getMailbox(grant.mailboxId).catch(() => null);
+      if (mailbox) mailboxes.push(mailbox);
+    }
+    if (mailboxes.length === 1 && mailboxes[0]) return [{ mailbox: mailboxes[0], prefix: '' }];
+    return mailboxes.map((mailbox) => ({
+      mailbox,
+      prefix: `${SHARED}/${mailbox.primaryAddress}/`,
     }));
   }
 
@@ -487,7 +535,7 @@ export class ImapSession {
     this.selected = {
       mailbox: target.mailbox,
       folder: folder.name,
-      readOnly,
+      readOnly: readOnly || !this.canWrite(target.mailbox),
       uidValidity: folder.uidValidity,
       rows,
     };
@@ -714,6 +762,7 @@ export class ImapSession {
     const selected = this.requireSelected();
     if (move && selected.readOnly) throw new NoError('Mailbox is read-only');
     const target = await this.resolve(asString(args[1]));
+    this.platformCheckWrite(target.mailbox);
     const folder = await this.platform.mail.messages.getFolder(target.mailbox.id, target.folder);
     if (!folder) throw new NoError('[TRYCREATE] No such mailbox');
     const matches = this.matching(asString(args[0]), byUid);
@@ -749,6 +798,7 @@ export class ImapSession {
 
   private async append(tag: string, args: Token[]): Promise<void> {
     const target = await this.resolve(asString(args[0]));
+    this.platformCheckWrite(target.mailbox);
     const folder = await this.platform.mail.messages.getFolder(target.mailbox.id, target.folder);
     if (!folder) throw new NoError('[TRYCREATE] No such mailbox');
     let index = 1;

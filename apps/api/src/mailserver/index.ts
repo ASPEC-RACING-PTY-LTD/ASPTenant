@@ -139,6 +139,17 @@ export class MailAccounts implements MailAuthenticator {
       return null;
     }
     if (!login || !password) return fail('missing username or password');
+    // Service credentials and shared mailbox logins come first; their usernames are not accounts.
+    const credential = await this.platform.credentials.authenticate(login, password, ip);
+    if (credential) {
+      if ('failure' in credential) return fail(credential.failure);
+      this.failures.delete(key);
+      this.platform.logger.info(
+        { ip, email: login, tenantId: credential.login.tenantId },
+        'mail client login ok (service credential)',
+      );
+      return credential.login;
+    }
     const account = await this.store.getAccountByEmail(login);
     if (!account?.passwordHash) {
       this.dummy ??= this.hasher.hash('dummy-password-for-timing');
@@ -803,10 +814,14 @@ export class MailServers {
   private async allowed(session: SMTPServerSession, address: string): Promise<boolean> {
     const login = session.user as unknown as MailLogin | undefined;
     if (!login) return false;
+    const grants = login.grants;
     const addresses = await withSystemTenant(
       this.platform,
       login.tenantId,
-      () => this.platform.mail.sendableAddresses(login.accountId),
+      async (): Promise<{ has(address: string): boolean }> =>
+        grants
+          ? this.platform.credentials.sendableAddresses(grants)
+          : this.platform.mail.sendableAddresses(login.accountId),
       login.accountId,
     );
     return addresses.has(address.trim().toLowerCase());
