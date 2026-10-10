@@ -12,6 +12,19 @@ import {
 
 const CHUNK = 16 * 1024 * 1024;
 
+// Browsers refuse to read a file that is locked or was modified after it was chosen. Outlook
+// does both to a PST it has open, so the upload cannot continue until the file is released.
+const FILE_UNREADABLE =
+  'The browser could not read the file. It is probably still open in Outlook or another program, or it changed after you chose it. Close Outlook (or copy the PST somewhere else) and choose the file again';
+
+async function readChunk(file: File, offset: number): Promise<ArrayBuffer> {
+  try {
+    return await file.slice(offset, offset + CHUNK).arrayBuffer();
+  } catch {
+    throw new Error(FILE_UNREADABLE);
+  }
+}
+
 export function MigrationPage() {
   const [mailboxes, setMailboxes] = useState<DirectoryMailbox[]>([]);
   const [jobs, setJobs] = useState<ImportJob[]>([]);
@@ -48,10 +61,13 @@ export function MigrationPage() {
       let offset = job.data.received;
       setUpload({ sent: offset, total: file.size });
       while (offset < file.size) {
+        // Read the chunk before sending it, so a locked or changed file is reported clearly
+        // instead of failing as a network error on every retry.
+        const chunk = await readChunk(file, offset);
         let attempt = 0;
         for (;;) {
           try {
-            job = await uploadImportChunk(job.id, offset, file.slice(offset, offset + CHUNK));
+            job = await uploadImportChunk(job.id, offset, chunk);
             break;
           } catch (err) {
             attempt += 1;

@@ -191,8 +191,10 @@ describe('PST import', () => {
         headers: { ...headers, origin: ctx.origin, 'content-type': 'application/octet-stream' },
         body: data,
       });
-    expect((await chunk(0, '12345')).status).toBe(200);
-    expect((await chunk(0, '12345')).status).toBe(409);
+    // NUL bytes end up quoted in the parser's error, which PostgreSQL text cannot store.
+    const header = '\u0000'.repeat(5);
+    expect((await chunk(0, header)).status).toBe(200);
+    expect((await chunk(0, header)).status).toBe(409);
     expect((await chunk(5, 'abcde')).status).toBe(200);
     await new Promise((resolve) => setTimeout(resolve, 100));
     await ctx.platform.imports.idle();
@@ -201,5 +203,7 @@ describe('PST import', () => {
     };
     expect(list.items[0]?.status).toBe('failed');
     expect(list.items[0]?.error).toBeTruthy();
+    expect(list.items[0]?.error).toContain('Invalid file header');
+    expect(list.items[0]?.error).not.toContain('\u0000');
   });
 });

@@ -21,6 +21,19 @@ export interface Job<D = Record<string, unknown>, P = Record<string, unknown>> {
 type Row = Record<string, unknown>;
 const num = (value: unknown) => (typeof value === 'number' ? value : Number(value));
 
+/**
+ * Error text comes from parsers that may quote raw file bytes. PostgreSQL text cannot hold NUL,
+ * so control characters (other than line breaks and tabs) are dropped and the length capped.
+ */
+function errorText(message: string | null): string | null {
+  if (message === null) return null;
+  const clean = [...message]
+    .filter((ch) => ch >= ' ' || ch === '\n' || ch === '\t')
+    .join('')
+    .trim();
+  return clean.length > 2000 ? `${clean.slice(0, 2000)}...` : clean;
+}
+
 function toJob<D, P>(row: Row): Job<D, P> {
   return {
     id: String(row.id),
@@ -132,7 +145,7 @@ export class JobStore {
     }
     if (patch.data !== undefined) add('data', JSON.stringify(patch.data));
     if (patch.progress !== undefined) add('progress', JSON.stringify(patch.progress));
-    if (patch.error !== undefined) add('error', patch.error);
+    if (patch.error !== undefined) add('error', errorText(patch.error));
     add('updated_at', Date.now());
     params.push(id);
     const idParam = params.length;

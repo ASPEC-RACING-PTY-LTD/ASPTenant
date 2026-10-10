@@ -803,7 +803,7 @@ export async function createImport(input: {
 export async function uploadImportChunk(
   id: string,
   offset: number,
-  chunk: Blob,
+  chunk: Blob | ArrayBuffer,
 ): Promise<ImportJob> {
   return api(`/api/v1/imports/${id}/chunk?offset=${offset}`, {
     method: 'PUT',
