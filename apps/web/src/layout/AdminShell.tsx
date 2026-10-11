@@ -11,6 +11,7 @@ const LINKS: ReadonlyArray<{
 }> = [
   { to: '/', label: 'Dashboard', implemented: true, permission: 'system:read' },
   { to: '/mailbox', label: 'Mailbox', implemented: true, permission: null },
+  { to: '/account', label: 'Your account', implemented: true, permission: null },
   { to: '/users', label: 'Users', implemented: true, permission: 'users:read' },
   { to: '/groups', label: 'Groups', implemented: true, permission: 'groups:read' },
   { to: '/mail', label: 'Mail', implemented: true, permission: 'mail:read' },

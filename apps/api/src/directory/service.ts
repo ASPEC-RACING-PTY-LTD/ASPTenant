@@ -671,6 +671,12 @@ export class DirectoryService {
     return this.store.listApplications(await this.tenantId());
   }
 
+  async getApplication(id: string): Promise<DirectoryApplication> {
+    const application = await this.store.getApplication(await this.tenantId(), id);
+    if (!application) throw new NotFoundError('Application not found');
+    return application;
+  }
+
   async createApplication(
     input: { name: string; redirectUris: string[] },
     actor: Actor,

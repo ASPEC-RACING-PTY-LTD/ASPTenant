@@ -10,7 +10,7 @@ SoftDock is a separate product. ASPECTenant must not implement SoftDock features
 |--------------|-------------------|
 | Call ASPECTenant HTTP APIs with a service identity | Import ASPECTenant modules at runtime |
 | Receive signed webhooks (future) | Use the human admin cookie |
-| Sign users in through ASPECTenant SSO (future OIDC) | Store the organisation's mailbox |
+| Sign users in through ASPECTenant SSO (OpenID Connect, see Applications) | Store the organisation's mailbox |
 | Display ASPECTenant as an upstream identity provider | Be bundled inside this repository |
 
 ## Planned interfaces

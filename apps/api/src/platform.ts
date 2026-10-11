@@ -25,6 +25,8 @@ import { TenantLimitsService } from './limits.js';
 import { MailService } from './mail/service.js';
 import { SettingsStore } from './mail/store.js';
 import { MailServers } from './mailserver/index.js';
+import { IdentityKeyStore, type IdentityKeys } from './oidc/keys.js';
+import { IdentityProvider } from './oidc/provider.js';
 import { platformRbacDefinition } from './permissions.js';
 import { SecretBox } from './secrets.js';
 import { inScope, reconcileLegacyRoleAssignments, rowLevelSecurityStatus } from './tenancy.js';
@@ -66,6 +68,10 @@ export interface Platform {
   readonly domainSetup: DomainSetup;
   readonly domainConnect: DomainConnect;
   readonly secrets: SecretBox;
+  /** Sign-in keys: MFA secret encryption, OIDC cookie and token signing keys. */
+  readonly identity: { store: IdentityKeyStore; keys: IdentityKeys };
+  /** OpenID Connect provider for registered applications. */
+  readonly oidc: IdentityProvider;
   readonly dns: DnsLookup;
   /** Public origin from Settings (or PUBLIC_URL). Changing it restarts the API. */
   publicUrl: string | null;
@@ -115,12 +121,18 @@ export async function createPlatform(options: CreatePlatformOptions = {}): Promi
     ...(auditKey ? { chain: { hmacKey: auditKey } } : {}),
   });
 
+  const secrets = new SecretBox(config);
+  const identityStore = new IdentityKeyStore(db, secrets);
+  const identityKeys = await identityStore.load();
+
   const auth = createAuth({
     store: createSqlAuthStore(db),
     audit,
     logger,
     appName: config.appName,
     passwordPolicy: { minLength: 12 },
+    // Time-based one-time codes (authenticator apps) with recovery codes.
+    mfa: { encryptionKey: identityKeys.mfaKey, issuer: config.appName },
   });
 
   const rbac = createRbac({
@@ -163,10 +175,12 @@ export async function createPlatform(options: CreatePlatformOptions = {}): Promi
     imports: undefined as unknown as PstImporter,
     limits: undefined as unknown as TenantLimitsService,
     credentials: undefined as unknown as ServiceCredentials,
+    oidc: undefined as unknown as IdentityProvider,
     backups: undefined as unknown as BackupService,
     domainSetup: undefined as unknown as DomainSetup,
     domainConnect: undefined as unknown as DomainConnect,
-    secrets: new SecretBox(config),
+    secrets,
+    identity: { store: identityStore, keys: identityKeys },
     dns: options.dns ?? publicDns(),
     publicUrl: config.publicUrl ? new URL(config.publicUrl).origin : null,
     restart: () => {
@@ -182,6 +196,7 @@ export async function createPlatform(options: CreatePlatformOptions = {}): Promi
     mailServers: new MailServers(platform),
     limits: new TenantLimitsService(platform),
     credentials: new ServiceCredentials(platform),
+    oidc: new IdentityProvider(platform),
     imports: new PstImporter(platform),
     backups: new BackupService(platform),
     domainSetup: new DomainSetup(platform),
@@ -211,6 +226,7 @@ export async function closePlatform(platform: Platform): Promise<void> {
   platform.updates.stop();
   platform.mailServers.shutdown();
   platform.imports.stop();
+  platform.oidc.stop();
   platform.backups.stop();
   await platform.auth.idle();
   await platform.db.close();

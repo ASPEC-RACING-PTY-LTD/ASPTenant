@@ -68,7 +68,7 @@ export interface TestContextOptions {
 
 export async function createTestContext(options: TestContextOptions = {}): Promise<TestContext> {
   const dataDir = mkdtempSync(join(tmpdir(), 'aspectenant-test-'));
-  const origin = 'http://127.0.0.1:8080';
+  const origin = options.env?.PUBLIC_URL ?? 'http://127.0.0.1:8080';
   const config = loadAppConfig({
     ignoreFiles: true,
     processEnv: {

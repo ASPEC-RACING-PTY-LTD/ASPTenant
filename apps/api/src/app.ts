@@ -60,7 +60,7 @@ export function createApp(platform: Platform): Hono<{ Variables: AuthVariables }
       emailVerification: false,
       changePassword: true,
       changeEmail: false,
-      mfa: false,
+      mfa: true,
       oidc: false,
       webauthn: false,
       jwks: false,

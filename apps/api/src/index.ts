@@ -1,6 +1,7 @@
-import { serve } from '@hono/node-server';
+import { createServer } from 'node:http';
 import { createApp } from './app.js';
 import { loadAppConfig } from './config.js';
+import { createRequestListener } from './http/server.js';
 import { closePlatform, createPlatform } from './platform.js';
 
 const config = loadAppConfig();
@@ -11,19 +12,13 @@ void platform.mailServers.start();
 platform.imports.kick();
 platform.backups.start();
 
-const server = serve(
-  {
-    fetch: app.fetch,
-    hostname: config.listenHost,
-    port: config.listenPort,
-  },
-  (info) => {
-    platform.logger.info(
-      { host: info.address, port: info.port },
-      `${config.appName} control plane listening`,
-    );
-  },
-);
+const server = createServer(createRequestListener(platform, app));
+server.listen(config.listenPort, config.listenHost, () => {
+  platform.logger.info(
+    { host: config.listenHost, port: config.listenPort },
+    `${config.appName} control plane listening`,
+  );
+});
 
 const shutdown = async (signal: string) => {
   platform.logger.info({ signal }, 'shutting down');

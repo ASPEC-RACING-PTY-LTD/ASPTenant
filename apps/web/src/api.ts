@@ -114,6 +114,18 @@ export interface DirectoryApplication {
   clientId: string;
   redirectUris: string[];
   createdAt: number;
+  /** Confidential: a server with a secret. Public: a desktop or mobile app using PKCE only. */
+  clientType: 'confidential' | 'public';
+  hasSecret: boolean;
+  secretCreatedAt: number | null;
+  requireAssignment: boolean;
+  assignments: { users: string[]; groups: string[] };
+  requireMfa: boolean;
+}
+
+export interface IdentityProviderInfo {
+  issuer: string;
+  discovery: string;
 }
 
 export interface SystemDiagnostics {
@@ -256,14 +268,102 @@ export async function completeSetup(input: {
   await api('/api/v1/setup', { method: 'POST', body: JSON.stringify(input) });
 }
 
-export async function login(email: string, password: string): Promise<void> {
-  const body = await api<{ status?: string }>('/auth/login', {
+/** Password accepted; with two-step verification on, a code is still needed. */
+export type LoginStep =
+  | { status: 'authenticated' }
+  | { status: 'mfa_required'; challengeToken: string };
+
+export async function login(email: string, password: string): Promise<LoginStep> {
+  const body = await api<{ status?: string; challengeToken?: string }>('/auth/login', {
     method: 'POST',
     body: JSON.stringify({ email, password }),
   });
-  if (body.status !== 'authenticated') {
-    throw new Error('Sign-in did not complete. Multifactor is not enabled.');
+  if (body.status === 'mfa_required' && body.challengeToken) {
+    return { status: 'mfa_required', challengeToken: body.challengeToken };
   }
+  if (body.status !== 'authenticated') throw new Error('Sign-in did not complete.');
+  return { status: 'authenticated' };
+}
+
+/** Second step: a code from the authenticator app, or one recovery code. */
+export async function completeMfa(
+  challengeToken: string,
+  input: { code: string } | { recoveryCode: string },
+): Promise<void> {
+  const body = await api<{ status?: string }>('/auth/mfa/challenge', {
+    method: 'POST',
+    body: JSON.stringify({ challengeToken, ...input }),
+  });
+  if (body.status !== 'authenticated') throw new Error('That code was not accepted.');
+}
+
+export async function getMfaStatus(): Promise<{
+  enabled: boolean;
+  recoveryCodesRemaining: number;
+}> {
+  return api('/auth/mfa');
+}
+
+export async function beginTotp(): Promise<{ secret: string; otpauthUri: string }> {
+  return api('/auth/mfa/totp/enroll', { method: 'POST', body: '{}' });
+}
+
+export async function confirmTotp(code: string): Promise<string[]> {
+  const body = await api<{ recoveryCodes: string[] }>('/auth/mfa/totp/confirm', {
+    method: 'POST',
+    body: JSON.stringify({ code }),
+  });
+  return body.recoveryCodes;
+}
+
+/** Proof is the account password or a current code. */
+export async function disableTotp(proof: { password: string } | { totp: string }): Promise<void> {
+  await api('/auth/mfa/totp/disable', { method: 'POST', body: JSON.stringify(proof) });
+}
+
+export async function newRecoveryCodes(
+  proof: { password: string } | { totp: string },
+): Promise<string[]> {
+  const body = await api<{ recoveryCodes: string[] }>('/auth/mfa/recovery-codes', {
+    method: 'POST',
+    body: JSON.stringify(proof),
+  });
+  return body.recoveryCodes;
+}
+
+/** An application sign-in request waiting on the person. */
+export interface SignInRequest {
+  application: string;
+  signedInAs: string | null;
+  /** A session exists but the application asked for a fresh sign-in. */
+  reauthenticate: boolean;
+  email: string | null;
+  /** Why this account may not use the application, if it may not. */
+  refusal: string | null;
+}
+
+async function interaction<T>(uid: string, action: string, method = 'GET'): Promise<T> {
+  const response = await fetch(`/oidc/interaction/${encodeURIComponent(uid)}/${action}`, {
+    method,
+    credentials: 'include',
+    ...(method === 'POST' ? { headers: { 'content-type': 'application/json' }, body: '{}' } : {}),
+  });
+  const body = (await response.json().catch(() => ({}))) as T & { error?: string };
+  if (!response.ok) throw new Error(body.error ?? `Request failed (${response.status})`);
+  return body;
+}
+
+export function getSignInRequest(uid: string): Promise<SignInRequest> {
+  return interaction(uid, 'details');
+}
+
+/** Completes the sign-in and returns where the browser goes next. */
+export async function continueSignIn(uid: string): Promise<string> {
+  return (await interaction<{ redirectTo: string }>(uid, 'continue', 'POST')).redirectTo;
+}
+
+export async function cancelSignIn(uid: string): Promise<string> {
+  return (await interaction<{ redirectTo: string }>(uid, 'abort', 'POST')).redirectTo;
 }
 
 export async function logout(): Promise<void> {
@@ -458,16 +558,55 @@ export async function removeMailboxAlias(id: string, alias: string): Promise<voi
   await api(`/api/v1/mailboxes/${id}/aliases/${encodeURIComponent(alias)}`, { method: 'DELETE' });
 }
 
-export async function listApplications(): Promise<DirectoryApplication[]> {
-  const body = await api<{ items: DirectoryApplication[] }>('/api/v1/applications');
-  return body.items;
+export async function listApplications(): Promise<{
+  items: DirectoryApplication[];
+  identityProvider: IdentityProviderInfo | null;
+}> {
+  return api('/api/v1/applications');
 }
 
-export async function createApplication(name: string, redirectUris: string[]): Promise<void> {
-  await api('/api/v1/applications', {
+/** Returns the application; a confidential one comes with its secret, shown only now. */
+export async function createApplication(input: {
+  name: string;
+  redirectUris: string[];
+  clientType: 'confidential' | 'public';
+}): Promise<DirectoryApplication & { clientSecret?: string }> {
+  return api('/api/v1/applications', { method: 'POST', body: JSON.stringify(input) });
+}
+
+export async function updateApplication(
+  id: string,
+  patch: Partial<
+    Pick<
+      DirectoryApplication,
+      'name' | 'redirectUris' | 'clientType' | 'requireAssignment' | 'assignments' | 'requireMfa'
+    >
+  >,
+): Promise<DirectoryApplication> {
+  return api(`/api/v1/applications/${id}`, { method: 'PATCH', body: JSON.stringify(patch) });
+}
+
+export async function rotateApplicationSecret(id: string): Promise<string> {
+  const body = await api<{ clientSecret: string }>(`/api/v1/applications/${id}/secret`, {
     method: 'POST',
-    body: JSON.stringify({ name, redirectUris }),
   });
+  return body.clientSecret;
+}
+
+export interface SigningKeyInfo {
+  kid: string;
+  createdAt: number;
+  active: boolean;
+}
+
+export async function listSigningKeys(): Promise<SigningKeyInfo[]> {
+  return (await api<{ items: SigningKeyInfo[] }>('/api/v1/identity/keys')).items;
+}
+
+export async function rotateSigningKey(): Promise<SigningKeyInfo[]> {
+  return (
+    await api<{ items: SigningKeyInfo[] }>('/api/v1/identity/keys/rotate', { method: 'POST' })
+  ).items;
 }
 
 export async function deleteApplication(id: string): Promise<void> {

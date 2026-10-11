@@ -200,6 +200,38 @@ export const TENANT_TABLES = [...RLS_0005_TABLES, 'aspectenant_service_credentia
  * Service credentials: IMAP and SMTP logins for applications and shared mailboxes, limited to
  * the mailboxes and permissions in `grants` and optionally to `allowed_ips`.
  */
+/**
+ * OpenID Connect: client settings on applications, and the provider's own store for
+ * sessions, authorization codes, tokens and grants. The store is installation data keyed by
+ * opaque ids; every record names its client, and clients belong to one tenant.
+ */
+function oidcSql(dialect: 'postgres' | 'sqlite'): string {
+  const big = dialect === 'postgres' ? 'BIGINT' : 'INTEGER';
+  return `
+ALTER TABLE aspectenant_applications ADD COLUMN client_type TEXT NOT NULL DEFAULT 'confidential';
+ALTER TABLE aspectenant_applications ADD COLUMN secret_hash TEXT;
+ALTER TABLE aspectenant_applications ADD COLUMN secret_created_at ${big};
+ALTER TABLE aspectenant_applications ADD COLUMN require_assignment INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE aspectenant_applications ADD COLUMN assignments TEXT NOT NULL DEFAULT '{"users":[],"groups":[]}';
+ALTER TABLE aspectenant_applications ADD COLUMN require_mfa INTEGER NOT NULL DEFAULT 0;
+
+CREATE TABLE IF NOT EXISTS aspectenant_oidc_store (
+  model TEXT NOT NULL,
+  id TEXT NOT NULL,
+  payload TEXT NOT NULL,
+  grant_id TEXT,
+  uid TEXT,
+  user_code TEXT,
+  expires_at ${big},
+  consumed_at ${big},
+  PRIMARY KEY (model, id)
+);
+CREATE INDEX IF NOT EXISTS aspectenant_oidc_store_grant_idx ON aspectenant_oidc_store (grant_id);
+CREATE INDEX IF NOT EXISTS aspectenant_oidc_store_uid_idx ON aspectenant_oidc_store (uid);
+CREATE INDEX IF NOT EXISTS aspectenant_oidc_store_expires_idx ON aspectenant_oidc_store (expires_at);
+`;
+}
+
 function credentialsSql(dialect: 'postgres' | 'sqlite'): string {
   const big = dialect === 'postgres' ? 'BIGINT' : 'INTEGER';
   return `
@@ -337,6 +369,11 @@ export async function migrateDirectory(client: SqlClient): Promise<void> {
         postgres: `${credentialsSql('postgres')}
 ${rowLevelSecuritySql(['aspectenant_service_credentials'])}`,
         sqlite: credentialsSql('sqlite'),
+      },
+      {
+        id: '0007_oidc',
+        postgres: oidcSql('postgres'),
+        sqlite: oidcSql('sqlite'),
       },
     ],
   });

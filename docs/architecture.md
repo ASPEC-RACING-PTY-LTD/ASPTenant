@@ -18,12 +18,13 @@ The control plane is a working administrative foundation:
 - Inbound mail through Cloudflare Email Routing (Worker to ingest API) and outbound through Cloudflare Email Sending or SMTP, configured per tenant
 - Built-in webmail and live mail settings in the panel
 - In-app updates through an updater sidecar
-- Application registration records (no OIDC/SAML IdP)
+- OpenID Connect provider for registered applications at `{public URL}/oidc` (`apps/api/src/oidc`): authorization code with PKCE (S256), `state` and `nonce`, client secrets stored hashed (client_secret_basic or client_secret_post), public clients with loopback redirects, exact redirect URI matching, rotatable RS256 signing keys, `prompt=login` and `max_age`. ID tokens carry sub, email, email_verified, name, auth_time and tid. Applications can require assignment (people or groups) and two-step verification
+- Two-step verification (TOTP authenticator apps with recovery codes) on Your account
 - Organisation settings
 - Searchable audit history
 - Health, readiness and system diagnostics
 
-IMAP, MFA UI, SAML, SCIM, LDAP, mailbox migration and SoftDock integration are specified, not shipped.
+SAML, SCIM, LDAP, passkeys and SoftDock integration are specified, not shipped.
 
 ## Component boundaries
 
@@ -94,7 +95,7 @@ New tables that hold tenant data must carry `tenant_id`, be added to `TENANT_TAB
 - Authorisation: `@aspec/rbac`. `tenant.owner`, `tenant.admin` and `tenant.auditor` are assigned per tenant; `platform.operator` is assigned globally
 - Public self-registration is disabled. The only bootstrap is `POST /api/v1/setup` while no users exist. Later accounts are created by tenant administrators or platform operators
 - CSRF: state-changing requests must come from the panel's own host or the public URL saved in Settings
-- MFA, WebAuthn, OIDC client, SAML, SCIM and LDAP are present as library capabilities or future work. They are not exposed as working product features in this scaffold
+- WebAuthn, OIDC client (signing in with an external provider), SAML, SCIM and LDAP are present as library capabilities or future work. They are not exposed as product features
 
 Service identities for SoftDock and other platforms will use `@aspec/api-keys` (vendored, not wired) and later OAuth client credentials. They must not share the human session cookie.
 
@@ -115,7 +116,7 @@ ASPECTenant is the mailbox platform. See `docs/mail-architecture.md`.
 | HTTP | Hono 4 | Keep `@aspec/*` adapters or Fetch handlers |
 | UI | React admin SPA | Do not copy Microsoft 365 chrome |
 | Database | PostgreSQL 17 | SQL stores already have a SQLite dialect for tests |
-| Auth protocols | `@aspec/auth` plus later standard IdP software | Prefer Ory Hydra / similar over a custom OIDC provider |
+| Auth protocols | `@aspec/auth` for accounts, sessions and TOTP; the OpenID-certified `oidc-provider` library for the OIDC provider | Embedded in the API process so it reuses accounts, sessions and tenants; no custom protocol code |
 | Inbound mail transport | Contract only | Cloudflare Email Routing Worker or local MX |
 | Outbound mail transport | Contract only | Cloudflare Email Sending, SMTP relay, SES, Postmark |
 | Mailbox store | Directory records only | Message store must stay inside ASPECTenant, not in the transport |

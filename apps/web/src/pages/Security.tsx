@@ -52,7 +52,9 @@ export function SecurityPage() {
     <>
       <div className="page-header">
         <h1>Security</h1>
-        <p>Session administration and password change. MFA and passkeys are not exposed yet.</p>
+        <p>
+          Session administration and password change. Two-step verification is under Your account.
+        </p>
       </div>
       {error ? (
         <p className="notice notice-error" role="alert">

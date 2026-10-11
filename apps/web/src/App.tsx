@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { useAuth } from './auth.js';
 import { AdminShell } from './layout/AdminShell.js';
+import { AccountPage } from './pages/Account.js';
 import { ApplicationsPage } from './pages/Applications.js';
 import { AuditPage } from './pages/Audit.js';
 import { BackupsPage } from './pages/Backups.js';
@@ -18,6 +19,7 @@ import { MigrationPage } from './pages/Migration.js';
 import { SecurityPage } from './pages/Security.js';
 import { SettingsPage } from './pages/Settings.js';
 import { SetupPage } from './pages/Setup.js';
+import { SignInPage } from './pages/SignIn.js';
 import { SystemPage } from './pages/System.js';
 import { TenantsPage } from './pages/Tenants.js';
 import { UpdatesPage } from './pages/Updates.js';
@@ -42,6 +44,7 @@ export function App() {
     <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route path="/setup" element={<SetupPage />} />
+      <Route path="/sign-in/:uid" element={<SignInPage />} />
       <Route path="/domain-connect/done" element={<DomainConnectDonePage />} />
       <Route
         path="/"
@@ -53,6 +56,7 @@ export function App() {
       >
         <Route index element={<Home />} />
         <Route path="mailbox" element={<WebmailPage />} />
+        <Route path="account" element={<AccountPage />} />
         <Route path="mail/settings" element={<MailSettingsPage />} />
         <Route path="updates" element={<UpdatesPage />} />
         <Route path="system" element={<SystemPage />} />

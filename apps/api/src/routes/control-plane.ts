@@ -221,13 +221,15 @@ export function createControlPlaneApi(platform: Platform) {
           security: {
             implemented: true,
             notes: [
-              'Session list/revoke and password change. MFA and passkeys are not exposed yet.',
+              'Session list/revoke, password change and two-step verification with an authenticator app and recovery codes. Passkeys are not exposed yet.',
             ],
           },
           mail: mailCapabilityStatus(),
           applications: {
             implemented: true,
-            notes: ['Application registrations are stored. OIDC and SAML are not running.'],
+            notes: [
+              'OpenID Connect provider at /oidc: authorization code with PKCE, client secrets, rotatable signing keys. SAML is not running.',
+            ],
           },
           domains: {
             implemented: true,
