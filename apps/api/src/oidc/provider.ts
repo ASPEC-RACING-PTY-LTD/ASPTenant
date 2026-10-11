@@ -141,7 +141,20 @@ export class IdentityProvider {
         devInteractions: { enabled: false },
         revocation: { enabled: true },
         userinfo: { enabled: true },
-        rpInitiatedLogout: { enabled: true },
+        rpInitiatedLogout: {
+          enabled: true,
+          logoutSource: async (ctx, form) => {
+            ctx.type = 'html';
+            ctx.body = page(
+              'Sign out',
+              `<h1>Sign out of ASPECTenant?</h1><p>You will need to sign in again to use applications that sign in with ASPECTenant.</p>${form}<p><button type="submit" form="op.logoutForm" value="yes" name="logout">Sign out</button> <button type="submit" form="op.logoutForm" style="background:transparent;border:1px solid #2a3442">Stay signed in</button></p>`,
+            );
+          },
+          postLogoutSuccessSource: async (ctx) => {
+            ctx.type = 'html';
+            ctx.body = page('Signed out', '<h1>Signed out</h1><p>You can close this window.</p>');
+          },
+        },
       },
       ttl: {
         AccessToken: 60 * 60,
@@ -179,8 +192,10 @@ export class IdentityProvider {
         const user = await platform.users.findUser(sub);
         if (!account || !user || user.status !== 'active' || account.disabled) return undefined;
         const record = await recordFor(ctx);
-        // Tokens stop working once the person leaves the tenant or loses access.
-        if (record && (await clients.refusal(record, sub, true))) return undefined;
+        // Tokens stop working once the person leaves the tenant or loses access. During
+        // authorization the sign-in page explains a refusal instead (see loadExistingGrant).
+        const authorizing = ctx.oidc.route === 'authorization' || ctx.oidc.route === 'resume';
+        if (record && !authorizing && (await clients.refusal(record, sub, true))) return undefined;
         return {
           accountId: sub,
           claims: async () => ({

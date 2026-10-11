@@ -463,6 +463,85 @@ describe('OpenID Connect provider', () => {
     expect(back.searchParams.get('code')).toBeTruthy();
   }, 30_000);
 
+  it('stops refresh tokens and explains why when access is taken away', async () => {
+    const { cookie, discovery } = await start();
+    const app = await register(cookie, {
+      name: 'Portal',
+      redirectUris: ['https://portal.example.com/cb'],
+    });
+    const browser = new Browser(base);
+    await browser.signIn('alice@contoso.test');
+    const flow = () => {
+      const { verifier, challenge } = pkce();
+      return {
+        verifier,
+        params: {
+          client_id: app.clientId,
+          redirect_uri: 'https://portal.example.com/cb',
+          response_type: 'code',
+          scope: 'openid email profile offline_access',
+          state: 's',
+          nonce: 'n',
+          prompt: 'consent',
+          code_challenge: challenge,
+          code_challenge_method: 'S256',
+        },
+      };
+    };
+    const basic = `Basic ${Buffer.from(`${app.clientId}:${app.clientSecret}`).toString('base64')}`;
+    const token = (body: Record<string, string>) =>
+      fetch(discovery.token_endpoint, {
+        method: 'POST',
+        headers: { authorization: basic, 'content-type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams(body),
+      });
+    const first = flow();
+    const { uid } = await authorize(browser, discovery, first.params);
+    const back = await finish(browser, uid);
+    const tokens = (await (
+      await token({
+        grant_type: 'authorization_code',
+        code: back.searchParams.get('code') ?? '',
+        redirect_uri: 'https://portal.example.com/cb',
+        code_verifier: first.verifier,
+      })
+    ).json()) as { refresh_token: string; access_token: string };
+    expect(tokens.refresh_token).toBeTruthy();
+    const userinfo = await fetch(`${base}/oidc/me`, {
+      headers: { authorization: `Bearer ${tokens.access_token}` },
+    });
+    expect(((await userinfo.json()) as { email: string }).email).toBe('alice@contoso.test');
+    expect(
+      (await token({ grant_type: 'refresh_token', refresh_token: tokens.refresh_token })).status,
+    ).toBe(200);
+
+    // Access is restricted to assigned people; Alice is not assigned.
+    await request(ctx, `/api/v1/applications/${app.id}`, {
+      method: 'PATCH',
+      headers: { cookie },
+      body: JSON.stringify({ requireAssignment: true }),
+    });
+    const refused = await token({
+      grant_type: 'refresh_token',
+      refresh_token: tokens.refresh_token,
+    });
+    expect(refused.status).toBe(400);
+    // With a provider session already open, the sign-in page explains the refusal.
+    const again = await authorize(browser, discovery, flow().params);
+    const details = await json<{ refusal: string | null }>(
+      await browser.fetch(`/oidc/interaction/${again.uid}/details`),
+    );
+    expect(details.refusal).toContain('not been given access');
+    const abort = await browser.post(`/oidc/interaction/${again.uid}/abort`);
+    const { redirectTo } = (await abort.json()) as { redirectTo: string };
+    const denied = await browser.fetch(redirectTo);
+    expect(denied.headers.get('location')).toContain('error=access_denied');
+
+    // Sign-out shows the ASPECTenant page.
+    const signOut = await browser.fetch(`${base}/oidc/session/end`);
+    expect(await signOut.text()).toContain('Sign out of ASPECTenant?');
+  }, 30_000);
+
   it('explains that sign-in needs the public URL when none is set', async () => {
     server = createServer();
     ctx = await createTestContext({ env: { PUBLIC_URL: '' } });
