@@ -266,7 +266,10 @@ export class DirectoryService {
     actor: Actor,
   ): Promise<DirectoryGroup> {
     const tenantId = await this.tenantId();
-    const email = input.email ? await this.claimAddress(tenantId, input.email) : null;
+    const email =
+      input.email && input.kind !== 'security'
+        ? await this.claimAddress(tenantId, input.email)
+        : null;
     const name = input.name.trim();
     if (!name) throw new UnprocessableError('Group name is required');
     let slug = slugify(name);
@@ -299,9 +302,15 @@ export class DirectoryService {
     actor: Actor,
   ): Promise<DirectoryGroup> {
     const tenantId = await this.tenantId();
+    const current = await this.getGroup(id);
+    if (patch.name !== undefined && !patch.name.trim()) {
+      throw new UnprocessableError('Group name is required');
+    }
     let email: string | null | undefined;
-    if (patch.email !== undefined) {
-      const current = await this.getGroup(id);
+    // Security groups have no address; changing the kind drops it.
+    if ((patch.kind ?? current.kind) === 'security') {
+      email = current.email === null ? undefined : null;
+    } else if (patch.email !== undefined) {
       const wanted = patch.email ? normaliseEmail(patch.email) : null;
       email =
         wanted && wanted !== current.email ? await this.claimAddress(tenantId, wanted) : wanted;
@@ -607,6 +616,33 @@ export class DirectoryService {
       {
         after: updated,
       },
+    );
+    return updated;
+  }
+
+  /**
+   * Changes the main address of a mailbox. The old address stays as an alias so mail sent to
+   * it still arrives. Choosing one of the mailbox's aliases promotes it.
+   */
+  async changePrimaryAddress(id: string, value: string, actor: Actor): Promise<DirectoryMailbox> {
+    const tenantId = await this.tenantId();
+    const mailbox = await this.getMailbox(id);
+    const wanted = normaliseEmail(value);
+    if (wanted === mailbox.primaryAddress) return mailbox;
+    const fromAlias = mailbox.aliases.includes(wanted);
+    const address = fromAlias ? wanted : await this.claimAddress(tenantId, wanted);
+    await this.guardUnique('That address is already in use.', async () => {
+      if (fromAlias) await this.store.removeAlias(tenantId, id, address);
+      await this.store.setPrimaryAddress(tenantId, id, address);
+      await this.store.addAlias(tenantId, id, mailbox.primaryAddress);
+    });
+    const updated = await this.getMailbox(id);
+    await audit(
+      this.platform,
+      actor,
+      'directory.mailbox.address_changed',
+      { type: 'mailbox', id },
+      { before: { primaryAddress: mailbox.primaryAddress }, after: { primaryAddress: address } },
     );
     return updated;
   }

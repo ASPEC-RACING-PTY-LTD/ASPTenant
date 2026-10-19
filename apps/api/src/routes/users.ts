@@ -7,11 +7,14 @@ import {
   accountIdFromRequest,
   actorFromRequest,
   isAuthEmailTaken,
+  isTenantOwner,
+  requireCanTarget,
   requireExclusiveMember,
   requirePermission,
   requireTenantMember,
 } from '../access.js';
-import { ASSIGNABLE_TENANT_ROLES } from '../permissions.js';
+import { AccountAdmin } from '../accounts.js';
+import { ASSIGNABLE_TENANT_ROLES, TENANT_OWNER_ROLE } from '../permissions.js';
 import type { Platform } from '../platform.js';
 import {
   assignTenantRole,
@@ -29,10 +32,15 @@ const createBody = z.object({
 
 const updateBody = z.object({
   displayName: z.string().min(1).max(120).nullable().optional(),
+  email: z.string().email().max(320).optional(),
 });
 
 const roleBody = z.object({
-  role: z.enum(ASSIGNABLE_TENANT_ROLES).nullable(),
+  role: z.enum([TENANT_OWNER_ROLE, ...ASSIGNABLE_TENANT_ROLES]).nullable(),
+});
+
+const passwordBody = z.object({
+  password: z.string().min(12).max(1024),
 });
 
 const suspendBody = z.object({
@@ -59,10 +67,14 @@ function tenantStatus(user: User, membership: Membership): string {
 }
 
 export function createUserRoutes(platform: Platform) {
+  const accounts = new AccountAdmin(platform);
+
   async function view(tenantId: string, user: User, membership: Membership) {
-    const [roles, mailbox] = await Promise.all([
+    const [roles, mailbox, account, elsewhere] = await Promise.all([
       tenantRolesFor(platform, user.id, tenantId),
       platform.directory.store.findMailboxByUser(tenantId, user.id),
+      platform.auth.getAccount(user.id),
+      belongsElsewhere(tenantId, user.id),
     ]);
     return {
       id: user.id,
@@ -77,6 +89,9 @@ export function createUserRoutes(platform: Platform) {
       orgRole: membership.role,
       roles,
       mailboxId: mailbox?.id ?? null,
+      mfaEnabled: account?.mfaEnabled ?? false,
+      // Account-wide changes need a platform operator when the user is in another tenant too.
+      otherOrganisations: elsewhere,
     };
   }
 
@@ -89,11 +104,7 @@ export function createUserRoutes(platform: Platform) {
 
   /** Only an owner may act on another owner. */
   async function assertCanActOn(tenantId: string, accountId: string, target: Membership) {
-    if (target.role !== 'owner') return;
-    const own = await platform.orgs.getMembership(tenantId, accountId);
-    if (own?.role !== 'owner') {
-      throw new ForbiddenError('Only an organisation owner can change another owner.');
-    }
+    await requireCanTarget(platform, tenantId, accountId, target.userId);
   }
 
   async function belongsElsewhere(tenantId: string, userId: string): Promise<boolean> {
@@ -239,14 +250,27 @@ export function createUserRoutes(platform: Platform) {
       const id = request.params?.id;
       if (!id) throw new NotFoundError('User not found');
       const { membership } = await loadMember(tenantId, id);
+      await assertCanActOn(tenantId, accountId, membership);
       if (id !== accountId) await requireExclusiveMember(platform, tenantId, id);
       const actor = actorFromRequest(raw, accountId);
-      const user = await platform.users.updateProfile(
-        id,
-        request.body?.displayName !== undefined ? { displayName: request.body.displayName } : {},
-        {},
-        { actor },
-      );
+      const body = request.body ?? {};
+      if (body.email !== undefined) {
+        await accounts.changeEmail(id, body.email, actor, tenantId);
+      }
+      if (body.displayName !== undefined) {
+        await platform.users.updateProfile(id, { displayName: body.displayName }, {}, { actor });
+        // Keep the personal mailbox name in step with the person.
+        const mailbox = await platform.directory.store.findMailboxByUser(tenantId, id);
+        if (mailbox && body.displayName) {
+          await platform.directory.updateMailbox(
+            mailbox.id,
+            { displayName: body.displayName },
+            actor,
+          );
+        }
+      }
+      const user = await platform.users.findUser(id);
+      if (!user) throw new NotFoundError('User not found');
       return ok(await view(tenantId, user, membership));
     },
   });
@@ -266,18 +290,34 @@ export function createUserRoutes(platform: Platform) {
       if (!id) throw new NotFoundError('User not found');
       if (id === accountId) throw new ForbiddenError('You cannot change your own role.');
       const { membership } = await loadMember(tenantId, id);
-      if (membership.role === 'owner') {
-        throw new ForbiddenError('Owners keep the owner role. Transfer ownership first.');
-      }
       const role = request.body?.role ?? null;
+      const touchesOwner = membership.role === 'owner' || role === TENANT_OWNER_ROLE;
+      if (touchesOwner && !(await isTenantOwner(platform, tenantId, accountId))) {
+        throw new ForbiddenError('Only an organisation owner can add or change an owner.');
+      }
+      if (touchesOwner && membership.status !== 'active') {
+        throw new ForbiddenError('Reinstate the user before changing ownership.');
+      }
       const actor = actorFromRequest(raw, accountId);
+      let next = membership;
+      if (role === TENANT_OWNER_ROLE) {
+        if (membership.role !== 'owner') {
+          // An organisation may have several owners. The orgs service only offers a transfer,
+          // which would demote the caller, so the membership is promoted directly.
+          next = await platform.orgs.store.updateMembership(
+            { ...membership, role: 'owner', updatedAt: Date.now() },
+            membership.version,
+          );
+        }
+      } else {
+        const nextRole = membershipRoleFor(role);
+        // changeMemberRole refuses to demote the last owner.
+        if (membership.role !== nextRole) {
+          next = await platform.orgs.changeMemberRole(tenantId, id, nextRole, { actor, tenantId });
+        }
+      }
       await revokeTenantRoles(platform, id, tenantId);
       if (role) await assignTenantRole(platform, id, tenantId, role);
-      const nextRole = membershipRoleFor(role);
-      const next =
-        membership.role === nextRole
-          ? membership
-          : await platform.orgs.changeMemberRole(tenantId, id, nextRole, { actor, tenantId });
       await platform.audit.record({
         action: 'organisation.member.role_changed',
         outcome: 'success',
@@ -426,7 +466,8 @@ export function createUserRoutes(platform: Platform) {
       const tenantId = await requirePermission(platform, accountId, 'security:read');
       const id = request.params?.id;
       if (!id) throw new NotFoundError('User not found');
-      await loadMember(tenantId, id);
+      const { membership } = await loadMember(tenantId, id);
+      await assertCanActOn(tenantId, accountId, membership);
       if (id !== accountId) await requireExclusiveMember(platform, tenantId, id);
       const sessions = await platform.auth.listSessions(id);
       return ok({
@@ -466,6 +507,58 @@ export function createUserRoutes(platform: Platform) {
     },
   });
 
+  const setUserPassword = defineRoute({
+    method: 'post',
+    path: '/users/:id/password',
+    operationId: 'setUserPassword',
+    summary:
+      'Set a new password for a user who belongs only to this organisation. Clears a lockout and signs them out everywhere.',
+    tags: ['users'],
+    request: { params: idParams, body: passwordBody },
+    responses: { '204': { description: 'Password set' } },
+    handler: async ({ raw, request }) => {
+      const accountId = accountIdFromRequest(raw);
+      const tenantId = await requirePermission(platform, accountId, 'users:update');
+      const id = request.params?.id;
+      if (!id) throw new NotFoundError('User not found');
+      if (id === accountId) {
+        throw new ForbiddenError('Change your own password on the Security page.');
+      }
+      const { membership } = await loadMember(tenantId, id);
+      await assertCanActOn(tenantId, accountId, membership);
+      await requireExclusiveMember(platform, tenantId, id);
+      const password = request.body?.password;
+      if (!password) throw new ConflictError('A password is required');
+      await accounts.setPassword(id, password, actorFromRequest(raw, accountId), tenantId);
+      return noContent();
+    },
+  });
+
+  const resetUserTwoStep = defineRoute({
+    method: 'post',
+    path: '/users/:id/mfa/reset',
+    operationId: 'resetUserTwoStep',
+    summary:
+      'Turn off two-step verification for a user who belongs only to this organisation, for example after a lost phone',
+    tags: ['users'],
+    request: { params: idParams },
+    responses: { '204': { description: 'Two-step verification reset' } },
+    handler: async ({ raw, request }) => {
+      const accountId = accountIdFromRequest(raw);
+      const tenantId = await requirePermission(platform, accountId, 'security:manage');
+      const id = request.params?.id;
+      if (!id) throw new NotFoundError('User not found');
+      if (id === accountId) {
+        throw new ForbiddenError('Manage your own two-step verification on the Security page.');
+      }
+      const { membership } = await loadMember(tenantId, id);
+      await assertCanActOn(tenantId, accountId, membership);
+      await requireExclusiveMember(platform, tenantId, id);
+      await accounts.resetTwoStep(id, actorFromRequest(raw, accountId), tenantId);
+      return noContent();
+    },
+  });
+
   return [
     listUsers,
     getUser,
@@ -477,5 +570,7 @@ export function createUserRoutes(platform: Platform) {
     removeUser,
     listUserSessions,
     revokeUserSession,
+    setUserPassword,
+    resetUserTwoStep,
   ];
 }

@@ -4,6 +4,7 @@ import { createScryptHasher } from '@aspec/auth';
 import type { SqlClient } from '@aspec/db';
 import { ConflictError, NotFoundError, UnprocessableError } from '@aspec/errors';
 import type { Actor } from '@aspec/users';
+import { requireCanTarget } from './access.js';
 import { ALL_TENANTS_SCOPE } from './directory/index.js';
 import { isUniqueViolation, requireTenantId } from './directory/service.js';
 import type { DirectoryMailbox } from './directory/types.js';
@@ -175,11 +176,35 @@ export class ServiceCredentials {
     return toCredential(row);
   }
 
-  /** Checks that every grant names a mailbox of this tenant and allows something. */
-  private async checkGrants(grants: MailboxGrant[]): Promise<MailboxGrant[]> {
+  /**
+   * An administrator who is not an owner may not hold or change access to an owner's personal
+   * mailbox through a credential. Grants whose mailbox has been deleted are ignored.
+   */
+  private async requireCanTouch(grants: MailboxGrant[], actor: Actor): Promise<void> {
+    const tenantId = requireTenantId(this.platform);
+    for (const grant of grants) {
+      const mailbox = await this.platform.directory.getMailbox(grant.mailboxId).catch(() => null);
+      if (mailbox) await requireCanTarget(this.platform, tenantId, actor.id, mailbox.userId);
+    }
+  }
+
+  /**
+   * Checks that every grant names a mailbox of this tenant and allows something. Grants kept
+   * from before whose mailbox has since been deleted are dropped instead of refused.
+   */
+  private async checkGrants(
+    grants: MailboxGrant[],
+    actor: Actor,
+    previous: MailboxGrant[] = [],
+  ): Promise<MailboxGrant[]> {
+    await this.requireCanTouch(grants, actor);
     const out: MailboxGrant[] = [];
     for (const grant of grants) {
-      await this.platform.directory.getMailbox(grant.mailboxId);
+      const mailbox = await this.platform.directory.getMailbox(grant.mailboxId).catch(() => null);
+      if (!mailbox) {
+        if (previous.some((item) => item.mailboxId === grant.mailboxId)) continue;
+        throw new NotFoundError('Mailbox not found');
+      }
       if (!grant.read && !grant.write && !grant.send) continue;
       if (out.some((item) => item.mailboxId === grant.mailboxId)) {
         throw new UnprocessableError('Each mailbox can be listed only once.');
@@ -222,7 +247,7 @@ export class ServiceCredentials {
     } else {
       username = `svc-${randomBytes(6).toString('hex')}`;
       name = input.name?.trim() || username;
-      grants = await this.checkGrants(input.grants ?? []);
+      grants = await this.checkGrants(input.grants ?? [], actor);
     }
     const now = Date.now();
     const credential: ServiceCredential = {
@@ -290,13 +315,16 @@ export class ServiceCredentials {
 
   async update(id: string, patch: CredentialPatch, actor: Actor): Promise<ServiceCredential> {
     const before = await this.get(id);
+    await this.requireCanTouch(before.grants, actor);
     if (patch.grants && before.kind === 'mailbox') {
       throw new UnprocessableError('A shared mailbox login always has full access to its mailbox.');
     }
     const next: ServiceCredential = {
       ...before,
       ...(patch.name !== undefined ? { name: patch.name.trim().slice(0, 120) || before.name } : {}),
-      ...(patch.grants ? { grants: await this.checkGrants(patch.grants) } : {}),
+      ...(patch.grants
+        ? { grants: await this.checkGrants(patch.grants, actor, before.grants) }
+        : {}),
       ...(patch.allowedIps ? { allowedIps: normaliseAllowlist(patch.allowedIps) } : {}),
       ...(patch.enabled !== undefined ? { enabled: patch.enabled } : {}),
       ...(patch.expiresAt !== undefined ? { expiresAt: patch.expiresAt } : {}),
@@ -326,6 +354,7 @@ export class ServiceCredentials {
   /** Replaces the password and returns the new one, shown only once. */
   async rotate(id: string, actor: Actor, password?: string): Promise<string> {
     const credential = await this.get(id);
+    await this.requireCanTouch(credential.grants, actor);
     const secret = password ?? generatePassword();
     checkPassword(secret);
     await this.db.query(
@@ -339,6 +368,7 @@ export class ServiceCredentials {
 
   async remove(id: string, actor: Actor): Promise<void> {
     const credential = await this.get(id);
+    await this.requireCanTouch(credential.grants, actor);
     await this.db.query(
       `DELETE FROM aspectenant_service_credentials WHERE id = $1 AND tenant_id = $2`,
       [id, credential.tenantId],

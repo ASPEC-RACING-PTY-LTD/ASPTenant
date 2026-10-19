@@ -313,6 +313,8 @@ export class MailServers {
       certMode: CertMode;
       acmeEmail?: string | null;
       cloudflareDnsToken?: string;
+      /** Removes the saved Mail apps token, so certificates use the Domains connection. */
+      clearCloudflareDnsToken?: boolean;
       certPem?: string;
       keyPem?: string;
     },
@@ -334,6 +336,14 @@ export class MailServers {
     };
     if (input.cloudflareDnsToken?.trim()) {
       next.cloudflareDnsToken = this.platform.secrets.encrypt(input.cloudflareDnsToken.trim());
+    } else if (input.clearCloudflareDnsToken) {
+      next.cloudflareDnsToken = null;
+    }
+    if (
+      input.certMode === 'manual' &&
+      Boolean(input.certPem?.trim()) !== Boolean(input.keyPem?.trim())
+    ) {
+      throw new UnprocessableError('Paste both the certificate and its private key.');
     }
     if (input.certMode === 'manual' && input.certPem?.trim() && input.keyPem?.trim()) {
       const info = acme.crypto.readCertificateInfo(input.certPem.trim());

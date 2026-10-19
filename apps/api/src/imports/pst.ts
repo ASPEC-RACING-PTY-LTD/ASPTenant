@@ -416,6 +416,7 @@ export class PstImporter {
         category: 'admin',
         actor: { id: job.createdBy ?? 'system', type: job.createdBy ? 'user' : 'system' },
         resource: { type: 'mailbox', id: mailbox.id },
+        tenantId: mailbox.tenantId,
         changes: { after: progress },
       });
     } catch (error) {

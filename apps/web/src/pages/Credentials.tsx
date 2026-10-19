@@ -64,6 +64,7 @@ export function CredentialsPage() {
   const [sharedId, setSharedId] = useState('');
   const [sharedIps, setSharedIps] = useState('');
   const [sharedPassword, setSharedPassword] = useState('');
+  const [sharedExpires, setSharedExpires] = useState('');
 
   const fail = useCallback((err: unknown) => {
     setError(err instanceof Error ? err.message : String(err));
@@ -126,7 +127,8 @@ export function CredentialsPage() {
       if (editing) {
         await updateCredential(editing.id, {
           name: name.trim(),
-          grants: grants(),
+          // A shared mailbox login always has full access to its own mailbox.
+          ...(editing.kind === 'service' ? { grants: grants() } : {}),
           allowedIps: splitList(ips),
           expiresAt,
         });
@@ -159,12 +161,14 @@ export function CredentialsPage() {
         kind: 'mailbox',
         mailboxId: sharedId,
         allowedIps: splitList(sharedIps),
+        ...(sharedExpires ? { expiresAt: new Date(`${sharedExpires}T23:59:59`).getTime() } : {}),
         ...(sharedPassword ? { password: sharedPassword } : {}),
       });
       setRevealed({ username: created.credential.username, password: created.password });
       setSharedId('');
       setSharedIps('');
       setSharedPassword('');
+      setSharedExpires('');
       await reload();
     } catch (err) {
       fail(err);
@@ -176,10 +180,13 @@ export function CredentialsPage() {
     setName(item.name);
     setAccess(
       Object.fromEntries(
-        item.grants.map((grant) => [
-          grant.mailboxId,
-          { read: grant.read, write: grant.write, send: grant.send },
-        ]),
+        // Grants for mailboxes deleted since are left out, so the credential can still be saved.
+        item.grants
+          .filter((grant) => mailboxes.some((mailbox) => mailbox.id === grant.mailboxId))
+          .map((grant) => [
+            grant.mailboxId,
+            { read: grant.read, write: grant.write, send: grant.send },
+          ]),
       ),
     );
     setIps(item.allowedIps.join('\n'));
@@ -307,39 +314,45 @@ export function CredentialsPage() {
                 </div>
               )}
             </div>
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Mailbox</th>
-                  <th>Read</th>
-                  <th>Change</th>
-                  <th>Send</th>
-                </tr>
-              </thead>
-              <tbody>
-                {mailboxes.map((mailbox) => {
-                  const current = access[mailbox.id] ?? NO_ACCESS;
-                  return (
-                    <tr key={mailbox.id}>
-                      <td>
-                        {mailbox.primaryAddress}
-                        {mailbox.kind === 'shared' ? ' (shared)' : ''}
-                      </td>
-                      {(['read', 'write', 'send'] as const).map((key) => (
-                        <td key={key}>
-                          <input
-                            type="checkbox"
-                            aria-label={`${key} ${mailbox.primaryAddress}`}
-                            checked={current[key]}
-                            onChange={(e) => setGrant(mailbox.id, key, e.target.checked)}
-                          />
+            {editing?.kind === 'mailbox' ? (
+              <p className="muted">
+                This login always has full access to {editing.username} and nothing else.
+              </p>
+            ) : (
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Mailbox</th>
+                    <th>Read</th>
+                    <th>Change</th>
+                    <th>Send</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {mailboxes.map((mailbox) => {
+                    const current = access[mailbox.id] ?? NO_ACCESS;
+                    return (
+                      <tr key={mailbox.id}>
+                        <td>
+                          {mailbox.primaryAddress}
+                          {mailbox.kind === 'shared' ? ' (shared)' : ''}
                         </td>
-                      ))}
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                        {(['read', 'write', 'send'] as const).map((key) => (
+                          <td key={key}>
+                            <input
+                              type="checkbox"
+                              aria-label={`${key} ${mailbox.primaryAddress}`}
+                              checked={current[key]}
+                              onChange={(e) => setGrant(mailbox.id, key, e.target.checked)}
+                            />
+                          </td>
+                        ))}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
             <div className="form-grid">
               <div className="field">
                 <label htmlFor="cred-ips">Allowed IP addresses (optional)</label>
@@ -353,7 +366,11 @@ export function CredentialsPage() {
               </div>
               <div className="field field-action">
                 <div className="btn-row">
-                  <button className="btn" type="submit" disabled={grants().length === 0}>
+                  <button
+                    className="btn"
+                    type="submit"
+                    disabled={editing?.kind !== 'mailbox' && grants().length === 0}
+                  >
                     {editing ? 'Save credential' : 'Create credential'}
                   </button>
                   {editing ? (
@@ -404,6 +421,15 @@ export function CredentialsPage() {
                   placeholder="generated when empty"
                   value={sharedPassword}
                   onChange={(e) => setSharedPassword(e.target.value)}
+                />
+              </div>
+              <div className="field">
+                <label htmlFor="shared-expires">Expires (optional)</label>
+                <input
+                  id="shared-expires"
+                  type="date"
+                  value={sharedExpires}
+                  onChange={(e) => setSharedExpires(e.target.value)}
                 />
               </div>
               <div className="field">
@@ -480,32 +506,13 @@ export function CredentialsPage() {
                     <td className="btn-row">
                       {canManage ? (
                         <>
-                          {item.kind === 'service' ? (
-                            <button
-                              className="btn btn-ghost"
-                              type="button"
-                              onClick={() => edit(item)}
-                            >
-                              Edit
-                            </button>
-                          ) : (
-                            <button
-                              className="btn btn-ghost"
-                              type="button"
-                              onClick={() => {
-                                const next = window.prompt(
-                                  'Allowed IP addresses, separated by commas. Leave empty to allow any address.',
-                                  item.allowedIps.join(', '),
-                                );
-                                if (next === null) return;
-                                run(() =>
-                                  updateCredential(item.id, { allowedIps: splitList(next) }),
-                                );
-                              }}
-                            >
-                              IP addresses
-                            </button>
-                          )}
+                          <button
+                            className="btn btn-ghost"
+                            type="button"
+                            onClick={() => edit(item)}
+                          >
+                            Edit
+                          </button>
                           <button
                             className="btn btn-ghost"
                             type="button"
@@ -519,14 +526,13 @@ export function CredentialsPage() {
                             className="btn btn-ghost"
                             type="button"
                             onClick={() => {
-                              if (
-                                !window.confirm(
-                                  `Replace the password of ${item.username}? Apps using the old one stop working.`,
-                                )
-                              )
-                                return;
+                              const chosen = window.prompt(
+                                `New password for ${item.username}. Apps using the old one stop working. Enter at least 12 characters, or leave empty to generate one.`,
+                                '',
+                              );
+                              if (chosen === null) return;
                               setError(null);
-                              void rotateCredential(item.id)
+                              void rotateCredential(item.id, chosen.trim() || undefined)
                                 .then((secret) =>
                                   setRevealed({ username: item.username, password: secret }),
                                 )

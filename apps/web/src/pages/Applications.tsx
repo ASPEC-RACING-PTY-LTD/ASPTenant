@@ -53,6 +53,8 @@ export function ApplicationsPage() {
   const [clientType, setClientType] = useState<'confidential' | 'public'>('confidential');
   const [editing, setEditing] = useState<DirectoryApplication | null>(null);
   const [editRedirects, setEditRedirects] = useState('');
+  const [editName, setEditName] = useState('');
+  const [saving, setSaving] = useState(false);
 
   const fail = useCallback((err: unknown) => {
     setError(err instanceof Error ? err.message : String(err));
@@ -107,14 +109,23 @@ export function ApplicationsPage() {
     }
   };
 
+  /**
+   * Saves one change. Controls stay disabled until it finishes and the panel shows what the
+   * server saved, so a quick second click works from the result of the first.
+   */
   const save = (patch: Parameters<typeof updateApplication>[1], message: string) => {
-    if (!editing) return;
+    if (!editing || saving) return;
     setError(null);
     setNotice(null);
+    setSaving(true);
     void updateApplication(editing.id, patch)
-      .then(() => setNotice(message))
-      .then(reload)
-      .catch(fail);
+      .then((updated) => {
+        setEditing(updated);
+        setNotice(message);
+        return reload();
+      })
+      .catch(fail)
+      .finally(() => setSaving(false));
   };
 
   const toggleAssignment = (kind: 'users' | 'groups', id: string, on: boolean) => {
@@ -307,6 +318,7 @@ export function ApplicationsPage() {
                         type="button"
                         onClick={() => {
                           setEditing(item);
+                          setEditName(item.name);
                           setEditRedirects(item.redirectUris.join('\n'));
                         }}
                       >
@@ -366,9 +378,22 @@ export function ApplicationsPage() {
             className="form-grid"
             onSubmit={(event) => {
               event.preventDefault();
-              save({ redirectUris: splitUris(editRedirects) }, 'Redirect URIs were saved.');
+              save(
+                { name: editName.trim(), redirectUris: splitUris(editRedirects) },
+                'The application was saved.',
+              );
             }}
           >
+            <div className="field">
+              <label htmlFor="edit-app-name">Name</label>
+              <input
+                id="edit-app-name"
+                required
+                maxLength={120}
+                value={editName}
+                onChange={(event) => setEditName(event.target.value)}
+              />
+            </div>
             <div className="field">
               <label htmlFor="edit-redirects">Redirect URIs</label>
               <textarea
@@ -379,16 +404,48 @@ export function ApplicationsPage() {
               />
             </div>
             <div className="field field-action">
-              <button className="btn" type="submit">
-                Save redirect URIs
+              <button className="btn" type="submit" disabled={saving}>
+                Save
               </button>
             </div>
           </form>
+          <div className="form-grid">
+            <div className="field">
+              <label htmlFor="edit-app-type">Client type</label>
+              <select
+                id="edit-app-type"
+                value={editing.clientType}
+                disabled={saving}
+                onChange={(event) => {
+                  const next = event.target.value as 'confidential' | 'public';
+                  if (
+                    next === 'public' &&
+                    editing.hasSecret &&
+                    !window.confirm(
+                      'A public client has no secret. The current secret stops working. Continue?',
+                    )
+                  ) {
+                    return;
+                  }
+                  save(
+                    { clientType: next },
+                    next === 'public'
+                      ? 'The application is now a public client and its secret was removed.'
+                      : 'The application is now a confidential client. Create a secret for it.',
+                  );
+                }}
+              >
+                <option value="confidential">Confidential (server with a secret)</option>
+                <option value="public">Public (desktop or mobile app, PKCE only)</option>
+              </select>
+            </div>
+          </div>
           <div className="btn-row">
             <label className="toggle">
               <input
                 type="checkbox"
                 checked={editing.requireMfa}
+                disabled={saving}
                 onChange={(event) =>
                   save(
                     { requireMfa: event.target.checked },
@@ -404,6 +461,7 @@ export function ApplicationsPage() {
               <input
                 type="checkbox"
                 checked={editing.requireAssignment}
+                disabled={saving}
                 onChange={(event) =>
                   save(
                     { requireAssignment: event.target.checked },
@@ -425,6 +483,7 @@ export function ApplicationsPage() {
                     <input
                       type="checkbox"
                       checked={editing.assignments.users.includes(user.id)}
+                      disabled={saving}
                       onChange={(event) => toggleAssignment('users', user.id, event.target.checked)}
                     />{' '}
                     {user.displayName ? `${user.displayName} (${user.email})` : user.email}
@@ -439,6 +498,7 @@ export function ApplicationsPage() {
                     <input
                       type="checkbox"
                       checked={editing.assignments.groups.includes(group.id)}
+                      disabled={saving}
                       onChange={(event) =>
                         toggleAssignment('groups', group.id, event.target.checked)
                       }

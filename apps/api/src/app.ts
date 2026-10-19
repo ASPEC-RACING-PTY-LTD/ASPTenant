@@ -151,7 +151,13 @@ export function createApp(platform: Platform): Hono<{ Variables: AuthVariables }
     const authState = c.get('auth') as { account?: { id: string } } | null | undefined;
     const accountId = authState?.account?.id;
     if (!accountId) return next();
-    const tenant = await resolveTenant(platform, accountId, c.req.header(TENANT_HEADER));
+    // Plain links (attachment downloads) cannot send the header, so they pass ?tenant=.
+    // resolveTenant still checks the account belongs to it.
+    const tenant = await resolveTenant(
+      platform,
+      accountId,
+      c.req.header(TENANT_HEADER) ?? c.req.query('tenant'),
+    );
     if (!tenant) return next();
     await withCommitHooks(() => withTenant(platform, tenant, accountId, () => next()));
   });

@@ -25,19 +25,24 @@ export function DomainConnectSettingsPanel() {
 
   if (!settings) return null;
 
-  const save = (generateKey: boolean) =>
+  const save = (mode: 'save' | 'generate' | 'remove') =>
     void saveDomainConnect({
       providerId,
       serviceId,
       keyId,
-      ...(privateKey.trim() ? { privateKey } : {}),
-      ...(generateKey ? { generateKey: true } : {}),
+      ...(mode === 'save' && privateKey.trim() ? { privateKey } : {}),
+      ...(mode === 'generate' ? { generateKey: true } : {}),
+      ...(mode === 'remove' ? { removeKey: true } : {}),
     })
       .then((next) => {
         apply(next);
         setPrivateKey('');
         setMessage(
-          generateKey ? 'New key pair generated. Publish the TXT record below.' : 'Saved.',
+          mode === 'generate'
+            ? 'New key pair generated. Publish the TXT record below.'
+            : mode === 'remove'
+              ? 'The signing key was removed. Domain Connect is off.'
+              : 'Saved.',
         );
       })
       .catch((err: unknown) => setMessage(err instanceof Error ? err.message : String(err)));
@@ -83,12 +88,24 @@ export function DomainConnectSettingsPanel() {
         />
       </div>
       <div className="btn-row">
-        <button className="btn" type="button" onClick={() => save(false)}>
+        <button className="btn" type="button" onClick={() => save('save')}>
           Save
         </button>
-        <button className="btn btn-ghost" type="button" onClick={() => save(true)}>
+        <button className="btn btn-ghost" type="button" onClick={() => save('generate')}>
           Generate new key pair
         </button>
+        {settings.configured ? (
+          <button
+            className="btn btn-danger"
+            type="button"
+            onClick={() => {
+              if (!window.confirm('Remove the signing key? Domain Connect stops working.')) return;
+              save('remove');
+            }}
+          >
+            Remove key
+          </button>
+        ) : null}
       </div>
       {settings.publicKeyTxt ? (
         <>

@@ -518,6 +518,14 @@ export class DirectoryStore {
     return { ...current, displayName, quotaBytes, updatedAt: now };
   }
 
+  async setPrimaryAddress(tenantId: string, id: string, address: string): Promise<void> {
+    await this.db.query(
+      `UPDATE aspectenant_mailboxes SET primary_address = $1, updated_at = $2
+       WHERE id = $3 AND tenant_id = $4`,
+      [address, Date.now(), id, tenantId],
+    );
+  }
+
   async deleteMailbox(tenantId: string, id: string): Promise<boolean> {
     await this.db.query(
       `DELETE FROM aspectenant_mailbox_aliases WHERE mailbox_id = $1 AND tenant_id = $2`,

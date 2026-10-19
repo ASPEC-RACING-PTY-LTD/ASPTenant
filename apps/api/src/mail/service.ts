@@ -55,6 +55,10 @@ export interface MailSettingsView {
 export interface MailSettingsInput {
   kind: OutboundKind;
   cloudflareToken?: string;
+  /** Removes the saved Cloudflare Email Sending token. */
+  clearCloudflareToken?: boolean;
+  /** Removes the saved SMTP relay password. */
+  clearSmtpPassword?: boolean;
   smtp?: {
     host: string;
     port: number;
@@ -176,6 +180,8 @@ export class MailService {
     const outbound: StoredMailSettings['outbound'] = { ...stored.outbound, kind: input.kind };
     if (input.cloudflareToken?.trim()) {
       outbound.cloudflareToken = secrets.encrypt(input.cloudflareToken.trim());
+    } else if (input.clearCloudflareToken) {
+      outbound.cloudflareToken = null;
     }
     if (input.smtp) {
       const host = input.smtp.host.trim();
@@ -187,8 +193,15 @@ export class MailService {
         username: input.smtp.username?.trim() || null,
         password: input.smtp.password
           ? secrets.encrypt(input.smtp.password)
-          : (stored.outbound.smtp?.password ?? null),
+          : input.clearSmtpPassword
+            ? null
+            : (stored.outbound.smtp?.password ?? null),
       };
+    } else if (input.clearSmtpPassword && outbound.smtp) {
+      outbound.smtp = { ...outbound.smtp, password: null };
+    }
+    if (input.kind === 'smtp' && !outbound.smtp?.host) {
+      throw new UnprocessableError('SMTP host is required.');
     }
     if (input.kind === 'cloudflare' && !outbound.cloudflareToken) {
       throw new UnprocessableError('Enter a Cloudflare API token with Email Sending: Edit.');
@@ -200,7 +213,22 @@ export class MailService {
       category: 'admin',
       actor,
       resource: { type: 'mail-settings', id: SETTINGS_KEY },
-      changes: { after: { kind: input.kind } },
+      tenantId: await this.tenantId(),
+      changes: {
+        after: {
+          kind: input.kind,
+          cloudflareToken: input.cloudflareToken?.trim()
+            ? 'replaced'
+            : input.clearCloudflareToken
+              ? 'removed'
+              : 'unchanged',
+          smtpPassword: input.smtp?.password
+            ? 'replaced'
+            : input.clearSmtpPassword
+              ? 'removed'
+              : 'unchanged',
+        },
+      },
     });
     return this.getSettings();
   }
@@ -218,8 +246,26 @@ export class MailService {
       category: 'security',
       actor,
       resource: { type: 'mail-settings', id: SETTINGS_KEY },
+      tenantId: await this.tenantId(),
     });
     return token;
+  }
+
+  async revokeIngestToken(actor: Actor): Promise<void> {
+    const stored = await this.load();
+    if (!stored.ingestTokenHash) return;
+    await this.settings.set(await this.tenantId(), SETTINGS_KEY, {
+      ...stored,
+      ingestTokenHash: null,
+    });
+    await this.platform.audit.record({
+      action: 'mail.ingest_token.revoked',
+      outcome: 'success',
+      category: 'security',
+      actor,
+      resource: { type: 'mail-settings', id: SETTINGS_KEY },
+      tenantId: await this.tenantId(),
+    });
   }
 
   /**

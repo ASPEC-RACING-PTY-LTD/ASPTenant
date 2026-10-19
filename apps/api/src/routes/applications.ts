@@ -4,6 +4,7 @@ import { z } from 'zod';
 import {
   accountIdFromRequest,
   actorFromRequest,
+  requireCanTarget,
   requirePermission,
   requirePlatformPermission,
 } from '../access.js';
@@ -99,12 +100,20 @@ export function createApplicationRoutes(platform: Platform) {
       responses: { '200': { description: 'Updated' } },
       handler: async ({ raw, request }) => {
         const accountId = accountIdFromRequest(raw);
-        await requirePermission(platform, accountId, 'apps:manage');
+        const tenantId = await requirePermission(platform, accountId, 'apps:manage');
         const id = request.params?.id;
         if (!id) throw new NotFoundError('Application not found');
         const body = request.body ?? {};
         const actor = actorFromRequest(raw, accountId);
         let application = await platform.directory.getApplication(id);
+        if (body.assignments) {
+          // Taking an owner off an application is changing the owner.
+          const before = await platform.oidc.clients.get(id);
+          const kept = new Set(body.assignments.users);
+          for (const userId of before.assignments.users) {
+            if (!kept.has(userId)) await requireCanTarget(platform, tenantId, accountId, userId);
+          }
+        }
         if (body.name !== undefined || body.redirectUris !== undefined) {
           application = await platform.directory.updateApplication(
             id,

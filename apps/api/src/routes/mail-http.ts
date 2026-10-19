@@ -3,7 +3,12 @@ import { ForbiddenError, isAppError, NotFoundError, UnprocessableError } from '@
 import type { Actor } from '@aspec/users';
 import { type Context, Hono } from 'hono';
 import { z } from 'zod';
-import { requirePermission, requirePlatformPermission } from '../access.js';
+import {
+  requireCanManageMailbox,
+  requireCanTarget,
+  requirePermission,
+  requirePlatformPermission,
+} from '../access.js';
 import { requireTenantId } from '../directory/service.js';
 import { INGEST_MAX_BYTES, OUTBOUND_KINDS, SMTP_SECURITY } from '../mail/service.js';
 import { normaliseFolderName } from '../mail/store.js';
@@ -39,6 +44,8 @@ const sendBody = z.object({
 const settingsBody = z.object({
   kind: z.enum(OUTBOUND_KINDS),
   cloudflareToken: z.string().max(400).optional(),
+  clearCloudflareToken: z.boolean().optional(),
+  clearSmtpPassword: z.boolean().optional(),
   smtp: z
     .object({
       host: z.string().max(253),
@@ -315,6 +322,8 @@ export function createMailHttp(
       {
         kind: body.kind,
         ...(body.cloudflareToken ? { cloudflareToken: body.cloudflareToken } : {}),
+        ...(body.clearCloudflareToken ? { clearCloudflareToken: true } : {}),
+        ...(body.clearSmtpPassword ? { clearSmtpPassword: true } : {}),
         ...(body.smtp
           ? {
               smtp: {
@@ -341,13 +350,19 @@ export function createMailHttp(
 
   app.post('/mail/settings/test', async (c) => {
     const id = accountId(c);
-    await requirePermission(platform, id, 'mail:manage');
+    const tenantId = await requirePermission(platform, id, 'mail:manage');
     const body = await json(
       c,
       z.object({ to: z.string().optional(), from: z.string().optional() }),
     );
+    // Send as the administrator's own mailbox, or a shared one, never someone else's.
     const mailboxes = await platform.directory.listMailboxes();
-    const from = body.from ?? mailboxes[0]?.primaryAddress;
+    const own = await platform.directory.store.findMailboxByUser(tenantId, id);
+    const from =
+      body.from ??
+      own?.primaryAddress ??
+      mailboxes.find((mailbox) => mailbox.kind === 'shared')?.primaryAddress ??
+      mailboxes[0]?.primaryAddress;
     if (!from) throw new UnprocessableError('Create a mailbox first so the test has a sender.');
     return c.json(await platform.mail.testOutbound(body.to || undefined, from));
   });
@@ -357,20 +372,33 @@ export function createMailHttp(
     return c.json({ token: await platform.mail.rotateIngestToken(actor(c)) });
   });
 
+  // Turns inbound delivery off: the Worker's token stops working until a new one is made.
+  app.delete('/mail/settings/ingest-token', async (c) => {
+    await requirePermission(platform, accountId(c), 'mail:manage');
+    await platform.mail.revokeIngestToken(actor(c));
+    return c.json({ ok: true });
+  });
+
   app.get('/mail/admin/mailboxes/:id/members', async (c) => {
     await requirePermission(platform, accountId(c), 'mail:read');
     return c.json({ items: await platform.directory.listMailboxMembers(c.req.param('id')) });
   });
 
   app.post('/mail/admin/mailboxes/:id/members', async (c) => {
-    await requirePermission(platform, accountId(c), 'mail:manage');
+    const id = accountId(c);
+    const tenantId = await requirePermission(platform, id, 'mail:manage');
+    await requireCanManageMailbox(platform, tenantId, id, c.req.param('id'));
     const body = await json(c, z.object({ userId: z.string().min(1) }));
     await platform.directory.addMailboxMember(c.req.param('id'), body.userId, actor(c));
     return c.json({ ok: true }, 201);
   });
 
   app.delete('/mail/admin/mailboxes/:id/members/:userId', async (c) => {
-    await requirePermission(platform, accountId(c), 'mail:manage');
+    const id = accountId(c);
+    const tenantId = await requirePermission(platform, id, 'mail:manage');
+    await requireCanManageMailbox(platform, tenantId, id, c.req.param('id'));
+    // Taking an owner's access away is changing the owner.
+    await requireCanTarget(platform, tenantId, id, c.req.param('userId'));
     await platform.directory.removeMailboxMember(
       c.req.param('id'),
       c.req.param('userId'),
@@ -451,6 +479,7 @@ export function createMailHttp(
         certMode: z.enum(['acme', 'manual']),
         acmeEmail: z.string().max(320).nullable().optional(),
         cloudflareDnsToken: z.string().max(400).optional(),
+        clearCloudflareDnsToken: z.boolean().optional(),
         certPem: z.string().max(100_000).optional(),
         keyPem: z.string().max(100_000).optional(),
       }),
@@ -464,6 +493,7 @@ export function createMailHttp(
             certMode: body.certMode,
             acmeEmail: body.acmeEmail ?? null,
             ...(body.cloudflareDnsToken ? { cloudflareDnsToken: body.cloudflareDnsToken } : {}),
+            ...(body.clearCloudflareDnsToken ? { clearCloudflareDnsToken: true } : {}),
             ...(body.certPem ? { certPem: body.certPem } : {}),
             ...(body.keyPem ? { keyPem: body.keyPem } : {}),
           },
@@ -485,7 +515,7 @@ export function createMailHttp(
   // Cloudflare integration and guided domain setup
   app.get('/integrations/cloudflare', async (c) => {
     await requirePermission(platform, accountId(c), 'domains:read');
-    return c.json(await platform.domainSetup.status());
+    return c.json(await platform.domainSetup.status(c.req.query('check') === '1'));
   });
 
   app.put('/integrations/cloudflare', async (c) => {
@@ -496,7 +526,7 @@ export function createMailHttp(
 
   app.delete('/integrations/cloudflare', async (c) => {
     await requirePermission(platform, accountId(c), 'domains:manage');
-    await platform.domainSetup.disconnectCloudflare();
+    await platform.domainSetup.disconnectCloudflare(actor(c));
     return c.json({ ok: true });
   });
 
@@ -516,16 +546,21 @@ export function createMailHttp(
         keyId: z.string().min(1).max(63),
         privateKey: z.string().max(20_000).optional(),
         generateKey: z.boolean().optional(),
+        removeKey: z.boolean().optional(),
       }),
     );
     return c.json(
-      await platform.domainConnect.update({
-        providerId: body.providerId,
-        serviceId: body.serviceId,
-        keyId: body.keyId,
-        ...(body.privateKey ? { privateKey: body.privateKey } : {}),
-        ...(body.generateKey ? { generateKey: true } : {}),
-      }),
+      await platform.domainConnect.update(
+        {
+          providerId: body.providerId,
+          serviceId: body.serviceId,
+          keyId: body.keyId,
+          ...(body.privateKey ? { privateKey: body.privateKey } : {}),
+          ...(body.generateKey ? { generateKey: true } : {}),
+          ...(body.removeKey ? { removeKey: true } : {}),
+        },
+        actor(c),
+      ),
     );
   });
 

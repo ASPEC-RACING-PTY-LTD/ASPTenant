@@ -2,6 +2,7 @@ import { type FormEvent, useCallback, useEffect, useState } from 'react';
 import {
   getMailSettings,
   type MailSettings,
+  revokeIngestToken,
   rotateIngestToken,
   saveMailSettings,
   testMailSettings,
@@ -126,6 +127,34 @@ export function MailSettingsPage() {
                 Sending in Cloudflare. Limits: 5 MiB per message, 50 recipients, Workers Paid plan
                 to send to any address.
               </small>
+              {settings.outbound.cloudflare.hasToken ? (
+                <button
+                  className="btn btn-ghost"
+                  type="button"
+                  disabled={busy}
+                  onClick={() => {
+                    if (
+                      !window.confirm(
+                        'Remove the saved Cloudflare token? Sending through Cloudflare stops until a new token is saved.',
+                      )
+                    ) {
+                      return;
+                    }
+                    void run(async () => {
+                      const stored = settings.outbound.kind;
+                      apply(
+                        await saveMailSettings({
+                          kind: stored === 'cloudflare' ? 'none' : stored,
+                          clearCloudflareToken: true,
+                        }),
+                      );
+                      setNotice('The Cloudflare token was removed.');
+                    });
+                  }}
+                >
+                  Remove saved token
+                </button>
+              ) : null}
             </div>
           ) : null}
           {kind === 'smtp' ? (
@@ -176,6 +205,26 @@ export function MailSettingsPage() {
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
                 />
+                {settings.outbound.smtp.hasPassword ? (
+                  <button
+                    className="btn btn-ghost"
+                    type="button"
+                    disabled={busy}
+                    onClick={() =>
+                      void run(async () => {
+                        apply(
+                          await saveMailSettings({
+                            kind: settings.outbound.kind,
+                            clearSmtpPassword: true,
+                          }),
+                        );
+                        setNotice('The SMTP password was removed.');
+                      })
+                    }
+                  >
+                    Remove saved password
+                  </button>
+                ) : null}
               </div>
             </>
           ) : null}
@@ -249,6 +298,33 @@ export function MailSettingsPage() {
               >
                 {settings.ingest.configured ? 'Replace ingest token' : 'Generate ingest token'}
               </button>
+              {settings.ingest.configured ? (
+                <button
+                  className="btn btn-danger"
+                  type="button"
+                  disabled={busy}
+                  onClick={() => {
+                    if (
+                      !window.confirm(
+                        'Turn off inbound mail? The Worker is refused until a new token is generated.',
+                      )
+                    ) {
+                      return;
+                    }
+                    void run(async () => {
+                      await revokeIngestToken();
+                      setToken(null);
+                      setSettings({
+                        ...settings,
+                        ingest: { ...settings.ingest, configured: false },
+                      });
+                      setNotice('Inbound mail is off. The old ingest token no longer works.');
+                    });
+                  }}
+                >
+                  Turn off inbound
+                </button>
+              ) : null}
             </div>
             {token ? <pre className="code">{token}</pre> : null}
           </li>

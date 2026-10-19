@@ -50,6 +50,20 @@ export interface RequiredRecord {
   automatic: boolean;
 }
 
+interface StoredCloudflare {
+  apiToken?: string;
+  connectedAt?: number;
+}
+
+export interface CloudflareStatus {
+  connected: boolean;
+  connectedAt: number | null;
+  /** Zones the token can see, when checked. */
+  zones: string[] | null;
+  /** Why the token does not work, when checked. */
+  problem: string | null;
+}
+
 export interface DomainSetupView {
   domain: DirectoryDomain;
   provider: DnsProvider;
@@ -96,6 +110,33 @@ const AUTH_CODES = new Set([9103, 9106, 9109, 10000, 10001, 6003, 6111]);
  */
 export async function discoverZone(token: string, hostname: string): Promise<ZoneMatch> {
   const host = hostname.trim().toLowerCase().replace(/\.$/, '');
+  const zones = await listZones(token);
+  if (zones.length === 0) {
+    throw new CloudflareError(
+      'permission',
+      `The Cloudflare token is valid but cannot see any zones. Give it Zone: Read and DNS: Edit for the zone that contains ${host}.`,
+    );
+  }
+  const match = zones
+    .filter((zone) => {
+      const name = zone.name.toLowerCase();
+      return host === name || host.endsWith(`.${name}`);
+    })
+    .sort((a, b) => b.name.length - a.name.length)[0];
+  if (!match) {
+    throw new CloudflareError(
+      'not-found',
+      `No zone in this Cloudflare account contains ${host}. Zones this token can see: ${zones
+        .map((zone) => zone.name)
+        .slice(0, 20)
+        .join(', ')}.`,
+    );
+  }
+  return { id: match.id, name: match.name, subdomain: host !== match.name.toLowerCase() };
+}
+
+/** Every zone the token can see, explaining an invalid token or a missing permission. */
+export async function listZones(token: string): Promise<{ id: string; name: string }[]> {
   const zones: { id: string; name: string }[] = [];
   for (let page = 1; page <= 20; page += 1) {
     let response: Response;
@@ -139,28 +180,7 @@ export async function discoverZone(token: string, hostname: string): Promise<Zon
     zones.push(...(body.result ?? []));
     if (page >= (body.result_info?.total_pages ?? 1)) break;
   }
-  if (zones.length === 0) {
-    throw new CloudflareError(
-      'permission',
-      `The Cloudflare token is valid but cannot see any zones. Give it Zone: Read and DNS: Edit for the zone that contains ${host}.`,
-    );
-  }
-  const match = zones
-    .filter((zone) => {
-      const name = zone.name.toLowerCase();
-      return host === name || host.endsWith(`.${name}`);
-    })
-    .sort((a, b) => b.name.length - a.name.length)[0];
-  if (!match) {
-    throw new CloudflareError(
-      'not-found',
-      `No zone in this Cloudflare account contains ${host}. Zones this token can see: ${zones
-        .map((zone) => zone.name)
-        .slice(0, 20)
-        .join(', ')}.`,
-    );
-  }
-  return { id: match.id, name: match.name, subdomain: host !== match.name.toLowerCase() };
+  return zones;
 }
 
 /**
@@ -345,35 +365,95 @@ export class DomainSetup {
     return requireTenantId(this.platform);
   }
 
-  /** Cloudflare API token shared by DNS setup and certificates (stored encrypted). */
-  async cloudflareToken(): Promise<string | null> {
-    const stored = await this.settings.get<{ apiToken?: string }>(await this.tenantId(), KEY);
-    return stored?.apiToken ? this.platform.secrets.decrypt(stored.apiToken) : null;
+  private async stored(): Promise<StoredCloudflare> {
+    return (await this.settings.get<StoredCloudflare>(await this.tenantId(), KEY)) ?? {};
   }
 
-  async connectCloudflare(token: string, actor: Actor): Promise<{ zones: string[] }> {
-    const api = new CloudflareApi(token.trim());
-    const zones = await api.call<{ name: string }[]>('/zones?per_page=50');
+  /** Cloudflare API token shared by DNS setup and certificates (stored encrypted). */
+  async cloudflareToken(): Promise<string | null> {
+    const stored = await this.stored();
+    if (!stored.apiToken) return null;
+    try {
+      return this.platform.secrets.decrypt(stored.apiToken);
+    } catch {
+      this.platform.logger.warn('the Domains Cloudflare token cannot be decrypted; ignoring it');
+      return null;
+    }
+  }
+
+  /**
+   * Saves a token for this tenant, replacing any earlier one. The token must be able to list
+   * at least one zone, so a token for the wrong account is refused before it replaces a
+   * working one.
+   */
+  async connectCloudflare(token: string, actor: Actor): Promise<CloudflareStatus> {
+    const value = token.trim();
+    const zones = (await listZones(value)).map((zone) => zone.name);
+    if (zones.length === 0) {
+      throw new CloudflareError(
+        'permission',
+        'The Cloudflare token is valid but cannot see any zones. Give it Zone: Read, DNS: Edit and Email Routing Rules: Edit for the zones of your domains.',
+      );
+    }
+    const replaced = Boolean((await this.stored()).apiToken);
+    const connectedAt = Date.now();
     await this.settings.set(await this.tenantId(), KEY, {
-      apiToken: this.platform.secrets.encrypt(token.trim()),
-    });
+      apiToken: this.platform.secrets.encrypt(value),
+      connectedAt,
+    } satisfies StoredCloudflare);
     await this.platform.audit.record({
-      action: 'integration.cloudflare.connected',
+      action: replaced ? 'integration.cloudflare.replaced' : 'integration.cloudflare.connected',
       outcome: 'success',
       category: 'security',
       actor,
       resource: { type: 'integration', id: KEY },
-      changes: { after: { zones: zones.map((zone) => zone.name) } },
+      tenantId: await this.tenantId(),
+      changes: { after: { zones } },
     });
-    return { zones: zones.map((zone) => zone.name) };
+    return { connected: true, connectedAt, zones, problem: null };
   }
 
-  async disconnectCloudflare(): Promise<void> {
+  async disconnectCloudflare(actor: Actor): Promise<void> {
+    const had = Boolean((await this.stored()).apiToken);
     await this.settings.set(await this.tenantId(), KEY, {});
+    if (!had) return;
+    await this.platform.audit.record({
+      action: 'integration.cloudflare.disconnected',
+      outcome: 'success',
+      category: 'security',
+      actor,
+      resource: { type: 'integration', id: KEY },
+      tenantId: await this.tenantId(),
+    });
   }
 
-  async status(): Promise<{ connected: boolean }> {
-    return { connected: Boolean(await this.cloudflareToken()) };
+  /** Connection state. With check, asks Cloudflare which zones the saved token can see. */
+  async status(check = false): Promise<CloudflareStatus> {
+    const stored = await this.stored();
+    const token = await this.cloudflareToken();
+    const base = { connected: Boolean(token), connectedAt: stored.connectedAt ?? null };
+    if (!token) {
+      return {
+        ...base,
+        zones: null,
+        problem: stored.apiToken ? 'The saved token cannot be read. Enter it again.' : null,
+      };
+    }
+    if (!check) return { ...base, zones: null, problem: null };
+    try {
+      const zones = (await listZones(token)).map((zone) => zone.name);
+      return {
+        ...base,
+        zones,
+        problem: zones.length ? null : 'The token is valid but cannot see any zones.',
+      };
+    } catch (error) {
+      return {
+        ...base,
+        zones: null,
+        problem: error instanceof Error ? error.message : String(error),
+      };
+    }
   }
 
   async detectProvider(hostname: string): Promise<DnsProvider> {
@@ -643,6 +723,7 @@ export class DomainSetup {
       category: 'admin',
       actor,
       resource: { type: 'domain', id },
+      tenantId: await this.tenantId(),
       changes: { after: { created, skipped } },
     });
     return { created, skipped };

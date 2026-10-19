@@ -11,6 +11,7 @@ import {
   myMailboxes,
   type SendInput,
   sendMessage,
+  tenantLink,
   updateMessage,
 } from '../api.js';
 
@@ -474,7 +475,11 @@ export function WebmailPage() {
               <ul className="wm-attachments">
                 {open.attachments.map((item) => (
                   <li key={item.index}>
-                    <a href={`/api/v1/mail/messages/${open.id}/attachments/${item.index}`}>
+                    <a
+                      href={tenantLink(
+                        `/api/v1/mail/messages/${open.id}/attachments/${item.index}`,
+                      )}
+                    >
                       {item.filename}
                     </a>{' '}
                     <span className="muted">({Math.ceil(item.size / 1024)} KB)</span>
@@ -493,7 +498,9 @@ export function WebmailPage() {
               <pre className="wm-text">{open.text}</pre>
             )}
             <p>
-              <a href={`/api/v1/mail/messages/${open.id}/raw`}>Download original (.eml)</a>
+              <a href={tenantLink(`/api/v1/mail/messages/${open.id}/raw`)}>
+                Download original (.eml)
+              </a>
             </p>
           </article>
         ) : (

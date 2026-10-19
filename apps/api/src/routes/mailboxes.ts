@@ -1,7 +1,13 @@
 import { created, defineRoute, noContent, ok } from '@aspec/api';
 import { ConflictError, NotFoundError } from '@aspec/errors';
 import { z } from 'zod';
-import { accountIdFromRequest, actorFromRequest, requirePermission } from '../access.js';
+import {
+  accountIdFromRequest,
+  actorFromRequest,
+  requireCanManageMailbox,
+  requireCanTarget,
+  requirePermission,
+} from '../access.js';
 import { MAILBOX_KINDS } from '../directory/index.js';
 import type { Platform } from '../platform.js';
 
@@ -15,6 +21,7 @@ const createBody = z.object({
 });
 const updateBody = z.object({
   displayName: z.string().max(120).nullable().optional(),
+  primaryAddress: z.string().email().max(320).optional(),
 });
 const aliasBody = z.object({
   alias: z.string().email().max(320),
@@ -48,9 +55,12 @@ export function createMailboxRoutes(platform: Platform) {
       responses: { '201': { description: 'Created' } },
       handler: async ({ raw, request }) => {
         const accountId = accountIdFromRequest(raw);
-        await requirePermission(platform, accountId, 'mail:manage');
+        const tenantId = await requirePermission(platform, accountId, 'mail:manage');
         const body = request.body;
         if (!body) throw new ConflictError('Mailbox body is required');
+        if (body.kind === 'user') {
+          await requireCanTarget(platform, tenantId, accountId, body.userId);
+        }
         return created(
           await platform.directory.createMailbox(
             {
@@ -68,26 +78,32 @@ export function createMailboxRoutes(platform: Platform) {
       method: 'patch',
       path: '/mailboxes/:id',
       operationId: 'updateMailbox',
-      summary: 'Update mailbox directory metadata',
+      summary:
+        'Update a mailbox: display name or main address. A replaced address stays as an alias.',
       tags: ['mail'],
       request: { params: idParams, body: updateBody },
       responses: { '200': { description: 'Updated' } },
       handler: async ({ raw, request }) => {
         const accountId = accountIdFromRequest(raw);
-        await requirePermission(platform, accountId, 'mail:manage');
+        const tenantId = await requirePermission(platform, accountId, 'mail:manage');
         const id = request.params?.id;
         if (!id) throw new NotFoundError('Mailbox not found');
-        return ok(
-          await platform.directory.updateMailbox(
-            id,
-            {
-              ...(request.body?.displayName !== undefined
-                ? { displayName: request.body.displayName }
-                : {}),
-            },
-            actorFromRequest(raw, accountId),
-          ),
-        );
+        await requireCanManageMailbox(platform, tenantId, accountId, id);
+        const actor = actorFromRequest(raw, accountId);
+        const body = request.body ?? {};
+        if (body.primaryAddress !== undefined) {
+          await platform.directory.changePrimaryAddress(id, body.primaryAddress, actor);
+        }
+        if (body.displayName !== undefined) {
+          return ok(
+            await platform.directory.updateMailbox(
+              id,
+              { displayName: body.displayName?.trim() || null },
+              actor,
+            ),
+          );
+        }
+        return ok(await platform.directory.getMailbox(id));
       },
     }),
     defineRoute({
@@ -100,9 +116,10 @@ export function createMailboxRoutes(platform: Platform) {
       responses: { '204': { description: 'Deleted' } },
       handler: async ({ raw, request }) => {
         const accountId = accountIdFromRequest(raw);
-        await requirePermission(platform, accountId, 'mail:manage');
+        const tenantId = await requirePermission(platform, accountId, 'mail:manage');
         const id = request.params?.id;
         if (!id) throw new NotFoundError('Mailbox not found');
+        await requireCanManageMailbox(platform, tenantId, accountId, id);
         await platform.directory.deleteMailbox(id, actorFromRequest(raw, accountId));
         return noContent();
       },
@@ -117,10 +134,11 @@ export function createMailboxRoutes(platform: Platform) {
       responses: { '200': { description: 'Updated' } },
       handler: async ({ raw, request }) => {
         const accountId = accountIdFromRequest(raw);
-        await requirePermission(platform, accountId, 'mail:manage');
+        const tenantId = await requirePermission(platform, accountId, 'mail:manage');
         const id = request.params?.id;
         const alias = request.body?.alias;
         if (!id || !alias) throw new ConflictError('Mailbox and alias are required');
+        await requireCanManageMailbox(platform, tenantId, accountId, id);
         return ok(await platform.directory.addAlias(id, alias, actorFromRequest(raw, accountId)));
       },
     }),
@@ -134,10 +152,11 @@ export function createMailboxRoutes(platform: Platform) {
       responses: { '200': { description: 'Updated' } },
       handler: async ({ raw, request }) => {
         const accountId = accountIdFromRequest(raw);
-        await requirePermission(platform, accountId, 'mail:manage');
+        const tenantId = await requirePermission(platform, accountId, 'mail:manage');
         const id = request.params?.id;
         const alias = request.params?.alias;
         if (!id || !alias) throw new NotFoundError('Alias not found');
+        await requireCanManageMailbox(platform, tenantId, accountId, id);
         return ok(
           await platform.directory.removeAlias(
             id,

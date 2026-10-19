@@ -56,10 +56,14 @@ export function MailClientsPage() {
           certMode,
           acmeEmail: acmeEmail.trim() || null,
           ...(dnsToken.trim() ? { cloudflareDnsToken: dnsToken.trim() } : {}),
-          ...(certMode === 'manual' && certPem.trim() ? { certPem, keyPem } : {}),
+          // The server needs both halves; sending one alone is refused with a clear message.
+          ...(certMode === 'manual' && (certPem.trim() || keyPem.trim())
+            ? { certPem, keyPem }
+            : {}),
         }),
       );
       setDnsToken('');
+      setCertPem('');
       setKeyPem('');
       setNotice('Saved.');
     });
@@ -209,6 +213,31 @@ export function MailClientsPage() {
                   value={dnsToken}
                   onChange={(event) => setDnsToken(event.target.value)}
                 />
+                {settings.hasDnsToken ? (
+                  <button
+                    className="btn btn-ghost"
+                    type="button"
+                    disabled={busy}
+                    onClick={() =>
+                      void run(async () => {
+                        apply(
+                          await saveMailClients({
+                            enabled: settings.enabled,
+                            hostname: settings.hostname,
+                            certMode: settings.certMode,
+                            acmeEmail: settings.acmeEmail,
+                            clearCloudflareDnsToken: true,
+                          }),
+                        );
+                        setNotice(
+                          'The Mail apps token was removed. Certificates now use the Domains Cloudflare connection.',
+                        );
+                      })
+                    }
+                  >
+                    Remove saved token
+                  </button>
+                ) : null}
               </div>
               <div className="field">
                 <label htmlFor="mc-email">Expiry notices email (optional)</label>

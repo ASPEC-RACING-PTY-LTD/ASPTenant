@@ -55,9 +55,14 @@ export interface DirectoryUser {
   orgRole: string | null;
   roles: string[];
   mailboxId?: string | null;
+  mfaEnabled?: boolean;
+  /** Also a member of another organisation: sign-in details need a platform operator. */
+  otherOrganisations?: boolean;
 }
 
 export type TenantRole = 'tenant.admin' | 'tenant.auditor';
+/** Roles an owner may give. Administrators may give only TenantRole. */
+export type AnyTenantRole = 'tenant.owner' | TenantRole;
 
 export interface DirectoryGroup {
   id: string;
@@ -219,6 +224,16 @@ export function setSelectedTenant(id: string | null): void {
   } catch {
     // Storage can be unavailable (private mode). The selection still lasts for this page.
   }
+}
+
+/**
+ * A URL for a plain link (downloads), which cannot carry the organisation header. The server
+ * accepts the organisation as a query value instead and still checks membership.
+ */
+export function tenantLink(path: string): string {
+  if (!selectedTenant) return path;
+  const separator = path.includes('?') ? '&' : '?';
+  return `${path}${separator}tenant=${encodeURIComponent(selectedTenant)}`;
 }
 
 function withTenant(headers: Headers): Headers {
@@ -398,7 +413,7 @@ export async function createUser(input: {
   return api('/api/v1/users', { method: 'POST', body: JSON.stringify(input) });
 }
 
-export async function setUserRole(id: string, role: TenantRole | null): Promise<void> {
+export async function setUserRole(id: string, role: AnyTenantRole | null): Promise<void> {
   await api(`/api/v1/users/${id}/role`, { method: 'PUT', body: JSON.stringify({ role }) });
 }
 
@@ -406,8 +421,31 @@ export async function removeUser(id: string): Promise<void> {
   await api(`/api/v1/users/${id}`, { method: 'DELETE' });
 }
 
-export async function updateUser(id: string, displayName: string | null): Promise<void> {
-  await api(`/api/v1/users/${id}`, { method: 'PATCH', body: JSON.stringify({ displayName }) });
+export async function updateUser(
+  id: string,
+  patch: { displayName?: string | null; email?: string },
+): Promise<void> {
+  await api(`/api/v1/users/${id}`, { method: 'PATCH', body: JSON.stringify(patch) });
+}
+
+export async function setUserPassword(id: string, password: string): Promise<void> {
+  await api(`/api/v1/users/${id}/password`, {
+    method: 'POST',
+    body: JSON.stringify({ password }),
+  });
+}
+
+export async function resetUserTwoStep(id: string): Promise<void> {
+  await api(`/api/v1/users/${id}/mfa/reset`, { method: 'POST' });
+}
+
+export async function listUserSessions(id: string): Promise<AuthSession[]> {
+  const body = await api<{ items: AuthSession[] }>(`/api/v1/users/${id}/sessions`);
+  return body.items;
+}
+
+export async function revokeUserSession(userId: string, sessionId: string): Promise<void> {
+  await api(`/api/v1/users/${userId}/sessions/${sessionId}`, { method: 'DELETE' });
 }
 
 export async function suspendUser(id: string, reason: string): Promise<void> {
@@ -434,6 +472,18 @@ export async function createGroup(input: {
   description?: string;
 }): Promise<void> {
   await api('/api/v1/groups', { method: 'POST', body: JSON.stringify(input) });
+}
+
+export async function updateGroup(
+  id: string,
+  patch: {
+    name?: string;
+    kind?: 'security' | 'distribution';
+    email?: string | null;
+    description?: string | null;
+  },
+): Promise<void> {
+  await api(`/api/v1/groups/${id}`, { method: 'PATCH', body: JSON.stringify(patch) });
 }
 
 export async function deleteGroup(id: string): Promise<void> {
@@ -544,6 +594,13 @@ export async function createMailbox(input: {
   displayName?: string;
 }): Promise<void> {
   await api('/api/v1/mailboxes', { method: 'POST', body: JSON.stringify(input) });
+}
+
+export async function updateMailbox(
+  id: string,
+  patch: { displayName?: string | null; primaryAddress?: string },
+): Promise<void> {
+  await api(`/api/v1/mailboxes/${id}`, { method: 'PATCH', body: JSON.stringify(patch) });
 }
 
 export async function deleteMailbox(id: string): Promise<void> {
@@ -807,6 +864,8 @@ export async function getMailSettings(): Promise<MailSettings> {
 export async function saveMailSettings(input: {
   kind: string;
   cloudflareToken?: string;
+  clearCloudflareToken?: boolean;
+  clearSmtpPassword?: boolean;
   smtp?: {
     host: string;
     port: number;
@@ -823,6 +882,11 @@ export async function testMailSettings(to?: string): Promise<{ detail: string }>
     method: 'POST',
     body: JSON.stringify(to ? { to } : {}),
   });
+}
+
+/** Turns inbound delivery off until a new ingest token is made. */
+export async function revokeIngestToken(): Promise<void> {
+  await api('/api/v1/mail/settings/ingest-token', { method: 'DELETE' });
 }
 
 export async function rotateIngestToken(): Promise<string> {
@@ -906,6 +970,7 @@ export async function saveMailClients(input: {
   certMode: 'acme' | 'manual';
   acmeEmail?: string | null;
   cloudflareDnsToken?: string;
+  clearCloudflareDnsToken?: boolean;
   certPem?: string;
   keyPem?: string;
 }): Promise<MailClientSettings> {
@@ -1079,8 +1144,25 @@ export async function getDomainSetup(id: string): Promise<DomainSetup> {
   return api(`/api/v1/domains/${id}/setup`);
 }
 
-export async function connectCloudflare(token: string): Promise<{ zones: string[] }> {
+export interface CloudflareStatus {
+  connected: boolean;
+  connectedAt: number | null;
+  zones: string[] | null;
+  problem: string | null;
+}
+
+/** Cloudflare connection of this organisation. With check, the saved token is tested. */
+export async function getCloudflareStatus(check = false): Promise<CloudflareStatus> {
+  return api(`/api/v1/integrations/cloudflare${check ? '?check=1' : ''}`);
+}
+
+/** Connects Cloudflare, or replaces the saved token. */
+export async function connectCloudflare(token: string): Promise<CloudflareStatus> {
   return api('/api/v1/integrations/cloudflare', { method: 'PUT', body: JSON.stringify({ token }) });
+}
+
+export async function disconnectCloudflare(): Promise<void> {
+  await api('/api/v1/integrations/cloudflare', { method: 'DELETE' });
 }
 
 export async function verifyDomainWithCloudflare(id: string): Promise<void> {
@@ -1112,6 +1194,7 @@ export async function saveDomainConnect(input: {
   keyId: string;
   privateKey?: string;
   generateKey?: boolean;
+  removeKey?: boolean;
 }): Promise<DomainConnectSettings> {
   return api('/api/v1/integrations/domain-connect', { method: 'PUT', body: JSON.stringify(input) });
 }

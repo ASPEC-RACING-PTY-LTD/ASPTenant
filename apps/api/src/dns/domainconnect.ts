@@ -1,6 +1,7 @@
 import { createSign, generateKeyPairSync } from 'node:crypto';
 import { Resolver } from 'node:dns/promises';
 import { UnprocessableError } from '@aspec/errors';
+import type { Actor } from '@aspec/users';
 import { PLATFORM_SCOPE } from '../directory/index.js';
 import { SettingsStore } from '../mail/store.js';
 import type { Platform } from '../platform.js';
@@ -116,13 +117,18 @@ export class DomainConnect {
     };
   }
 
-  async update(input: {
-    providerId: string;
-    serviceId: string;
-    keyId: string;
-    privateKey?: string;
-    generateKey?: boolean;
-  }): Promise<DomainConnectView> {
+  async update(
+    input: {
+      providerId: string;
+      serviceId: string;
+      keyId: string;
+      privateKey?: string;
+      generateKey?: boolean;
+      /** Removes the signing key, which turns Domain Connect off. */
+      removeKey?: boolean;
+    },
+    actor?: Actor,
+  ): Promise<DomainConnectView> {
     const stored = await this.load();
     const next: StoredDomainConnect = {
       ...stored,
@@ -144,8 +150,34 @@ export class DomainConnect {
       }
       next.privateKey = this.platform.secrets.encrypt(input.privateKey.trim());
       next.publicKey = null;
+    } else if (input.removeKey) {
+      next.privateKey = null;
+      next.publicKey = null;
     }
     await this.settings.set(await this.tenantId(), KEY, next);
+    if (actor) {
+      await this.platform.audit.record({
+        action: 'platform.domain_connect.updated',
+        outcome: 'success',
+        category: 'security',
+        actor,
+        resource: { type: 'integration', id: KEY },
+        changes: {
+          after: {
+            providerId: next.providerId,
+            serviceId: next.serviceId,
+            keyId: next.keyId,
+            key: input.generateKey
+              ? 'generated'
+              : input.privateKey?.trim()
+                ? 'replaced'
+                : input.removeKey
+                  ? 'removed'
+                  : 'unchanged',
+          },
+        },
+      });
+    }
     return this.view();
   }
 

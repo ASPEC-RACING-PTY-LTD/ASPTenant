@@ -1,12 +1,15 @@
 import { type FormEvent, useCallback, useEffect, useState } from 'react';
 import {
   applyDomainRecords,
+  type CloudflareStatus,
   confirmDomain,
   connectCloudflare,
   createDomain,
   type DirectoryDomain,
   type DomainSetup,
   deleteDomain,
+  disconnectCloudflare,
+  getCloudflareStatus,
   getDomainSetup,
   listDomains,
   setPrimaryDomain,
@@ -14,6 +17,7 @@ import {
   verifyDomain,
   verifyDomainWithCloudflare,
 } from '../api.js';
+import { useAuth } from '../auth.js';
 
 const badge = (status: string) =>
   status === 'ok' || status === 'verified'
@@ -23,6 +27,10 @@ const badge = (status: string) =>
       : 'badge-off';
 
 export function DomainsPage() {
+  const { session } = useAuth();
+  const canManage = session?.permissions.includes('domains:manage') ?? false;
+  const [cloudflare, setCloudflare] = useState<CloudflareStatus | null>(null);
+  const [replaceToken, setReplaceToken] = useState('');
   const [domains, setDomains] = useState<DirectoryDomain[]>([]);
   const [hostname, setHostname] = useState('');
   const [selected, setSelected] = useState<string | null>(null);
@@ -43,11 +51,27 @@ export function DomainsPage() {
     setSetup(await getDomainSetup(id));
   }, []);
 
+  const loadCloudflare = useCallback(async (check = false) => {
+    setCloudflare(await getCloudflareStatus(check));
+  }, []);
+
   useEffect(() => {
     void reload().catch((err: unknown) =>
       setError(err instanceof Error ? err.message : String(err)),
     );
-  }, [reload]);
+    void loadCloudflare().catch(() => setCloudflare(null));
+  }, [reload, loadCloudflare]);
+
+  /** Saves a first or replacement token, then refreshes the open domain. */
+  const saveToken = (value: string) =>
+    run(async () => {
+      const result = await connectCloudflare(value.trim());
+      setToken('');
+      setReplaceToken('');
+      setCloudflare(result);
+      setNotice(`Cloudflare token saved. Zones it can see: ${result.zones?.join(', ') || 'none'}.`);
+      if (setup) await loadSetup(setup.domain.id);
+    });
 
   useEffect(() => {
     if (selected) void loadSetup(selected).catch((err: unknown) => setError(String(err)));
@@ -150,26 +174,28 @@ export function DomainsPage() {
         </p>
       ) : null}
       {notice ? <p className="notice">{notice}</p> : null}
-      <section className="panel">
-        <h2>Add domain</h2>
-        <form className="form-grid" onSubmit={onCreate}>
-          <div className="field">
-            <label htmlFor="hostname">Domain</label>
-            <input
-              id="hostname"
-              placeholder="example.com"
-              required
-              value={hostname}
-              onChange={(e) => setHostname(e.target.value)}
-            />
-          </div>
-          <div className="field field-action">
-            <button className="btn" type="submit" disabled={busy}>
-              Add domain
-            </button>
-          </div>
-        </form>
-      </section>
+      {canManage ? (
+        <section className="panel">
+          <h2>Add domain</h2>
+          <form className="form-grid" onSubmit={onCreate}>
+            <div className="field">
+              <label htmlFor="hostname">Domain</label>
+              <input
+                id="hostname"
+                placeholder="example.com"
+                required
+                value={hostname}
+                onChange={(e) => setHostname(e.target.value)}
+              />
+            </div>
+            <div className="field field-action">
+              <button className="btn" type="submit" disabled={busy}>
+                Add domain
+              </button>
+            </div>
+          </form>
+        </section>
+      ) : null}
       <section className="panel">
         <h2>Your domains</h2>
         <table className="data-table">
@@ -184,7 +210,7 @@ export function DomainsPage() {
                   <span className={`badge ${badge(domain.status)}`}>{domain.status}</span>
                 </td>
                 <td className="btn-row">
-                  {domain.status === 'verified' ? (
+                  {domain.status === 'verified' || !canManage ? (
                     <button className="btn" type="button" onClick={() => setSelected(domain.id)}>
                       DNS records
                     </button>
@@ -215,7 +241,7 @@ export function DomainsPage() {
                       Confirm without DNS
                     </button>
                   ) : null}
-                  {!domain.primary ? (
+                  {canManage && !domain.primary ? (
                     <button
                       className="btn btn-ghost"
                       type="button"
@@ -229,25 +255,120 @@ export function DomainsPage() {
                       Make primary
                     </button>
                   ) : null}
-                  <button
-                    className="btn btn-danger"
-                    type="button"
-                    onClick={() => {
-                      if (!window.confirm(`Remove ${domain.hostname}?`)) return;
-                      void run(async () => {
-                        await deleteDomain(domain.id);
-                        if (selected === domain.id) setSelected(null);
-                        await reload();
-                      });
-                    }}
-                  >
-                    Remove
-                  </button>
+                  {canManage ? (
+                    <button
+                      className="btn btn-danger"
+                      type="button"
+                      onClick={() => {
+                        if (!window.confirm(`Remove ${domain.hostname}?`)) return;
+                        void run(async () => {
+                          await deleteDomain(domain.id);
+                          if (selected === domain.id) {
+                            setSelected(null);
+                            setSetup(null);
+                          }
+                          await reload();
+                        });
+                      }}
+                    >
+                      Remove
+                    </button>
+                  ) : null}
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
+      </section>
+
+      <section className="panel">
+        <h2>Cloudflare connection</h2>
+        <p className="muted">
+          One Cloudflare API token for this organisation. ASPECTenant uses it to verify domains, add
+          DNS and Email Routing records, and issue mail app certificates. Give it Zone: Read, DNS:
+          Edit and Email Routing Rules: Edit for the zones of your domains.
+        </p>
+        {cloudflare ? (
+          <p>
+            {cloudflare.connected ? (
+              <span className="badge badge-ok">Connected</span>
+            ) : (
+              <span className="badge badge-off">Not connected</span>
+            )}
+            {cloudflare.connectedAt
+              ? ` Saved ${new Date(cloudflare.connectedAt).toLocaleString()}.`
+              : ''}
+            {cloudflare.zones ? ` Zones: ${cloudflare.zones.join(', ') || 'none'}.` : ''}
+          </p>
+        ) : null}
+        {cloudflare?.problem ? (
+          <p className="notice notice-error" role="alert">
+            {cloudflare.problem}
+          </p>
+        ) : null}
+        {canManage ? (
+          <>
+            <form
+              className="form-grid"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void saveToken(replaceToken);
+              }}
+            >
+              <div className="field">
+                <label htmlFor="cf-replace-token">
+                  {cloudflare?.connected ? 'Replace API token' : 'API token'}
+                </label>
+                <input
+                  id="cf-replace-token"
+                  type="password"
+                  autoComplete="off"
+                  value={replaceToken}
+                  onChange={(e) => setReplaceToken(e.target.value)}
+                />
+              </div>
+              <div className="field field-action">
+                <button className="btn" type="submit" disabled={busy || !replaceToken.trim()}>
+                  {cloudflare?.connected ? 'Replace token' : 'Connect'}
+                </button>
+              </div>
+            </form>
+            <div className="btn-row">
+              {cloudflare?.connected ? (
+                <>
+                  <button
+                    className="btn btn-ghost"
+                    type="button"
+                    disabled={busy}
+                    onClick={() =>
+                      void run(async () => {
+                        await loadCloudflare(true);
+                      })
+                    }
+                  >
+                    Test token
+                  </button>
+                  <button
+                    className="btn btn-danger"
+                    type="button"
+                    disabled={busy}
+                    onClick={() => {
+                      if (!window.confirm('Remove the saved Cloudflare token?')) return;
+                      void run(async () => {
+                        await disconnectCloudflare();
+                        await loadCloudflare();
+                        setNotice('Cloudflare token removed.');
+                        if (setup) await loadSetup(setup.domain.id);
+                      });
+                    }}
+                  >
+                    Disconnect
+                  </button>
+                </>
+              ) : null}
+            </div>
+          </>
+        ) : null}
       </section>
 
       {selected && !setup ? <p>Checking DNS…</p> : null}
@@ -260,7 +381,14 @@ export function DomainsPage() {
             .
           </p>
 
-          {cloudflareProvider && !setup.cloudflare.connected ? (
+          {cloudflareProvider && setup.cloudflare.connected && !setup.cloudflare.zone ? (
+            <p className="notice notice-error">
+              The saved Cloudflare token cannot see the zone for {setup.domain.hostname}. Replace it
+              under Cloudflare connection above with a token from the account that holds this
+              domain.
+            </p>
+          ) : null}
+          {canManage && cloudflareProvider && !setup.cloudflare.connected ? (
             <div className="panel">
               <h3>Connect Cloudflare (optional)</h3>
               <p className="muted">
@@ -272,12 +400,7 @@ export function DomainsPage() {
                 className="form-grid"
                 onSubmit={(event) => {
                   event.preventDefault();
-                  void run(async () => {
-                    const result = await connectCloudflare(token);
-                    setToken('');
-                    setNotice(`Connected. Zones: ${result.zones.join(', ') || 'none visible'}`);
-                    await loadSetup(setup.domain.id);
-                  });
+                  void saveToken(token);
                 }}
               >
                 <div className="field">
@@ -306,7 +429,7 @@ export function DomainsPage() {
             </p>
           ) : (
             <>
-              {setup.cloudflare.zone ? (
+              {canManage && setup.cloudflare.zone ? (
                 <div className="btn-row">
                   <button
                     className="btn"
@@ -404,7 +527,7 @@ export function DomainsPage() {
                 </tbody>
               </table>
               <div className="btn-row">
-                {setup.cloudflare.zone ? (
+                {canManage && setup.cloudflare.zone ? (
                   <button
                     className="btn"
                     type="button"

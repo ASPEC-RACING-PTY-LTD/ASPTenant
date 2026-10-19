@@ -103,6 +103,46 @@ export async function requireExclusiveMember(
   }
 }
 
+/** True when the account is an active or suspended owner of the tenant. */
+export async function isTenantOwner(
+  platform: Platform,
+  tenantId: string,
+  userId: string,
+): Promise<boolean> {
+  const membership = await platform.orgs.getMembership(tenantId, userId);
+  return (
+    membership?.role === 'owner' &&
+    (membership.status === 'active' || membership.status === 'suspended')
+  );
+}
+
+/**
+ * Owners can only be changed by another owner. Administrators may manage everyone else, but
+ * not an owner's account, mailbox, delegations or credentials. Acting on yourself is allowed.
+ */
+export async function requireCanTarget(
+  platform: Platform,
+  tenantId: string,
+  actorId: string,
+  targetUserId: string | null | undefined,
+): Promise<void> {
+  if (!targetUserId || targetUserId === actorId) return;
+  if (!(await isTenantOwner(platform, tenantId, targetUserId))) return;
+  if (await isTenantOwner(platform, tenantId, actorId)) return;
+  throw new ForbiddenError('Only an organisation owner can change an owner or their mailbox.');
+}
+
+/** Refuses an administrator who is not an owner acting on an owner's personal mailbox. */
+export async function requireCanManageMailbox(
+  platform: Platform,
+  tenantId: string,
+  actorId: string,
+  mailboxId: string,
+): Promise<void> {
+  const mailbox = await platform.directory.getMailbox(mailboxId);
+  await requireCanTarget(platform, tenantId, actorId, mailbox.userId);
+}
+
 export function isAuthEmailTaken(error: unknown): boolean {
   return (
     typeof error === 'object' &&

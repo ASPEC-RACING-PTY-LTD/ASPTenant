@@ -3,7 +3,11 @@ import { isAppError, UnprocessableError } from '@aspec/errors';
 import type { Actor } from '@aspec/users';
 import { type Context, Hono } from 'hono';
 import { z } from 'zod';
-import { requirePermission, requirePlatformPermission } from '../access.js';
+import {
+  requireCanManageMailbox,
+  requirePermission,
+  requirePlatformPermission,
+} from '../access.js';
 import { s3Target } from '../backup/index.js';
 import { requireTenantId } from '../directory/service.js';
 import { IMPORT_KIND, MAX_CHUNK } from '../imports/pst.js';
@@ -96,7 +100,7 @@ export function createAdminHttp(
   });
 
   app.post('/imports', async (c) => {
-    await requirePermission(platform, accountId(c), 'migration:manage');
+    const tenantId = await requirePermission(platform, accountId(c), 'migration:manage');
     const body = await json(
       c,
       z.object({
@@ -105,6 +109,7 @@ export function createAdminHttp(
         size: z.number().int().positive(),
       }),
     );
+    await requireCanManageMailbox(platform, tenantId, accountId(c), body.mailboxId);
     return c.json(await platform.imports.create(body, accountId(c)), 201);
   });
 

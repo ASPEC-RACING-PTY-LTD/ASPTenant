@@ -1,7 +1,12 @@
 import { created, defineRoute, noContent, ok } from '@aspec/api';
 import { ConflictError, NotFoundError } from '@aspec/errors';
 import { z } from 'zod';
-import { accountIdFromRequest, actorFromRequest, requirePermission } from '../access.js';
+import {
+  accountIdFromRequest,
+  actorFromRequest,
+  requireCanTarget,
+  requirePermission,
+} from '../access.js';
 import { GROUP_KINDS } from '../directory/index.js';
 import type { Platform } from '../platform.js';
 
@@ -166,10 +171,12 @@ export function createGroupRoutes(platform: Platform) {
       responses: { '204': { description: 'Removed' } },
       handler: async ({ raw, request }) => {
         const accountId = accountIdFromRequest(raw);
-        await requirePermission(platform, accountId, 'groups:manage');
+        const tenantId = await requirePermission(platform, accountId, 'groups:manage');
         const id = request.params?.id;
         const userId = request.params?.userId;
         if (!id || !userId) throw new NotFoundError('Group member not found');
+        // Removing an owner from a group can take away their access to applications.
+        await requireCanTarget(platform, tenantId, accountId, userId);
         await platform.directory.removeGroupMember(id, userId, actorFromRequest(raw, accountId));
         return noContent();
       },
