@@ -107,10 +107,21 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # Pasted secrets often carry a trailing newline or spaces.
+          WEBHOOK="$(printf '%s' "$WEBHOOK" | tr -d '[:space:]')"
           if [ -z "$WEBHOOK" ]; then
             echo "::warning::DISCORD_DEPLOY_WEBHOOK is not available; skipping the notification."
             exit 0
           fi
+          # A value that is not a webhook URL (for example a placeholder) would reach curl as an
+          # option. Report it instead of failing the run.
+          case "$WEBHOOK" in
+            https://discord.com/api/webhooks/* | https://discordapp.com/api/webhooks/* | https://*.discord.com/api/webhooks/*) ;;
+            *)
+              echo "::warning::DISCORD_DEPLOY_WEBHOOK is not a Discord webhook URL (it should start with https://discord.com/api/webhooks/). Update the secret; skipping the notification."
+              exit 0
+              ;;
+          esac
           python3 - <<'PY' > /tmp/payload.json
           import json
           import os
@@ -138,5 +149,5 @@ jobs:
               }],
           }))
           PY
-          curl --fail-with-body -H "Content-Type: application/json" -d @/tmp/payload.json "$WEBHOOK"
+          curl --fail-with-body -sS -H "Content-Type: application/json" -d @/tmp/payload.json --url "$WEBHOOK"
 
