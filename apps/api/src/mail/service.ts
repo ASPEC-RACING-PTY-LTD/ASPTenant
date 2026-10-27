@@ -1,13 +1,14 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { ConflictError, ForbiddenError, NotFoundError, UnprocessableError } from '@aspec/errors';
 import type { Actor } from '@aspec/users';
-import { type AddressObject, simpleParser } from 'mailparser';
+import { type AddressObject, type ParsedMail, simpleParser } from 'mailparser';
 import nodemailer from 'nodemailer';
 import MailComposer from 'nodemailer/lib/mail-composer/index.js';
 import type { DirectoryMailbox } from '../directory/index.js';
 import { requireTenantId } from '../directory/service.js';
 import type { Platform } from '../platform.js';
 import { canOverseeMailboxes, inScope, listActiveTenants, tenantClient } from '../tenancy.js';
+import { autoReplyActive, MailPreferencesStore } from './preferences.js';
 import { type MailAddress, MessageStore, SettingsStore, type StoredMessage } from './store.js';
 
 export const OUTBOUND_KINDS = ['none', 'cloudflare', 'smtp'] as const;
@@ -86,9 +87,13 @@ export interface SendInput {
   inReplyTo?: string;
   references?: string[];
   attachments?: OutgoingAttachment[];
+  /** The saved draft this message came from; it is removed once the message is sent. */
+  draftId?: string;
 }
 
 const SETTINGS_KEY = 'mail';
+/** Sender names that never get an automatic reply. */
+const NO_REPLY_SENDER = /^(no-?reply|do-?not-?reply|mailer-daemon|postmaster|bounces?)([+.-]|@)/i;
 const EMAIL = /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/;
 
 function sha256(value: string): string {
@@ -127,6 +132,7 @@ const OPERATOR_AUDIT_INTERVAL_MS = 60 * 60 * 1000;
 
 export class MailService {
   readonly messages: MessageStore;
+  readonly preferences: MailPreferencesStore;
   private readonly settings: SettingsStore;
   private readonly platform: Platform;
   /** Last audit time of each operator and mailbox pair, so polling does not flood the log. */
@@ -136,6 +142,7 @@ export class MailService {
     this.platform = platform;
     this.messages = new MessageStore(tenantClient(platform));
     this.settings = new SettingsStore(tenantClient(platform));
+    this.preferences = new MailPreferencesStore(this.settings);
   }
 
   private async tenantId(): Promise<string> {
@@ -414,7 +421,75 @@ export class MailService {
         }),
       );
     }
+    if (folder === 'INBOX' && stored.length > 0) {
+      await this.autoReply(
+        parsed,
+        from.address,
+        mailboxes.filter((mailbox) => stored.some((item) => item.mailboxId === mailbox.id)),
+      );
+    }
     return stored;
+  }
+
+  /**
+   * Out of office: each person with an active automatic reply answers the sender once per
+   * interval. Mail that is itself automatic (bounces, lists, other automatic replies) is never
+   * answered (RFC 3834), and a failed reply never fails the delivery.
+   */
+  private async autoReply(
+    parsed: ParsedMail,
+    sender: string,
+    mailboxes: DirectoryMailbox[],
+  ): Promise<void> {
+    const header = (name: string) => {
+      const value = parsed.headers.get(name);
+      return typeof value === 'string' ? value.toLowerCase() : value ? 'present' : '';
+    };
+    const autoSubmitted = header('auto-submitted');
+    if (autoSubmitted && autoSubmitted !== 'no') return;
+    if (['bulk', 'list', 'junk'].includes(header('precedence'))) return;
+    if (header('list-id') || header('list-unsubscribe')) return;
+    if (/\b(all|oof|autoreply)\b/.test(header('x-auto-response-suppress'))) return;
+    if (!EMAIL.test(sender) || NO_REPLY_SENDER.test(sender)) return;
+
+    const tenantId = await this.tenantId();
+    for (const mailbox of mailboxes) {
+      if (mailbox.kind !== 'user' || !mailbox.userId) continue;
+      if (sender === mailbox.primaryAddress || mailbox.aliases.includes(sender)) continue;
+      try {
+        const reply = (await this.preferences.get(tenantId, mailbox.userId)).autoReply;
+        if (!autoReplyActive(reply)) continue;
+        const internal = await this.platform.directory.isOwnedDomain(sender);
+        const body = internal ? reply.internalMessage : reply.external ? reply.externalMessage : '';
+        if (!body.trim()) continue;
+        if (!(await this.preferences.claimReply(tenantId, mailbox.id, sender))) continue;
+        const original = parsed.subject ?? '';
+        const references = [
+          ...(Array.isArray(parsed.references)
+            ? parsed.references
+            : parsed.references
+              ? [parsed.references]
+              : []),
+          ...(parsed.messageId ? [parsed.messageId] : []),
+        ];
+        const raw = await new MailComposer({
+          from: mailbox.displayName
+            ? { name: mailbox.displayName, address: mailbox.primaryAddress }
+            : mailbox.primaryAddress,
+          to: sender,
+          subject: original ? `${reply.subject}: ${original}` : reply.subject,
+          text: body,
+          ...(parsed.messageId ? { inReplyTo: parsed.messageId } : {}),
+          ...(references.length ? { references } : {}),
+          headers: { 'Auto-Submitted': 'auto-replied', 'X-Auto-Response-Suppress': 'All' },
+        })
+          .compile()
+          .build();
+        await this.dispatch(raw, mailbox.primaryAddress, [sender]);
+      } catch (err) {
+        this.platform.logger.warn({ err, mailboxId: mailbox.id }, 'automatic reply failed');
+      }
+    }
   }
 
   /** Inbound entry point used by the Cloudflare Worker or any other inbound transport. */
@@ -500,8 +575,8 @@ export class MailService {
     return message;
   }
 
-  async send(accountId: string, input: SendInput): Promise<StoredMessage> {
-    const { mailbox, operator } = await this.access(accountId, input.mailboxId);
+  /** Builds the MIME message for a send or a draft from one of the mailbox's addresses. */
+  private async compose(mailbox: DirectoryMailbox, input: SendInput, draft: boolean) {
     const fromAddress = (input.from ?? mailbox.primaryAddress).toLowerCase();
     if (fromAddress !== mailbox.primaryAddress && !mailbox.aliases.includes(fromAddress)) {
       throw new ForbiddenError('You can only send from this mailbox address or its aliases.');
@@ -509,13 +584,12 @@ export class MailService {
     const to = cleanList(input.to);
     const cc = cleanList(input.cc);
     const bcc = cleanList(input.bcc);
-    const all = [...new Set([...to, ...cc, ...bcc])];
-    if (all.length === 0) throw new UnprocessableError('Add at least one recipient.');
-
     const composer = new MailComposer({
       from: mailbox.displayName ? { name: mailbox.displayName, address: fromAddress } : fromAddress,
       to,
       cc,
+      // A draft keeps its Bcc line so it can be opened again; a sent message never shows it.
+      ...(draft && bcc.length ? { bcc } : {}),
       subject: input.subject,
       text: input.text,
       ...(input.html ? { html: input.html } : {}),
@@ -527,11 +601,42 @@ export class MailService {
         ...(item.contentType ? { contentType: item.contentType } : {}),
       })),
     });
-    const raw = await composer.compile().build();
+    const compiled = composer.compile();
+    if (draft) compiled.keepBcc = true;
+    const raw = await compiled.build();
+    return { raw, fromAddress, recipients: [...new Set([...to, ...cc, ...bcc])] };
+  }
+
+  /** A saved draft of the account's mailbox, or an error when it is not one. */
+  private async ownDraft(mailboxId: string, draftId: string): Promise<StoredMessage> {
+    const draft = await this.messages.get(draftId);
+    if (!draft || draft.mailboxId !== mailboxId || draft.folder !== 'Drafts') {
+      throw new NotFoundError('Draft not found');
+    }
+    return draft;
+  }
+
+  /** Saves a draft in Drafts, replacing the earlier version of the same draft. */
+  async saveDraft(accountId: string, input: SendInput): Promise<StoredMessage> {
+    const { mailbox } = await this.access(accountId, input.mailboxId);
+    const previous = input.draftId ? await this.ownDraft(mailbox.id, input.draftId) : null;
+    const { raw } = await this.compose(mailbox, input, true);
+    await this.messages.ensureFolders(mailbox.tenantId, mailbox.id);
+    const saved = await this.append(mailbox, 'Drafts', raw, { seen: true, draft: true });
+    if (previous) await this.messages.delete(previous.id);
+    return saved;
+  }
+
+  async send(accountId: string, input: SendInput): Promise<StoredMessage> {
+    const { mailbox, operator } = await this.access(accountId, input.mailboxId);
+    const draft = input.draftId ? await this.ownDraft(mailbox.id, input.draftId) : null;
+    const { raw, fromAddress, recipients: all } = await this.compose(mailbox, input, false);
+    if (all.length === 0) throw new UnprocessableError('Add at least one recipient.');
 
     await this.dispatch(raw, fromAddress, all);
     const [sent] = await this.deliver(raw, [mailbox], 'Sent', true);
     if (!sent) throw new Error('Sent copy was not stored');
+    if (draft) await this.messages.delete(draft.id);
     if (operator) {
       await this.platform.audit.record({
         action: 'mail.mailbox.operator_sent',
@@ -640,12 +745,12 @@ export class MailService {
     });
   }
 
-  async parsed(accountId: string, messageId: string) {
+  async parsed(accountId: string, messageId: string, markSeen = true) {
     const message = await this.messageFor(accountId, messageId);
     const raw = await this.messages.raw(messageId);
     if (!raw) throw new NotFoundError('Message not found');
     const parsed = await simpleParser(raw);
-    if (!message.seen) await this.messages.setFlags(messageId, { seen: true });
+    if (markSeen && !message.seen) await this.messages.setFlags(messageId, { seen: true });
     const references = parsed.references
       ? Array.isArray(parsed.references)
         ? parsed.references
@@ -653,8 +758,10 @@ export class MailService {
       : [];
     return {
       ...message,
-      seen: true,
+      seen: message.seen || markSeen,
       replyTo: addresses(parsed.replyTo),
+      // Only drafts carry a Bcc line (see compose).
+      bcc: addresses(parsed.bcc),
       references,
       text: parsed.text ?? '',
       html: typeof parsed.html === 'string' ? parsed.html : null,

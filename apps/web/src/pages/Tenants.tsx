@@ -268,7 +268,7 @@ export function TenantsPage() {
                       type="button"
                       onClick={() => {
                         void selectTenant(tenant.id).then(() =>
-                          navigate(tenant.joined ? '/' : '/mailbox'),
+                          navigate(tenant.joined ? '/' : '/mail/'),
                         );
                       }}
                     >

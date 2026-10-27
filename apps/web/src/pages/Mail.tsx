@@ -130,7 +130,7 @@ export function MailPage() {
         <p>
           Create user and shared mailboxes, aliases and delegates. Messages are stored in
           ASPECTenant. Configure Cloudflare or SMTP under{' '}
-          <Link to="/mail/settings">Mail settings</Link>.
+          <Link to="/mailboxes/settings">Mail settings</Link>.
         </p>
       </div>
       {error ? (

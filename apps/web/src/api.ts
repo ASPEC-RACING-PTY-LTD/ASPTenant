@@ -751,12 +751,16 @@ export interface MessageSummary {
   sizeBytes: number;
   seen: boolean;
   flagged: boolean;
+  answered: boolean;
+  draft: boolean;
   hasAttachments: boolean;
   snippet: string;
 }
 
 export interface MessageDetail extends MessageSummary {
   replyTo: MailAddress[];
+  /** Only drafts keep their Bcc line. */
+  bcc: MailAddress[];
   references: string[];
   text: string;
   html: string | null;
@@ -771,10 +775,40 @@ export interface SendInput {
   bcc?: string[];
   subject: string;
   text: string;
+  html?: string;
   inReplyTo?: string;
   references?: string[];
   attachments?: Array<{ filename: string; contentType?: string; contentBase64: string }>;
+  /** The saved draft this message replaces. */
+  draftId?: string;
 }
+
+export interface AutoReply {
+  enabled: boolean;
+  startsAt: number | null;
+  endsAt: number | null;
+  subject: string;
+  internalMessage: string;
+  external: boolean;
+  externalMessage: string;
+}
+
+export interface MailPreferences {
+  signature: string;
+  signatureOnReplies: boolean;
+  readingPane: 'right' | 'bottom' | 'off';
+  markReadOnOpen: boolean;
+  groupByDate: boolean;
+  autoReply: AutoReply;
+}
+
+export interface Person {
+  name: string;
+  address: string;
+  kind: 'user' | 'shared' | 'group';
+}
+
+export type BatchAction = 'read' | 'unread' | 'flag' | 'unflag' | 'move' | 'delete';
 
 export interface MailSettings {
   outbound: {
@@ -826,16 +860,71 @@ export async function listMessages(
   mailboxId: string,
   folder: string,
   search?: string,
+  options: { filter?: 'unread' | 'flagged'; before?: number; limit?: number } = {},
 ): Promise<MessageSummary[]> {
   const params = new URLSearchParams({ folder });
   if (search) params.set('search', search);
+  if (options.filter) params.set('filter', options.filter);
+  if (options.before !== undefined) params.set('before', String(options.before));
+  if (options.limit !== undefined) params.set('limit', String(options.limit));
   return (
     await api<{ items: MessageSummary[] }>(`/api/v1/mail/mailboxes/${mailboxId}/messages?${params}`)
   ).items;
 }
 
-export async function getMessage(id: string): Promise<MessageDetail> {
-  return api(`/api/v1/mail/messages/${id}`);
+export async function getMessage(id: string, markRead = true): Promise<MessageDetail> {
+  return api(`/api/v1/mail/messages/${id}${markRead ? '' : '?markRead=0'}`);
+}
+
+export async function batchMessages(
+  ids: string[],
+  action: BatchAction,
+  folder?: string,
+): Promise<number> {
+  const body = await api<{ changed: number }>('/api/v1/mail/messages/batch', {
+    method: 'POST',
+    body: JSON.stringify({ ids, action, ...(folder ? { folder } : {}) }),
+  });
+  return body.changed;
+}
+
+export async function saveDraft(input: SendInput): Promise<MessageSummary> {
+  return api('/api/v1/mail/drafts', { method: 'PUT', body: JSON.stringify(input) });
+}
+
+export async function createFolder(mailboxId: string, name: string): Promise<void> {
+  await api(`/api/v1/mail/mailboxes/${mailboxId}/folders`, {
+    method: 'POST',
+    body: JSON.stringify({ name }),
+  });
+}
+
+export async function renameFolder(mailboxId: string, from: string, to: string): Promise<void> {
+  await api(`/api/v1/mail/mailboxes/${mailboxId}/folders`, {
+    method: 'PATCH',
+    body: JSON.stringify({ from, to }),
+  });
+}
+
+export async function deleteFolder(mailboxId: string, name: string): Promise<void> {
+  await api(`/api/v1/mail/mailboxes/${mailboxId}/folders?name=${encodeURIComponent(name)}`, {
+    method: 'DELETE',
+  });
+}
+
+export async function searchPeople(query: string): Promise<Person[]> {
+  return (await api<{ items: Person[] }>(`/api/v1/mail/people?q=${encodeURIComponent(query)}`))
+    .items;
+}
+
+export async function getMailPreferences(): Promise<MailPreferences> {
+  return api('/api/v1/mail/preferences');
+}
+
+export async function saveMailPreferences(
+  patch: Partial<Omit<MailPreferences, 'autoReply'>> & { autoReply?: Partial<AutoReply> },
+): Promise<MailPreferences> {
+  return api('/api/v1/mail/preferences', { method: 'PUT', body: JSON.stringify(patch) });
 }
 
 export async function updateMessage(

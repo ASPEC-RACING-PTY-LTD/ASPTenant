@@ -78,7 +78,7 @@ export function DashboardPage() {
           <span>Groups</span>
           <strong>{counts ? counts.groups : '…'}</strong>
         </Link>
-        <Link className="metric" to="/mail">
+        <Link className="metric" to="/mailboxes">
           <span>Mailboxes</span>
           <strong>{counts ? counts.mailboxes : '…'}</strong>
         </Link>

@@ -16,7 +16,7 @@ The control plane is a working administrative foundation:
 - Custom domains verified by DNS TXT record (or Domain Connect / Cloudflare), with MX/SPF/DMARC checks; each verified domain belongs to one tenant
 - Mailboxes with stored messages, aliases, delegates and distribution groups
 - Inbound mail through Cloudflare Email Routing (Worker to ingest API) and outbound through Cloudflare Email Sending or SMTP, configured per tenant
-- Built-in webmail and live mail settings in the panel
+- Built-in mail app at `/mail/` (installable, Outlook-style) and live mail settings in the panel
 - In-app updates through an updater sidecar
 - OpenID Connect provider for registered applications at `{public URL}/oidc` (`apps/api/src/oidc`): authorization code with PKCE (S256), `state` and `nonce`, client secrets stored hashed (client_secret_basic or client_secret_post), public clients with loopback redirects, exact redirect URI matching, rotatable RS256 signing keys, `prompt=login` and `max_age`. ID tokens carry sub, email, email_verified, name, auth_time and tid. Applications can require assignment (people or groups) and two-step verification
 - Two-step verification (TOTP authenticator apps with recovery codes) on Your account

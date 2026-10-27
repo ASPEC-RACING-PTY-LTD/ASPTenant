@@ -1,5 +1,11 @@
 import type { AuthVariables } from '@aspec/auth/hono';
-import { ForbiddenError, isAppError, NotFoundError, UnprocessableError } from '@aspec/errors';
+import {
+  ConflictError,
+  ForbiddenError,
+  isAppError,
+  NotFoundError,
+  UnprocessableError,
+} from '@aspec/errors';
 import type { Actor } from '@aspec/users';
 import { type Context, Hono } from 'hono';
 import { z } from 'zod';
@@ -10,8 +16,14 @@ import {
   requirePlatformPermission,
 } from '../access.js';
 import { requireTenantId } from '../directory/service.js';
-import { INGEST_MAX_BYTES, OUTBOUND_KINDS, SMTP_SECURITY } from '../mail/service.js';
-import { normaliseFolderName } from '../mail/store.js';
+import { READING_PANES } from '../mail/preferences.js';
+import {
+  INGEST_MAX_BYTES,
+  OUTBOUND_KINDS,
+  type SendInput,
+  SMTP_SECURITY,
+} from '../mail/service.js';
+import { normaliseFolderName, SYSTEM_FOLDERS } from '../mail/store.js';
 import { cloudflareWorkerScript } from '../mail/worker.js';
 import type { Platform } from '../platform.js';
 import { withSystemTenant } from '../tenancy.js';
@@ -39,7 +51,40 @@ const sendBody = z.object({
     )
     .max(50)
     .optional(),
+  draftId: z.string().min(1).max(100).optional(),
 });
+
+const batchBody = z.object({
+  ids: z.array(z.string().min(1).max(100)).min(1).max(500),
+  action: z.enum(['read', 'unread', 'flag', 'unflag', 'move', 'delete']),
+  folder: z.string().min(1).max(200).optional(),
+});
+
+const preferencesBody = z.object({
+  signature: z.string().max(20_000).optional(),
+  signatureOnReplies: z.boolean().optional(),
+  readingPane: z.enum(READING_PANES).optional(),
+  markReadOnOpen: z.boolean().optional(),
+  groupByDate: z.boolean().optional(),
+  autoReply: z
+    .object({
+      enabled: z.boolean().optional(),
+      startsAt: z.number().int().positive().nullable().optional(),
+      endsAt: z.number().int().positive().nullable().optional(),
+      subject: z.string().trim().min(1).max(200).optional(),
+      internalMessage: z.string().max(20_000).optional(),
+      external: z.boolean().optional(),
+      externalMessage: z.string().max(20_000).optional(),
+    })
+    .optional(),
+});
+
+/** The keys zod left undefined removed, for exactOptionalPropertyTypes. */
+function defined<T extends object>(value: T): { [K in keyof T]?: Exclude<T[K], undefined> } {
+  return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined)) as {
+    [K in keyof T]?: Exclude<T[K], undefined>;
+  };
+}
 
 const settingsBody = z.object({
   kind: z.enum(OUTBOUND_KINDS),
@@ -205,10 +250,12 @@ export function createMailHttp(
     await platform.mail.canAccess(accountId(c), mailboxId);
     const before = c.req.query('before');
     const search = c.req.query('search')?.trim().slice(0, 200);
+    const filter = c.req.query('filter');
     const items = await platform.mail.messages.list(mailboxId, folderParam(c.req.query('folder')), {
       limit: Math.min(Number(c.req.query('limit') ?? 50) || 50, 200),
       ...(before ? { before: Number(before) } : {}),
       ...(search ? { search } : {}),
+      ...(filter === 'unread' || filter === 'flagged' ? { filter } : {}),
     });
     return c.json({ items });
   });
@@ -233,8 +280,91 @@ export function createMailHttp(
     );
   });
 
+  // Rename or delete a folder the person created. System folders stay as they are.
+  const customFolder = async (mailboxId: string, name: string) => {
+    const folder = await platform.mail.messages.getFolder(mailboxId, folderParam(name));
+    if (!folder) throw new NotFoundError('Folder not found');
+    if (folder.specialUse || SYSTEM_FOLDERS.some((item) => item.name === folder.name)) {
+      throw new UnprocessableError(
+        'Inbox, Drafts, Sent, Archive, Junk and Trash cannot be changed.',
+      );
+    }
+    return folder;
+  };
+
+  app.patch('/mail/mailboxes/:id/folders', async (c) => {
+    const mailbox = await platform.mail.canAccess(accountId(c), c.req.param('id'));
+    const body = await json(
+      c,
+      z.object({ from: z.string().min(1).max(200), to: z.string().min(1).max(200) }),
+    );
+    const folder = await customFolder(mailbox.id, body.from);
+    const target = folderParam(body.to);
+    if (target === folder.name) return c.json({ ok: true });
+    if (target.startsWith(`${folder.name}/`)) {
+      throw new UnprocessableError('A folder cannot be moved into itself.');
+    }
+    if (await platform.mail.messages.getFolder(mailbox.id, target)) {
+      throw new ConflictError('A folder with that name already exists.');
+    }
+    const parent = target.includes('/') ? target.slice(0, target.lastIndexOf('/')) : null;
+    if (parent) await platform.mail.messages.createFolder(mailbox.tenantId, mailbox.id, parent);
+    await platform.mail.messages.renameFolder(mailbox.id, folder.name, target);
+    return c.json({ ok: true });
+  });
+
+  app.delete('/mail/mailboxes/:id/folders', async (c) => {
+    const mailbox = await platform.mail.canAccess(accountId(c), c.req.param('id'));
+    const folder = await customFolder(mailbox.id, c.req.query('name') ?? '');
+    // Messages go to Trash first, like Outlook, so nothing in a deleted folder is lost at once.
+    const doomed = (await platform.mail.messages.listFolders(mailbox.id))
+      .filter((item) => item.name === folder.name || item.name.startsWith(`${folder.name}/`))
+      .sort((a, b) => b.name.length - a.name.length);
+    let moved = 0;
+    for (const child of doomed) {
+      for (;;) {
+        const batch = await platform.mail.messages.list(mailbox.id, child.name, { limit: 200 });
+        if (batch.length === 0) break;
+        for (const message of batch) await platform.mail.messages.move(message.id, 'Trash');
+        moved += batch.length;
+      }
+      await platform.mail.messages.deleteFolder(mailbox.id, child.name);
+    }
+    return c.json({ ok: true, movedToTrash: moved });
+  });
+
   app.get('/mail/messages/:id', async (c) => {
-    return c.json(await platform.mail.parsed(accountId(c), c.req.param('id')));
+    const markSeen = c.req.query('markRead') !== '0';
+    return c.json(await platform.mail.parsed(accountId(c), c.req.param('id'), markSeen));
+  });
+
+  // Several messages at once (the list's selection). Every id is checked like a single change.
+  app.post('/mail/messages/batch', async (c) => {
+    const account = accountId(c);
+    const body = await json(c, batchBody);
+    if (body.action === 'move' && !body.folder) throw new UnprocessableError('Choose a folder.');
+    const target = body.folder ? folderParam(body.folder) : null;
+    const store = platform.mail.messages;
+    let changed = 0;
+    for (const id of [...new Set(body.ids)]) {
+      const message = await platform.mail.messageFor(account, id);
+      if (body.action === 'read' || body.action === 'unread') {
+        await store.setFlags(message.id, { seen: body.action === 'read' });
+      } else if (body.action === 'flag' || body.action === 'unflag') {
+        await store.setFlags(message.id, { flagged: body.action === 'flag' });
+      } else if (body.action === 'move' && target) {
+        if (target === message.folder) continue;
+        if (!(await store.getFolder(message.mailboxId, target))) {
+          throw new NotFoundError('Folder not found');
+        }
+        await store.move(message.id, target);
+      } else if (body.action === 'delete') {
+        if (message.folder === 'Trash') await store.delete(message.id);
+        else await store.move(message.id, 'Trash');
+      }
+      changed += 1;
+    }
+    return c.json({ changed });
   });
 
   app.get('/mail/messages/:id/raw', async (c) => {
@@ -280,30 +410,107 @@ export function createMailHttp(
     return c.json({ ok: true });
   });
 
+  const sendInput = (body: z.infer<typeof sendBody>): SendInput => ({
+    mailboxId: body.mailboxId,
+    to: body.to,
+    subject: body.subject,
+    text: body.text,
+    ...(body.from ? { from: body.from } : {}),
+    ...(body.cc ? { cc: body.cc } : {}),
+    ...(body.bcc ? { bcc: body.bcc } : {}),
+    ...(body.html ? { html: body.html } : {}),
+    ...(body.inReplyTo ? { inReplyTo: body.inReplyTo } : {}),
+    ...(body.references ? { references: body.references } : {}),
+    ...(body.attachments
+      ? {
+          attachments: body.attachments.map((item) => ({
+            filename: item.filename,
+            contentBase64: item.contentBase64,
+            ...(item.contentType ? { contentType: item.contentType } : {}),
+          })),
+        }
+      : {}),
+    ...(body.draftId ? { draftId: body.draftId } : {}),
+  });
+
   app.post('/mail/send', async (c) => {
     const body = await json(c, sendBody);
-    const sent = await platform.mail.send(accountId(c), {
-      mailboxId: body.mailboxId,
-      to: body.to,
-      subject: body.subject,
-      text: body.text,
-      ...(body.from ? { from: body.from } : {}),
-      ...(body.cc ? { cc: body.cc } : {}),
-      ...(body.bcc ? { bcc: body.bcc } : {}),
-      ...(body.html ? { html: body.html } : {}),
-      ...(body.inReplyTo ? { inReplyTo: body.inReplyTo } : {}),
-      ...(body.references ? { references: body.references } : {}),
-      ...(body.attachments
-        ? {
-            attachments: body.attachments.map((item) => ({
-              filename: item.filename,
-              contentBase64: item.contentBase64,
-              ...(item.contentType ? { contentType: item.contentType } : {}),
-            })),
-          }
-        : {}),
+    return c.json(await platform.mail.send(accountId(c), sendInput(body)), 201);
+  });
+
+  // Saves a draft in Drafts; pass draftId to replace the earlier version.
+  app.put('/mail/drafts', async (c) => {
+    const body = await json(c, sendBody);
+    return c.json(await platform.mail.saveDraft(accountId(c), sendInput(body)));
+  });
+
+  // Address book: people, shared mailboxes and groups with an address in this organisation.
+  app.get('/mail/people', async (c) => {
+    await platform.mail.mailboxesFor(accountId(c));
+    const query = (c.req.query('q') ?? '').trim().toLowerCase().slice(0, 100);
+    const [mailboxes, groups] = await Promise.all([
+      platform.directory.listMailboxes(),
+      platform.directory.listGroups(),
+    ]);
+    const people = [
+      ...mailboxes.map((item) => ({
+        name: item.displayName ?? item.primaryAddress,
+        address: item.primaryAddress,
+        kind: item.kind,
+      })),
+      ...groups
+        .filter((item) => item.email)
+        .map((item) => ({ name: item.name, address: String(item.email), kind: 'group' as const })),
+    ]
+      .filter(
+        (item) => !query || item.name.toLowerCase().includes(query) || item.address.includes(query),
+      )
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .slice(0, 50);
+    return c.json({ items: people });
+  });
+
+  // The signed-in person's mail app preferences in this organisation, including automatic replies.
+  app.get('/mail/preferences', async (c) => {
+    const tenantId = requireTenantId(platform);
+    return c.json(await platform.mail.preferences.get(tenantId, accountId(c)));
+  });
+
+  app.put('/mail/preferences', async (c) => {
+    const tenantId = requireTenantId(platform);
+    const account = accountId(c);
+    const body = await json(c, preferencesBody);
+    const before = await platform.mail.preferences.get(tenantId, account);
+    const saved = await platform.mail.preferences.save(tenantId, account, {
+      ...defined({ ...body, autoReply: undefined }),
+      ...(body.autoReply ? { autoReply: defined(body.autoReply) } : {}),
     });
-    return c.json(sent, 201);
+    const reply = saved.autoReply;
+    const replyChanged = JSON.stringify(before.autoReply) !== JSON.stringify(reply);
+    if (replyChanged) {
+      // A new or changed reply is sent again to people who already got the old one.
+      const own = await platform.directory.listAccessibleMailboxes(account);
+      for (const mailbox of own.filter((item) => item.userId === account)) {
+        await platform.mail.preferences.forgetReplies(tenantId, mailbox.id);
+      }
+      await platform.audit.record({
+        action: reply.enabled ? 'mail.auto_reply.updated' : 'mail.auto_reply.disabled',
+        outcome: 'success',
+        category: 'data',
+        actor: actor(c),
+        resource: { type: 'user', id: account },
+        tenantId,
+        changes: {
+          after: {
+            enabled: reply.enabled,
+            startsAt: reply.startsAt,
+            endsAt: reply.endsAt,
+            external: reply.external,
+          },
+        },
+      });
+    }
+    return c.json(saved);
   });
 
   // Mail administration

@@ -362,10 +362,12 @@ export class MessageStore {
   async list(
     mailboxId: string,
     folder: string,
-    options: { limit: number; before?: number; search?: string },
+    options: { limit: number; before?: number; search?: string; filter?: 'unread' | 'flagged' },
   ): Promise<StoredMessage[]> {
     const params: unknown[] = [mailboxId, normaliseFolderName(folder)];
     let where = 'mailbox_id = $1 AND folder = $2';
+    if (options.filter === 'unread') where += ' AND seen = 0';
+    if (options.filter === 'flagged') where += ' AND flagged = 1';
     if (options.before !== undefined) {
       params.push(options.before);
       where += ` AND received_at < $${params.length}`;

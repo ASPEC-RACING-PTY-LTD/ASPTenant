@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { useAuth } from './auth.js';
 import { AdminShell } from './layout/AdminShell.js';
+import { MailApp } from './mail/MailApp.js';
 import { AccountPage } from './pages/Account.js';
 import { ApplicationsPage } from './pages/Applications.js';
 import { AuditPage } from './pages/Audit.js';
@@ -24,11 +25,10 @@ import { SystemPage } from './pages/System.js';
 import { TenantsPage } from './pages/Tenants.js';
 import { UpdatesPage } from './pages/Updates.js';
 import { UsersPage } from './pages/Users.js';
-import { WebmailPage } from './pages/Webmail.js';
 
 function Home() {
   const { session } = useAuth();
-  if (!session?.permissions.includes('system:read')) return <Navigate to="/mailbox" replace />;
+  if (!session?.permissions.includes('system:read')) return <Navigate to="/mail/" replace />;
   return <DashboardPage />;
 }
 
@@ -46,6 +46,8 @@ export function App() {
       <Route path="/setup" element={<SetupPage />} />
       <Route path="/sign-in/:uid" element={<SignInPage />} />
       <Route path="/domain-connect/done" element={<DomainConnectDonePage />} />
+      {/* The mail app has its own sign-in and layout. */}
+      <Route path="/mail/*" element={<MailApp />} />
       <Route
         path="/"
         element={
@@ -55,21 +57,21 @@ export function App() {
         }
       >
         <Route index element={<Home />} />
-        <Route path="mailbox" element={<WebmailPage />} />
+        <Route path="mailbox" element={<Navigate to="/mail/" replace />} />
         <Route path="account" element={<AccountPage />} />
-        <Route path="mail/settings" element={<MailSettingsPage />} />
+        <Route path="mailboxes/settings" element={<MailSettingsPage />} />
         <Route path="updates" element={<UpdatesPage />} />
         <Route path="system" element={<SystemPage />} />
         <Route path="users" element={<UsersPage />} />
         <Route path="groups" element={<GroupsPage />} />
-        <Route path="mail" element={<MailPage />} />
+        <Route path="mailboxes" element={<MailPage />} />
         <Route path="applications" element={<ApplicationsPage />} />
         <Route path="domains" element={<DomainsPage />} />
         <Route path="security" element={<SecurityPage />} />
         <Route path="audit" element={<AuditPage />} />
         <Route path="migration" element={<MigrationPage />} />
-        <Route path="mail/clients" element={<MailClientsPage />} />
-        <Route path="mail/credentials" element={<CredentialsPage />} />
+        <Route path="mailboxes/clients" element={<MailClientsPage />} />
+        <Route path="mailboxes/credentials" element={<CredentialsPage />} />
         <Route path="backups" element={<BackupsPage />} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="tenants" element={<TenantsPage />} />

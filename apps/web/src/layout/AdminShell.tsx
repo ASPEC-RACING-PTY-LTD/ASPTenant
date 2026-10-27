@@ -10,19 +10,24 @@ const LINKS: ReadonlyArray<{
   permission: string | null;
 }> = [
   { to: '/', label: 'Dashboard', implemented: true, permission: 'system:read' },
-  { to: '/mailbox', label: 'Mailbox', implemented: true, permission: null },
+  { to: '/mail/', label: 'Mail', implemented: true, permission: null },
   { to: '/account', label: 'Your account', implemented: true, permission: null },
   { to: '/users', label: 'Users', implemented: true, permission: 'users:read' },
   { to: '/groups', label: 'Groups', implemented: true, permission: 'groups:read' },
-  { to: '/mail', label: 'Mail', implemented: true, permission: 'mail:read' },
-  { to: '/mail/settings', label: 'Mail settings', implemented: true, permission: 'mail:manage' },
+  { to: '/mailboxes', label: 'Mailboxes', implemented: true, permission: 'mail:read' },
   {
-    to: '/mail/credentials',
+    to: '/mailboxes/settings',
+    label: 'Mail settings',
+    implemented: true,
+    permission: 'mail:manage',
+  },
+  {
+    to: '/mailboxes/credentials',
     label: 'Service credentials',
     implemented: true,
     permission: 'mail:read',
   },
-  { to: '/mail/clients', label: 'Mail apps', implemented: true, permission: 'platform:admin' },
+  { to: '/mailboxes/clients', label: 'Mail apps', implemented: true, permission: 'platform:admin' },
   { to: '/domains', label: 'Domains', implemented: true, permission: 'domains:read' },
   { to: '/applications', label: 'Applications', implemented: true, permission: 'apps:read' },
   { to: '/security', label: 'Security', implemented: true, permission: 'security:read' },
@@ -76,7 +81,7 @@ export function AdminShell() {
             <NavLink
               key={link.to}
               to={link.to}
-              end={link.to === '/' || link.to === '/mail'}
+              end={link.to === '/' || link.to === '/mailboxes'}
               className={({ isActive }) =>
                 [isActive ? 'active' : '', link.implemented ? '' : 'planned']
                   .filter(Boolean)
