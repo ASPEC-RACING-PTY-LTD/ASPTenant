@@ -2,6 +2,7 @@ import QRCode from 'qrcode';
 import { type FormEvent, useCallback, useEffect, useState } from 'react';
 import { beginTotp, confirmTotp, disableTotp, getMfaStatus, newRecoveryCodes } from '../api.js';
 import { useAuth } from '../auth.js';
+import { downloadRecoveryCodes } from '../recoveryCodes.js';
 
 /** The signed-in person's own sign-in settings: two-step verification. */
 export function AccountPage() {
@@ -83,9 +84,24 @@ export function AccountPage() {
               phone. They are not shown again.
             </p>
             <pre>{codes.join('\n')}</pre>
-            <button className="btn btn-ghost" type="button" onClick={() => setCodes(null)}>
-              I have saved them
-            </button>
+            <div className="btn-row">
+              <button
+                className="btn"
+                type="button"
+                onClick={() =>
+                  downloadRecoveryCodes(
+                    codes,
+                    session?.user.displayName,
+                    session?.user.email ?? session?.account.email ?? '',
+                  )
+                }
+              >
+                Download as .txt
+              </button>
+              <button className="btn btn-ghost" type="button" onClick={() => setCodes(null)}>
+                I have saved them
+              </button>
+            </div>
           </div>
         ) : null}
         {status === null ? (
