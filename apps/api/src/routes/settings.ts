@@ -86,7 +86,8 @@ export function createSettingsRoutes(platform: Platform) {
             );
             platform.publicUrl = next;
             restarting = true;
-            platform.restart();
+            // Every node reads the public URL at boot, so all of them restart.
+            void platform.cluster.restartAll();
           }
         }
         const updated = await platform.orgs.updateOrg(

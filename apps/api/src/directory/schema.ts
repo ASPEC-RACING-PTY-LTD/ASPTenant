@@ -205,6 +205,51 @@ export const TENANT_TABLES = [...RLS_0005_TABLES, 'aspectenant_service_credentia
  * sessions, authorization codes, tokens and grants. The store is installation data keyed by
  * opaque ids; every record names its client, and clients belong to one tenant.
  */
+/**
+ * Redundancy nodes sharing one database: who is running, which node leads (runs the jobs that
+ * must happen once, such as backups and certificate renewal), and cluster-wide signals such as
+ * "restart every node". Installation tables, so there is no tenant column or row-level security.
+ */
+function clusterSql(dialect: 'postgres' | 'sqlite'): string {
+  const big = dialect === 'postgres' ? 'BIGINT' : 'INTEGER';
+  return `
+CREATE TABLE IF NOT EXISTS aspectenant_cluster_nodes (
+  id TEXT PRIMARY KEY,
+  address TEXT,
+  preferred INTEGER NOT NULL DEFAULT 0,
+  version TEXT NOT NULL,
+  started_at ${big} NOT NULL,
+  last_seen ${big} NOT NULL
+);
+CREATE TABLE IF NOT EXISTS aspectenant_cluster_lease (
+  name TEXT PRIMARY KEY,
+  holder TEXT NOT NULL,
+  term ${big} NOT NULL,
+  expires_at ${big} NOT NULL
+);
+CREATE TABLE IF NOT EXISTS aspectenant_cluster_signals (
+  name TEXT PRIMARY KEY,
+  generation ${big} NOT NULL,
+  updated_at ${big} NOT NULL
+);
+`;
+}
+
+/** Mailbox import uploads kept in the database, so any redundancy node can receive and run them. */
+function importChunksSql(dialect: 'postgres' | 'sqlite'): string {
+  const big = dialect === 'postgres' ? 'BIGINT' : 'INTEGER';
+  const blob = dialect === 'postgres' ? 'BYTEA' : 'BLOB';
+  return `
+CREATE TABLE IF NOT EXISTS aspectenant_import_chunks (
+  tenant_id TEXT NOT NULL,
+  job_id TEXT NOT NULL,
+  start_offset ${big} NOT NULL,
+  data ${blob} NOT NULL,
+  PRIMARY KEY (job_id, start_offset)
+);
+`;
+}
+
 function oidcSql(dialect: 'postgres' | 'sqlite'): string {
   const big = dialect === 'postgres' ? 'BIGINT' : 'INTEGER';
   return `
@@ -374,6 +419,17 @@ ${rowLevelSecuritySql(['aspectenant_service_credentials'])}`,
         id: '0007_oidc',
         postgres: oidcSql('postgres'),
         sqlite: oidcSql('sqlite'),
+      },
+      {
+        id: '0008_cluster',
+        postgres: clusterSql('postgres'),
+        sqlite: clusterSql('sqlite'),
+      },
+      {
+        id: '0009_import_chunks',
+        postgres: `${importChunksSql('postgres')}
+${rowLevelSecuritySql(['aspectenant_import_chunks'])}`,
+        sqlite: importChunksSql('sqlite'),
       },
     ],
   });

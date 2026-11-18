@@ -65,6 +65,20 @@ export const configShape = {
     .boolean('COOKIE_SECURE')
     .optional()
     .description('Force Secure cookies. When unset, derived from PUBLIC_URL.'),
+  nodeName: env
+    .string('NODE_NAME')
+    .optional()
+    .description('Name of this machine among redundancy nodes. Defaults to the host name.'),
+  nodeRole: env
+    .enum('NODE_ROLE', ['primary', 'secondary'] as const)
+    .optional()
+    .description(
+      'Redundancy role. The primary leads whenever it is up; a secondary takes over when it is not. Unset for a single machine.',
+    ),
+  nodeAddress: env
+    .string('NODE_ADDRESS')
+    .optional()
+    .description('Public IP address of this machine, for moving the mail hostname on failover.'),
 };
 
 export type AppConfig = InferConfig<typeof configShape>;

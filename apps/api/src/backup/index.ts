@@ -389,6 +389,8 @@ export class BackupService {
 
   private async tick(): Promise<void> {
     const view = await this.view().catch(() => null);
+    // Scheduled backups run once, on the leading node.
+    if (!this.platform.cluster.isLeader()) return;
     if (!view?.enabled || this.busy || !view.nextRunAt || Date.now() < view.nextRunAt) return;
     await this.run('scheduled', null).catch((error: unknown) => {
       this.platform.logger.error({ err: error }, 'scheduled backup failed');
@@ -559,6 +561,8 @@ export class BackupService {
       await this.decrypt(file, plain, passphrase);
       const result = await this.apply(plain);
       this.platform.logger.warn({ key, ...result }, 'backup restored');
+      // Every node holds state loaded from the old data, so all of them restart.
+      await this.platform.cluster.signal('restart').catch(() => undefined);
       if (this.exitAfterRestore) setTimeout(() => process.exit(0), 1500).unref();
       return result;
     } finally {

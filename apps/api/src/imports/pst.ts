@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { createWriteStream } from 'node:fs';
 import { mkdir, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
+import type { SqlClient } from '@aspec/db';
 import { ConflictError, NotFoundError, UnprocessableError } from '@aspec/errors';
 import MailComposer from 'nodemailer/lib/mail-composer/index.js';
 import { PSTFile, type PSTFolder, type PSTMessage } from 'pst-extractor';
@@ -184,6 +185,8 @@ export class PstImporter {
   readonly jobs: JobStore;
   /** Every tenant's jobs, for the background queue only. */
   private readonly queue: JobStore;
+  /** Upload chunks in the database, used when this machine is one of several nodes. */
+  private readonly chunks: SqlClient;
   private readonly platform: Platform;
   /** Imports running in this process, by job id, with the tenant each belongs to. */
   private readonly active = new Map<string, string>();
@@ -196,6 +199,71 @@ export class PstImporter {
     this.platform = platform;
     this.jobs = new JobStore(tenantClient(platform), () => requireTenantId(platform));
     this.queue = new JobStore(scopedClient(platform, ALL_TENANTS_SCOPE));
+    this.chunks = tenantClient(platform);
+  }
+
+  /**
+   * With redundancy nodes an upload's chunks can reach any node and the import runs on the
+   * leader, so the file is kept in the database instead of one machine's disk.
+   */
+  private shared(): boolean {
+    return this.platform.cluster.enabled;
+  }
+
+  private localPath(id: string): string {
+    return join(this.dir(), `${id}.pst`);
+  }
+
+  /** Bytes of the upload received so far. */
+  private async receivedBytes(job: Job<ImportData, ImportProgress>): Promise<number> {
+    if (this.shared()) return job.data.received;
+    return stat(job.data.path)
+      .then((s) => s.size)
+      .catch(() => 0);
+  }
+
+  /** Writes the uploaded file from the database to this node's disk, unless it is already there. */
+  private async fileOnThisNode(job: Job<ImportData, ImportProgress>): Promise<string> {
+    if (!this.shared()) return job.data.path;
+    const path = this.localPath(job.id);
+    const size = await stat(path)
+      .then((s) => s.size)
+      .catch(() => -1);
+    if (size === job.data.size) return path;
+    await mkdir(this.dir(), { recursive: true });
+    await rm(path, { force: true });
+    const offsets = await this.chunks.query<{ start_offset: unknown }>(
+      'SELECT start_offset FROM aspectenant_import_chunks WHERE job_id = $1 ORDER BY start_offset',
+      [job.id],
+    );
+    const out = createWriteStream(path);
+    try {
+      for (const row of offsets.rows) {
+        const part = await this.chunks.query<{ data: unknown }>(
+          'SELECT data FROM aspectenant_import_chunks WHERE job_id = $1 AND start_offset = $2',
+          [job.id, Number(row.start_offset)],
+        );
+        const data = part.rows[0]?.data;
+        const bytes = Buffer.isBuffer(data) ? data : Buffer.from(data as Uint8Array);
+        if (!out.write(bytes))
+          await new Promise<void>((resolve) => out.once('drain', () => resolve()));
+      }
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        out.on('error', reject);
+        out.end(() => resolve());
+      });
+    }
+    const written = (await stat(path)).size;
+    if (written !== job.data.size) {
+      throw new Error('The uploaded file is incomplete. Upload it again.');
+    }
+    return path;
+  }
+
+  private async dropChunks(id: string): Promise<void> {
+    if (!this.shared()) return;
+    await this.chunks.query('DELETE FROM aspectenant_import_chunks WHERE job_id = $1', [id]);
   }
 
   /** Imports of one tenant running right now. */
@@ -251,19 +319,25 @@ export class PstImporter {
     const job = await this.jobs.get<ImportData, ImportProgress>(id);
     if (!job || job.kind !== IMPORT_KIND) throw new NotFoundError('Import not found');
     if (job.status !== 'uploading') throw new ConflictError('This import is no longer uploading.');
-    const onDisk = await stat(job.data.path)
-      .then((s) => s.size)
-      .catch(() => 0);
+    const onDisk = await this.receivedBytes(job);
     if (offset !== onDisk) {
       throw new ConflictError(`Expected offset ${onDisk}`);
     }
     if (offset + body.length > job.data.size)
       throw new UnprocessableError('Chunk exceeds file size.');
-    await new Promise<void>((resolve, reject) => {
-      const stream = createWriteStream(job.data.path, { flags: 'a' });
-      stream.on('error', reject);
-      stream.end(body, () => resolve());
-    });
+    if (this.shared()) {
+      await this.chunks.query(
+        `INSERT INTO aspectenant_import_chunks (tenant_id, job_id, start_offset, data)
+         VALUES ($1, $2, $3, $4)`,
+        [job.tenantId, job.id, offset, body],
+      );
+    } else {
+      await new Promise<void>((resolve, reject) => {
+        const stream = createWriteStream(job.data.path, { flags: 'a' });
+        stream.on('error', reject);
+        stream.end(body, () => resolve());
+      });
+    }
     const received = offset + body.length;
     const done = received === job.data.size;
     await this.jobs.update(id, {
@@ -280,9 +354,11 @@ export class PstImporter {
     if (job.status === 'uploading' || job.status === 'running') {
       throw new ConflictError('This import is still in progress.');
     }
-    const exists = await stat(job.data.path)
-      .then(() => true)
-      .catch(() => false);
+    const exists = this.shared()
+      ? job.data.received === job.data.size
+      : await stat(job.data.path)
+          .then(() => true)
+          .catch(() => false);
     if (!exists) throw new ConflictError('The uploaded file was removed. Upload it again.');
     await this.jobs.update(id, { status: 'queued', error: null });
     this.kick();
@@ -293,6 +369,8 @@ export class PstImporter {
     if (!job || job.kind !== IMPORT_KIND) throw new NotFoundError('Import not found');
     if (job.status === 'running') throw new ConflictError('Wait for the import to finish.');
     await rm(job.data.path, { force: true });
+    await rm(this.localPath(id), { force: true });
+    await this.dropChunks(id);
     await this.jobs.delete(id);
   }
 
@@ -333,6 +411,8 @@ export class PstImporter {
   }
 
   private async schedule(): Promise<void> {
+    // Imports run on the leading node; a new leader resumes the ones that were interrupted.
+    if (!this.platform.cluster.isLeader()) return;
     const waiting = await this.queue.withStatus<ImportData, ImportProgress>(IMPORT_KIND, [
       'running',
       'queued',
@@ -388,7 +468,7 @@ export class PstImporter {
     const progress: ImportProgress = { ...EMPTY_PROGRESS };
     try {
       const mailbox = await this.platform.directory.getMailbox(job.data.mailboxId);
-      const pst = new PSTFile(job.data.path);
+      const pst = new PSTFile(await this.fileOnThisNode(job));
       const root = pst.getRootFolder();
       progress.total = countMessages(root);
       let lastSave = Date.now();
@@ -419,6 +499,8 @@ export class PstImporter {
         tenantId: mailbox.tenantId,
         changes: { after: progress },
       });
+      // A finished import no longer needs the upload kept in the database.
+      await this.dropChunks(job.id);
     } catch (error) {
       await this.jobs.update(job.id, {
         status: 'failed',

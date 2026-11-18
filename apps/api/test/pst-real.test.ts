@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync } from 'node:fs';
+import { copyFileSync, existsSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -63,5 +63,40 @@ describe.skipIf(!existsSync(sample))('PST import with a real file', () => {
     );
     expect(again?.progress.imported).toBe(0);
     expect(again?.progress.skipped).toBeGreaterThan(10);
+  }, 120_000);
+
+  it('keeps the upload in the database on redundancy nodes, so any node can run it', async () => {
+    ctx = await createTestContext({ env: { NODE_NAME: 'node-a', NODE_ROLE: 'primary' } });
+    const headers = { cookie: await setupOwner(ctx) };
+    await addVerifiedDomain(ctx, headers, 'example.com');
+    const mailbox = (await (
+      await request(ctx, '/api/v1/mailboxes', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ kind: 'shared', primaryAddress: 'archive@example.com' }),
+      })
+    ).json()) as { id: string };
+    const bytes = readFileSync(sample);
+    const imports = ctx.platform.imports;
+    const job = await asTenant(ctx, () =>
+      imports.create({ mailboxId: mailbox.id, filename: 'enron.pst', size: bytes.length }, 'test'),
+    );
+    const size = 1024 * 1024;
+    for (let offset = 0; offset < bytes.length; offset += size) {
+      await asTenant(ctx, () =>
+        imports.chunk(job.id, offset, bytes.subarray(offset, offset + size)),
+      );
+    }
+    // Nothing on this node's disk: the leader rebuilds the file from the database.
+    expect(existsSync(job.data.path)).toBe(false);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    await ctx.platform.imports.idle();
+    const [done] = await asTenant(ctx, () =>
+      imports.jobs.list<unknown, { imported: number }>(IMPORT_KIND),
+    );
+    expect(done?.status).toBe('succeeded');
+    expect(done?.progress.imported).toBeGreaterThan(10);
+    const left = await ctx.database.query('SELECT count(*) AS n FROM aspectenant_import_chunks');
+    expect(Number(left.rows[0]?.n)).toBe(0);
   }, 120_000);
 });

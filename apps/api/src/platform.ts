@@ -14,6 +14,7 @@ import { createSqlStore as createSqlRbacStore, migrate as migrateRbac } from '@a
 import { createUsers, type UsersService } from '@aspec/users';
 import { createSqlUsersStore, migrate as migrateUsers } from '@aspec/users/sql';
 import { BackupService } from './backup/index.js';
+import { Cluster } from './cluster.js';
 import type { AppConfig } from './config.js';
 import { loadAppConfig } from './config.js';
 import { ServiceCredentials } from './credentials.js';
@@ -67,6 +68,8 @@ export interface Platform {
   readonly backups: BackupService;
   readonly domainSetup: DomainSetup;
   readonly domainConnect: DomainConnect;
+  /** Redundancy nodes sharing this database, and which one leads. */
+  readonly cluster: Cluster;
   readonly secrets: SecretBox;
   /** Sign-in keys: MFA secret encryption, OIDC cookie and token signing keys. */
   readonly identity: { store: IdentityKeyStore; keys: IdentityKeys };
@@ -179,6 +182,7 @@ export async function createPlatform(options: CreatePlatformOptions = {}): Promi
     backups: undefined as unknown as BackupService,
     domainSetup: undefined as unknown as DomainSetup,
     domainConnect: undefined as unknown as DomainConnect,
+    cluster: undefined as unknown as Cluster,
     secrets,
     identity: { store: identityStore, keys: identityKeys },
     dns: options.dns ?? publicDns(),
@@ -201,7 +205,19 @@ export async function createPlatform(options: CreatePlatformOptions = {}): Promi
     backups: new BackupService(platform),
     domainSetup: new DomainSetup(platform),
     domainConnect: new DomainConnect(platform),
+    cluster: new Cluster(platform),
   });
+  // Redundancy: other nodes restart, or reload the mail listeners, when told to; the leading
+  // node resumes interrupted imports. A single machine is always its own leader.
+  platform.cluster.onSignal('restart', () => {
+    // Spread restarts so the nodes are not all down at the same moment.
+    setTimeout(() => platform.restart(), Math.floor(Math.random() * 10_000)).unref();
+  });
+  platform.cluster.onSignal('mail-clients', () => {
+    void platform.mailServers.reconcile('cluster');
+  });
+  platform.cluster.onLeader(() => platform.imports.kick());
+  await platform.cluster.start();
   await reconcileLegacyRoleAssignments(platform);
   if (db.dialect === 'postgres') {
     const rls = await rowLevelSecurityStatus(db);
@@ -223,6 +239,7 @@ export async function createPlatform(options: CreatePlatformOptions = {}): Promi
 }
 
 export async function closePlatform(platform: Platform): Promise<void> {
+  await platform.cluster.stop();
   platform.updates.stop();
   platform.mailServers.shutdown();
   platform.imports.stop();

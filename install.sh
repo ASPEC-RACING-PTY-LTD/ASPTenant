@@ -8,7 +8,8 @@
 #
 # Installs into ./aspectenant under the directory you run it from (for example
 # /root/aspectenant). Optional: ASPECTENANT_DIR, ASPECTENANT_PORT (preferred panel port),
-# ASPECTENANT_BIND (default 127.0.0.1), ASPECTENANT_MODE=install|upgrade|uninstall (skip the menu).
+# ASPECTENANT_BIND (default 127.0.0.1), ASPECTENANT_MODE=install|upgrade|uninstall|external|join|joininfo
+# (skip the menu). Redundancy: docs/high-availability.md.
 set -euo pipefail
 
 REPO_RAW="${ASPECTENANT_RAW:-https://raw.githubusercontent.com/ASPEC-RACING-PTY-LTD/ASPTenant/main}"
@@ -56,13 +57,130 @@ if [[ -z "${MODE}" ]]; then
   say "  1) Install (replaces any existing installation)"
   say "  2) Upgrade / repair (keep all data)"
   say "  3) Uninstall (delete everything)"
-  case "$(ask "Choose 1, 2 or 3 [1]: ")" in
+  say "  4) Move the database to an external PostgreSQL (Neon, RDS...) for redundancy"
+  say "  5) Add this machine as a redundancy node"
+  say "  6) Show the command that adds another redundancy node"
+  case "$(ask "Choose 1 to 6 [1]: ")" in
     "" | 1) MODE=install ;;
     2) MODE=upgrade ;;
     3) MODE=uninstall ;;
+    4) MODE=external ;;
+    5) MODE=join ;;
+    6) MODE=joininfo ;;
     *) die "Unknown choice." ;;
   esac
 fi
+
+env_file_get() { grep -E "^$1=" "${PREFIX}/.env" 2>/dev/null | tail -n1 | cut -d= -f2- || true; }
+
+# Runs a PostgreSQL client tool in a throwaway container (no client needed on the host).
+pg_tool() { docker run --rm -i --network host postgres:17.6-alpine "$@"; }
+
+check_external_url() {
+  local url="$1"
+  [[ "${url}" =~ ^postgres(ql)?://[^:/@]+:[^@]+@[^/]+/[^?]+ ]] ||
+    die "Enter the URL like postgres://user:password@host/dbname?sslmode=require"
+  [[ "${url}" == *"sslmode="* ]] || die "Add ?sslmode=require: the database is reached over the internet."
+  if [[ "${url}" == *"-pooler."* ]]; then
+    die "Use the direct connection string, not the pooled (-pooler) one: migrations need session locks."
+  fi
+  pg_tool psql "${url}" -tAc 'SELECT 1' >/dev/null 2>&1 || die "Cannot connect to that database."
+}
+
+ask_node() {
+  local role="$1" name address detected
+  name="$(ask "Name for this machine [$(hostname -s)]: ")"
+  NODE_NAME="${name:-$(hostname -s)}"
+  detected="$(curl -fsS --max-time 5 https://api.ipify.org 2>/dev/null || true)"
+  address="$(ask "Public IP of this machine, for moving the mail hostname on failover [${detected:-none}]: ")"
+  NODE_ADDRESS="${address:-${detected}}"
+  NODE_ROLE="${role}"
+}
+
+case "${MODE}" in
+  joininfo)
+    [[ -f "${PREFIX}/.env" ]] || die "No installation in ${PREFIX}."
+    db="$(env_file_get DATABASE_URL)"
+    [[ -n "${db}" ]] || die "This installation uses its own bundled database. Choose 4 to move it to an external PostgreSQL first."
+    code="$(printf '%s\n%s\n%s\n%s\n' "${db}" "$(env_file_get AUDIT_HMAC_KEY)" "$(env_file_get SECRET_KEY)" "$(env_file_get PUBLIC_URL)" | base64 | tr -d '\n')"
+    say "Run this on the new machine (as root, in the folder that should hold the installation)."
+    say "It contains the database password and encryption key: keep it private."
+    say ""
+    say "ASPECTENANT_MODE=join ASPECTENANT_JOIN='${code}' bash -c \"\$(curl -fsSL ${REPO_RAW}/install.sh)\""
+    exit 0
+    ;;
+  external)
+    [[ -f "${PREFIX}/.env" ]] || die "No installation in ${PREFIX}."
+    [[ -z "$(env_file_get DATABASE_URL)" ]] || die "This installation already uses an external database."
+    say "Create an empty PostgreSQL 17 database first (for Neon: a new project, default database)."
+    say "Paste its owner connection string. It is used once to create the application role and"
+    say "copy your data; the panel then connects as that role, so row-level security applies."
+    admin="${ASPECTENANT_DB_ADMIN_URL:-$(ask "Owner connection string: ")}"
+    check_external_url "${admin}"
+    tables="$(pg_tool psql "${admin}" -tAc "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public'")"
+    if [[ "${tables}" != "0" ]]; then
+      [[ "$(ask "That database already has ${tables} tables. Type REPLACE to overwrite them: ")" == "REPLACE" ]] ||
+        die "Cancelled. Use an empty database."
+    fi
+    ask_node primary
+    cd "${PREFIX}"
+    stamp="$(date +%Y%m%d%H%M%S)"
+    dump="${PREFIX}/database-${stamp}.dump"
+    say "Stopping the panel and copying the database (mail included, this can take a while)..."
+    docker compose -p "${PROJECT}" stop api web updater >/dev/null 2>&1 || true
+    docker compose -p "${PROJECT}" exec -T postgres pg_dump -U aspec -d aspec --no-owner --no-privileges -Fc >"${dump}" ||
+      die "Could not copy the database. Nothing was changed; start again with option 2."
+    app_password="$(openssl rand -hex 24 2>/dev/null || tr -dc 'a-f0-9' </dev/urandom | head -c 48)"
+    dbname="$(sed -E 's|^[^/]*//[^/]+/([^?]+).*|\1|' <<<"${admin}")"
+    pg_tool psql "${admin}" -v ON_ERROR_STOP=1 <<SQL || die "Could not create the application role. Nothing was changed; start again with option 2."
+DO \$\$ BEGIN
+  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'aspectenant_app') THEN
+    CREATE ROLE aspectenant_app LOGIN PASSWORD '${app_password}' NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE;
+  ELSE
+    ALTER ROLE aspectenant_app LOGIN PASSWORD '${app_password}' NOBYPASSRLS;
+  END IF;
+END \$\$;
+GRANT aspectenant_app TO CURRENT_USER;
+GRANT CONNECT ON DATABASE "${dbname}" TO aspectenant_app;
+GRANT USAGE, CREATE ON SCHEMA public TO aspectenant_app;
+SQL
+    pg_tool pg_restore --no-owner --no-privileges --role=aspectenant_app --clean --if-exists \
+      -d "${admin}" <"${dump}" ||
+      say "pg_restore reported warnings; checking the copy..."
+    # Row-level security hides every row unless the all-organisations scope is set.
+    copied="$(pg_tool psql "${admin}" -qtA -c "SET app.tenant_id = '*'" -c 'SELECT count(*) FROM aspectenant_messages' 2>/dev/null | tr -d '[:space:]' || echo error)"
+    local_count="$(docker compose -p "${PROJECT}" exec -T postgres psql -U aspec -d aspec -tAc 'SELECT count(*) FROM aspectenant_messages' | tr -d '[:space:]')"
+    [[ "${copied}" == "${local_count}" ]] ||
+      die "The copy does not match (${copied} of ${local_count} messages). Nothing was switched; start again with option 2."
+    app_url="$(sed -E "s|^(postgres(ql)?://)[^@]+@|\\1aspectenant_app:${app_password}@|" <<<"${admin}")"
+    {
+      echo "DATABASE_URL=${app_url}"
+      echo "NODE_ROLE=${NODE_ROLE}"
+      echo "NODE_NAME=${NODE_NAME}"
+      echo "NODE_ADDRESS=${NODE_ADDRESS}"
+    } >>.env
+    say "Copied ${copied} messages. Starting on the external database..."
+    MODE=upgrade
+    ;;
+  join)
+    join="${ASPECTENANT_JOIN:-$(ask "Join code (from option 6 on the first machine): ")}"
+    decoded="$(base64 -d <<<"${join}" 2>/dev/null)" || die "That join code cannot be read."
+    JOIN_DB="$(sed -n 1p <<<"${decoded}")"
+    JOIN_AUDIT="$(sed -n 2p <<<"${decoded}")"
+    JOIN_SECRET="$(sed -n 3p <<<"${decoded}")"
+    JOIN_URL="$(sed -n 4p <<<"${decoded}")"
+    [[ -n "${JOIN_DB}" && -n "${JOIN_AUDIT}" ]] || die "That join code is incomplete."
+    check_external_url "${JOIN_DB}"
+    if [[ -f "${PREFIX}/.env" ]]; then
+      [[ "$(ask "${PREFIX} already has an installation. Type REPLACE to turn it into a node: ")" == "REPLACE" ]] ||
+        die "Cancelled."
+    fi
+    ask_node secondary
+    say "Joining as ${NODE_NAME} (secondary)..."
+    wipe
+    PUBLIC_URL="${JOIN_URL}"
+    ;;
+esac
 
 case "${MODE}" in
   install)
@@ -80,6 +198,7 @@ case "${MODE}" in
     say "Upgrading ${PREFIX} (data is kept)..."
     (cd "${PREFIX}" && docker compose -p "${PROJECT}" down --remove-orphans >/dev/null 2>&1) || true
     ;;
+  join) ;;
   uninstall)
     [[ "$(ask "This deletes all ASPECTenant data, mail and settings. Type DELETE to continue: ")" == "DELETE" ]] ||
       die "Cancelled."
@@ -143,6 +262,15 @@ if [[ ! -f .env ]]; then
   } > .env
   chmod 600 .env
 fi
+if [[ "${MODE}" == "join" ]]; then
+  # Every node shares the database and the key that decrypts the secrets stored in it.
+  env_set DATABASE_URL "${JOIN_DB}"
+  env_set AUDIT_HMAC_KEY "${JOIN_AUDIT}"
+  [[ -n "${JOIN_SECRET}" ]] && env_set SECRET_KEY "${JOIN_SECRET}"
+  env_set NODE_ROLE "${NODE_ROLE}"
+  env_set NODE_NAME "${NODE_NAME}"
+  env_set NODE_ADDRESS "${NODE_ADDRESS}"
+fi
 env_set INSTALL_DIR "${PREFIX}"
 [[ -n "${ASPECTENANT_BIND:-}" ]] && env_set ASPECTENANT_BIND "${ASPECTENANT_BIND}"
 
@@ -170,7 +298,7 @@ for spec in IMAPS:993:1993 SMTPS:465:1465 SUBMISSION:587:1587; do
   env_set "ASPECTENANT_${name}_PORT" "${candidate}"
   MAIL_PORTS+=("${candidate}")
 done
-if [[ "${MODE}" == "install" ]]; then
+if [[ "${MODE}" == "install" || "${MODE}" == "join" ]]; then
   env_set PUBLIC_URL "${PUBLIC_URL:-http://localhost:${PANEL_PORT}}"
 elif [[ -z "$(env_get PUBLIC_URL)" ]]; then
   env_set PUBLIC_URL "http://localhost:${PANEL_PORT}"

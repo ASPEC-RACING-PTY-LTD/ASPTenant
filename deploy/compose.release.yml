@@ -111,11 +111,18 @@ services:
     image: ${ASPECTENANT_API_IMAGE:-ghcr.io/aspec-racing-pty-ltd/aspectenant-api:latest}
     restart: unless-stopped
     environment:
-      DATABASE_URL: postgres://aspectenant_app:${POSTGRES_APP_PASSWORD}@postgres:5432/aspec
+      # The bundled database, unless DATABASE_URL in .env points at an external PostgreSQL
+      # (for example Neon) shared by several redundancy nodes.
+      DATABASE_URL: ${DATABASE_URL:-postgres://aspectenant_app:${POSTGRES_APP_PASSWORD}@postgres:5432/aspec}
       PUBLIC_URL: ${PUBLIC_URL:-http://localhost:8080}
       TRUSTED_PROXIES: private
       AUDIT_HMAC_KEY: ${AUDIT_HMAC_KEY}
+      SECRET_KEY: ${SECRET_KEY:-}
       MAIL_PUBLIC_PORTS: ${ASPECTENANT_MAIL_PORTS:-993,465,587}
+      # Redundancy nodes (set by install.sh): this machine's name, role and public address.
+      NODE_NAME: ${NODE_NAME:-}
+      NODE_ROLE: ${NODE_ROLE:-}
+      NODE_ADDRESS: ${NODE_ADDRESS:-}
     volumes:
       - updates:/updates
       - data:/data

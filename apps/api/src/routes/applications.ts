@@ -211,6 +211,8 @@ export function createApplicationRoutes(platform: Platform) {
         const accountId = accountIdFromRequest(raw);
         await requirePlatformPermission(platform, accountId, 'platform:admin');
         await platform.oidc.rotateSigningKey();
+        // Other nodes load signing keys at boot; restart them to sign with the new key.
+        await platform.cluster.signal('restart');
         await platform.audit.record({
           action: 'platform.identity.signing_key_rotated',
           outcome: 'success',

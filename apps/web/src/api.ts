@@ -1392,3 +1392,40 @@ export async function rotateCredential(id: string, password?: string): Promise<s
 export async function deleteCredential(id: string): Promise<void> {
   await api(`/api/v1/mail/credentials/${id}`, { method: 'DELETE' });
 }
+
+export interface ClusterNode {
+  id: string;
+  address: string | null;
+  preferred: boolean;
+  version: string;
+  startedAt: number;
+  lastSeen: number;
+  online: boolean;
+  leader: boolean;
+  self: boolean;
+}
+
+export interface ClusterStatus {
+  enabled: boolean;
+  settings: {
+    dnsFailover: boolean;
+    lastFailover: { at: number; node: string; ok: boolean; detail: string } | null;
+  };
+  self: string;
+  leader: string | null;
+  term: number;
+  nodes: ClusterNode[];
+}
+
+/** Redundancy nodes of this installation (platform operators). */
+export async function getCluster(): Promise<ClusterStatus> {
+  return api('/api/v1/cluster');
+}
+
+export async function saveClusterSettings(input: { dnsFailover: boolean }): Promise<ClusterStatus> {
+  return api('/api/v1/cluster/settings', { method: 'PUT', body: JSON.stringify(input) });
+}
+
+export async function forgetClusterNode(id: string): Promise<ClusterStatus> {
+  return api(`/api/v1/cluster/nodes/${encodeURIComponent(id)}`, { method: 'DELETE' });
+}

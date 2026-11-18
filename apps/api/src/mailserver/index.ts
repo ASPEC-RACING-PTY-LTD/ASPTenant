@@ -15,7 +15,7 @@ import acme from 'acme-client';
 import addressparser from 'nodemailer/lib/addressparser/index.js';
 import { SMTPServer, type SMTPServerSession } from 'smtp-server';
 import { PLATFORM_SCOPE } from '../directory/index.js';
-import { planDnsChallenge } from '../dns/index.js';
+import { CloudflareApi, planDnsChallenge } from '../dns/index.js';
 import { parseHeaders } from '../imap/mime.js';
 import { ImapSession, type MailAuthenticator, type MailLogin } from '../imap/session.js';
 import { SettingsStore } from '../mail/store.js';
@@ -272,6 +272,8 @@ export class MailServers {
 
   private async save(next: StoredClientSettings): Promise<void> {
     await this.settings.set(await this.tenantId(), KEY, next);
+    // Other nodes reload their listeners and certificate from the saved settings.
+    await this.platform.cluster.signal('mail-clients').catch(() => undefined);
   }
 
   private publicPorts(): typeof PUBLIC_PORTS {
@@ -363,6 +365,39 @@ export class MailServers {
     });
     await this.reconcile('settings-changed');
     return this.view();
+  }
+
+  /**
+   * Points the mail apps hostname at this machine (redundancy failover): updates its A or AAAA
+   * record in Cloudflare with the Mail apps token, DNS only, so mail apps follow the leader.
+   * Returns what was done, or throws when it cannot.
+   */
+  async pointHostnameAt(address: string): Promise<string> {
+    const stored = await this.load();
+    if (!stored.hostname) throw new UnprocessableError('Save a mail apps hostname first.');
+    if (!stored.cloudflareDnsToken) {
+      throw new UnprocessableError('Save a Cloudflare token under Mail apps first.');
+    }
+    const api = new CloudflareApi(this.platform.secrets.decrypt(stored.cloudflareDnsToken));
+    const zone = await api.zoneFor(stored.hostname);
+    if (!zone) {
+      throw new UnprocessableError(
+        `The Mail apps token cannot see the zone of ${stored.hostname}.`,
+      );
+    }
+    const type = address.includes(':') ? 'AAAA' : 'A';
+    const [record] = await api.records(zone.id, type, stored.hostname);
+    if (record?.content === address) return `${stored.hostname} already points at ${address}.`;
+    const body = { type, name: stored.hostname, content: address, proxied: false, ttl: 60 };
+    if (record) {
+      await api.call(`/zones/${zone.id}/dns_records/${record.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+      });
+    } else {
+      await api.create(zone.id, body);
+    }
+    return `${stored.hostname} now points at ${address}.`;
   }
 
   /** Requests a Let's Encrypt certificate with a Cloudflare DNS-01 challenge. */
@@ -466,6 +501,8 @@ export class MailServers {
   }
 
   private async renewIfDue(): Promise<void> {
+    // One certificate order for the installation: the leading node renews it.
+    if (!this.platform.cluster.isLeader()) return;
     const stored = await this.load();
     if (!stored.enabled || stored.certMode !== 'acme' || !stored.certExpiresAt) return;
     if (stored.certExpiresAt - Date.now() > 30 * 86_400_000) return;

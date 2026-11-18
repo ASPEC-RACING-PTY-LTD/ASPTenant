@@ -7,6 +7,8 @@ import { scopedClient } from './tenancy.js';
 
 const SETTINGS_KEY = 'updates';
 const CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
+/** How often each node looks for an update the leader found. */
+const APPLY_INTERVAL_MS = 15 * 60 * 1000;
 
 interface UpdateSettings {
   autoUpdate: boolean;
@@ -193,15 +195,24 @@ export class UpdateService {
   start(): void {
     const tick = async () => {
       try {
-        const status = await this.check();
-        if (status.autoUpdate && status.updateAvailable && status.updater.available) {
+        // The leader asks GitHub; every node then updates its own containers from the result.
+        const stored = await this.load();
+        const due = Date.now() - (stored.checkedAt ?? 0) >= CHECK_INTERVAL_MS;
+        const status =
+          this.platform.cluster.isLeader() && due ? await this.check() : await this.status();
+        if (
+          status.autoUpdate &&
+          status.updateAvailable &&
+          status.updater.available &&
+          !status.updater.pending
+        ) {
           await this.apply();
         }
       } catch (error) {
         this.platform.logger.warn({ err: error }, 'automatic update check failed');
       }
     };
-    this.timer = setInterval(() => void tick(), CHECK_INTERVAL_MS);
+    this.timer = setInterval(() => void tick(), APPLY_INTERVAL_MS);
     this.timer.unref();
     setTimeout(() => void tick(), 60_000).unref();
   }

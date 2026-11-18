@@ -201,5 +201,42 @@ export function createAdminHttp(
     return c.json({ ...result, restarting: platform.backups.exitAfterRestore });
   });
 
+  // Redundancy nodes: which machines run this installation and which one leads.
+  app.get('/cluster', async (c) => {
+    await requirePlatformPermission(platform, accountId(c), 'platform:admin');
+    return c.json(await platform.cluster.status());
+  });
+
+  app.put('/cluster/settings', async (c) => {
+    await requirePlatformPermission(platform, accountId(c), 'platform:admin');
+    const body = await json(c, z.object({ dnsFailover: z.boolean() }));
+    const settings = await platform.cluster.saveSettings(body);
+    await platform.audit.record({
+      action: 'platform.cluster.settings_updated',
+      outcome: 'success',
+      category: 'admin',
+      actor: actor(c),
+      resource: { type: 'cluster', id: 'settings' },
+      changes: { after: { dnsFailover: settings.dnsFailover } },
+    });
+    return c.json(await platform.cluster.status());
+  });
+
+  app.delete('/cluster/nodes/:id', async (c) => {
+    await requirePlatformPermission(platform, accountId(c), 'platform:admin');
+    const id = c.req.param('id');
+    if (!(await platform.cluster.forget(id))) {
+      throw new UnprocessableError('Only an offline node other than this one can be removed.');
+    }
+    await platform.audit.record({
+      action: 'platform.cluster.node_removed',
+      outcome: 'success',
+      category: 'admin',
+      actor: actor(c),
+      resource: { type: 'cluster-node', id },
+    });
+    return c.json(await platform.cluster.status());
+  });
+
   return app;
 }

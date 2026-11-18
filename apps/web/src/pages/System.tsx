@@ -1,7 +1,11 @@
 import { useEffect, useState } from 'react';
 import { getReadiness, getSystem, type HealthReport, type SystemDiagnostics } from '../api.js';
+import { useAuth } from '../auth.js';
+import { ClusterPanel } from '../layout/ClusterPanel.js';
 
 export function SystemPage() {
+  const { session } = useAuth();
+  const operator = session?.permissions.includes('platform:admin') ?? false;
   const [health, setHealth] = useState<HealthReport | null>(null);
   const [system, setSystem] = useState<SystemDiagnostics | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -87,6 +91,7 @@ export function SystemPage() {
           </tbody>
         </table>
       </section>
+      {operator ? <ClusterPanel /> : null}
       {system ? (
         <section className="panel">
           <h2>Counts for this organisation</h2>
