@@ -12,7 +12,10 @@ import {
   getCloudflareStatus,
   getDomainSetup,
   listDomains,
+  listSharedSources,
+  type SharedSource,
   setPrimaryDomain,
+  shareCloudflare,
   startDomainConnect,
   verifyDomain,
   verifyDomainWithCloudflare,
@@ -40,6 +43,8 @@ export function DomainsPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [canOverride, setCanOverride] = useState(false);
+  const [lenders, setLenders] = useState<SharedSource[]>([]);
+  const [lender, setLender] = useState('');
 
   const reload = useCallback(async () => {
     const result = await listDomains();
@@ -52,7 +57,12 @@ export function DomainsPage() {
   }, []);
 
   const loadCloudflare = useCallback(async (check = false) => {
-    setCloudflare(await getCloudflareStatus(check));
+    const status = await getCloudflareStatus(check);
+    setCloudflare(status);
+    // Platform operators can lend another organisation's token to this one.
+    if (status.canShare) {
+      setLenders((await listSharedSources()).filter((item) => item.cloudflare));
+    }
   }, []);
 
   useEffect(() => {
@@ -299,6 +309,9 @@ export function DomainsPage() {
               ? ` Saved ${new Date(cloudflare.connectedAt).toLocaleString()}.`
               : ''}
             {cloudflare.zones ? ` Zones: ${cloudflare.zones.join(', ') || 'none'}.` : ''}
+            {cloudflare.sharedFrom
+              ? ` Uses the token of ${cloudflare.sharedFrom.name ?? 'another organisation'}, shared by the platform operator.`
+              : ''}
           </p>
         ) : null}
         {cloudflare?.problem ? (
@@ -333,6 +346,48 @@ export function DomainsPage() {
                 </button>
               </div>
             </form>
+            {cloudflare?.canShare && lenders.length > 0 ? (
+              <form
+                className="form-grid"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void run(async () => {
+                    const result = await shareCloudflare(lender);
+                    setCloudflare(result);
+                    setLender('');
+                    setNotice(
+                      `Now using the token of ${result.sharedFrom?.name ?? 'that organisation'}. Zones it can see: ${result.zones?.join(', ') || 'none'}.`,
+                    );
+                    if (setup) await loadSetup(setup.domain.id);
+                  });
+                }}
+              >
+                <div className="field">
+                  <label htmlFor="cf-lender">Or use the token of another organisation</label>
+                  <select
+                    id="cf-lender"
+                    value={lender}
+                    onChange={(event) => setLender(event.target.value)}
+                  >
+                    <option value="">Choose an organisation</option>
+                    {lenders.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.name}
+                      </option>
+                    ))}
+                  </select>
+                  <small className="muted">
+                    Platform operators only. For organisations whose zones are in the same
+                    Cloudflare account. The token itself stays with that organisation.
+                  </small>
+                </div>
+                <div className="field field-action">
+                  <button className="btn btn-ghost" type="submit" disabled={busy || !lender}>
+                    Use shared token
+                  </button>
+                </div>
+              </form>
+            ) : null}
             <div className="btn-row">
               {cloudflare?.connected ? (
                 <>
@@ -353,7 +408,15 @@ export function DomainsPage() {
                     type="button"
                     disabled={busy}
                     onClick={() => {
-                      if (!window.confirm('Remove the saved Cloudflare token?')) return;
+                      if (
+                        !window.confirm(
+                          cloudflare.sharedFrom
+                            ? 'Stop using the shared Cloudflare token?'
+                            : 'Remove the saved Cloudflare token?',
+                        )
+                      ) {
+                        return;
+                      }
                       void run(async () => {
                         await disconnectCloudflare();
                         await loadCloudflare();

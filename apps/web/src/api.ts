@@ -811,8 +811,16 @@ export interface Person {
 export type BatchAction = 'read' | 'unread' | 'flag' | 'unflag' | 'move' | 'delete';
 
 export interface MailSettings {
+  /** The viewer is a platform operator and may lend another organisation's setup. */
+  canShare: boolean;
   outbound: {
-    kind: 'none' | 'cloudflare' | 'smtp';
+    kind: 'none' | 'cloudflare' | 'smtp' | 'shared';
+    shared: {
+      tenantId: string;
+      name: string | null;
+      kind: 'cloudflare' | 'smtp' | null;
+      problem: string | null;
+    } | null;
     cloudflare: { hasToken: boolean };
     smtp: {
       host: string;
@@ -952,6 +960,7 @@ export async function getMailSettings(): Promise<MailSettings> {
 
 export async function saveMailSettings(input: {
   kind: string;
+  sharedFrom?: string;
   cloudflareToken?: string;
   clearCloudflareToken?: boolean;
   clearSmtpPassword?: boolean;
@@ -1238,6 +1247,30 @@ export interface CloudflareStatus {
   connectedAt: number | null;
   zones: string[] | null;
   problem: string | null;
+  /** Set when the token is another organisation's, lent by the platform operator. */
+  sharedFrom: { id: string; name: string | null } | null;
+  /** The viewer is a platform operator and may lend another organisation's token. */
+  canShare?: boolean;
+}
+
+/** Organisations whose own credentials the platform operator can lend to this one. */
+export interface SharedSource {
+  id: string;
+  name: string;
+  sending: 'cloudflare' | 'smtp' | null;
+  cloudflare: boolean;
+}
+
+export async function listSharedSources(): Promise<SharedSource[]> {
+  return (await api<{ items: SharedSource[] }>('/api/v1/integrations/shared-sources')).items;
+}
+
+/** Uses another organisation's Cloudflare token for this organisation's DNS setup. */
+export async function shareCloudflare(from: string): Promise<CloudflareStatus> {
+  return api('/api/v1/integrations/cloudflare/shared', {
+    method: 'PUT',
+    body: JSON.stringify({ from }),
+  });
 }
 
 /** Cloudflare connection of this organisation. With check, the saved token is tested. */

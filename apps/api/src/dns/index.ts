@@ -1,11 +1,11 @@
 import { Resolver } from 'node:dns/promises';
-import { NotFoundError, UnprocessableError } from '@aspec/errors';
+import { ForbiddenError, NotFoundError, UnprocessableError } from '@aspec/errors';
 import type { Actor } from '@aspec/users';
 import type { DirectoryDomain } from '../directory/index.js';
 import { requireTenantId } from '../directory/service.js';
 import { SettingsStore } from '../mail/store.js';
 import type { Platform } from '../platform.js';
-import { tenantClient } from '../tenancy.js';
+import { inScope, listActiveTenants, tenantClient } from '../tenancy.js';
 
 const KEY = 'cloudflare';
 
@@ -53,6 +53,8 @@ export interface RequiredRecord {
 interface StoredCloudflare {
   apiToken?: string;
   connectedAt?: number;
+  /** Uses this other organisation's token instead of an own one (platform operator choice). */
+  sharedFrom?: string;
 }
 
 export interface CloudflareStatus {
@@ -62,6 +64,8 @@ export interface CloudflareStatus {
   zones: string[] | null;
   /** Why the token does not work, when checked. */
   problem: string | null;
+  /** Set when the token is another organisation's, lent by the platform operator. */
+  sharedFrom: { id: string; name: string | null } | null;
 }
 
 export interface DomainSetupView {
@@ -369,16 +373,77 @@ export class DomainSetup {
     return (await this.settings.get<StoredCloudflare>(await this.tenantId(), KEY)) ?? {};
   }
 
-  /** Cloudflare API token shared by DNS setup and certificates (stored encrypted). */
-  async cloudflareToken(): Promise<string | null> {
-    const stored = await this.stored();
-    if (!stored.apiToken) return null;
+  /** Another organisation's own saved settings, read in its scope. */
+  private async storedOf(tenantId: string): Promise<StoredCloudflare> {
+    return (
+      (await inScope(this.platform, tenantId, () =>
+        this.settings.get<StoredCloudflare>(tenantId, KEY),
+      )) ?? {}
+    );
+  }
+
+  private decrypt(value: string | undefined): string | null {
+    if (!value) return null;
     try {
-      return this.platform.secrets.decrypt(stored.apiToken);
+      return this.platform.secrets.decrypt(value);
     } catch {
       this.platform.logger.warn('the Domains Cloudflare token cannot be decrypted; ignoring it');
       return null;
     }
+  }
+
+  private async activeOrg(id: string): Promise<{ id: string; name: string } | null> {
+    const org = (await listActiveTenants(this.platform)).find((item) => item.id === id);
+    return org ? { id: org.id, name: org.name } : null;
+  }
+
+  /** Whether an organisation has an own token it could lend (a shared one is never lent on). */
+  async canLend(tenantId: string): Promise<boolean> {
+    return Boolean((await this.storedOf(tenantId)).apiToken);
+  }
+
+  /**
+   * Cloudflare API token used by DNS setup for this organisation (stored encrypted): its own,
+   * or the lending organisation's while that one is active and still has a token.
+   */
+  async cloudflareToken(): Promise<string | null> {
+    const stored = await this.stored();
+    if (stored.sharedFrom) {
+      if (!(await this.activeOrg(stored.sharedFrom))) return null;
+      return this.decrypt((await this.storedOf(stored.sharedFrom)).apiToken);
+    }
+    return this.decrypt(stored.apiToken);
+  }
+
+  /**
+   * Uses another organisation's token, for client organisations whose zones are in the
+   * operator's own Cloudflare account. Only a platform operator may do this (canShare).
+   */
+  async shareCloudflare(fromId: string, actor: Actor, canShare: boolean) {
+    if (!canShare) {
+      throw new ForbiddenError("Only a platform operator can use another organisation's token.");
+    }
+    const tenantId = await this.tenantId();
+    const org = fromId === tenantId ? null : await this.activeOrg(fromId);
+    if (!org) throw new UnprocessableError('Choose another active organisation.');
+    if (!(await this.canLend(org.id))) {
+      throw new UnprocessableError(`${org.name} has no Cloudflare token of its own to share.`);
+    }
+    const connectedAt = Date.now();
+    await this.settings.set(tenantId, KEY, {
+      sharedFrom: org.id,
+      connectedAt,
+    } satisfies StoredCloudflare);
+    await this.platform.audit.record({
+      action: 'integration.cloudflare.shared',
+      outcome: 'success',
+      category: 'security',
+      actor,
+      resource: { type: 'integration', id: KEY },
+      tenantId,
+      changes: { after: { sharedFrom: org.id, name: org.name } },
+    });
+    return this.status(true);
   }
 
   /**
@@ -410,11 +475,12 @@ export class DomainSetup {
       tenantId: await this.tenantId(),
       changes: { after: { zones } },
     });
-    return { connected: true, connectedAt, zones, problem: null };
+    return { connected: true, connectedAt, zones, problem: null, sharedFrom: null };
   }
 
   async disconnectCloudflare(actor: Actor): Promise<void> {
-    const had = Boolean((await this.stored()).apiToken);
+    const previous = await this.stored();
+    const had = Boolean(previous.apiToken || previous.sharedFrom);
     await this.settings.set(await this.tenantId(), KEY, {});
     if (!had) return;
     await this.platform.audit.record({
@@ -431,12 +497,26 @@ export class DomainSetup {
   async status(check = false): Promise<CloudflareStatus> {
     const stored = await this.stored();
     const token = await this.cloudflareToken();
-    const base = { connected: Boolean(token), connectedAt: stored.connectedAt ?? null };
+    const lender = stored.sharedFrom ? await this.activeOrg(stored.sharedFrom) : null;
+    const sharedFrom = stored.sharedFrom
+      ? { id: stored.sharedFrom, name: lender?.name ?? null }
+      : null;
+    const base = {
+      connected: Boolean(token),
+      connectedAt: stored.connectedAt ?? null,
+      sharedFrom,
+    };
     if (!token) {
       return {
         ...base,
         zones: null,
-        problem: stored.apiToken ? 'The saved token cannot be read. Enter it again.' : null,
+        problem: stored.sharedFrom
+          ? lender
+            ? `${lender.name} no longer has a Cloudflare token to share.`
+            : 'The organisation the token was shared from is archived or no longer exists.'
+          : stored.apiToken
+            ? 'The saved token cannot be read. Enter it again.'
+            : null,
       };
     }
     if (!check) return { ...base, zones: null, problem: null };

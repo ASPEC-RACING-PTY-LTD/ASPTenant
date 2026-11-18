@@ -10,6 +10,7 @@ import type { Actor } from '@aspec/users';
 import { type Context, Hono } from 'hono';
 import { z } from 'zod';
 import {
+  hasPlatformPermission,
   requireCanManageMailbox,
   requireCanTarget,
   requirePermission,
@@ -26,7 +27,7 @@ import {
 import { normaliseFolderName, SYSTEM_FOLDERS } from '../mail/store.js';
 import { cloudflareWorkerScript } from '../mail/worker.js';
 import type { Platform } from '../platform.js';
-import { withSystemTenant } from '../tenancy.js';
+import { listActiveTenants, withSystemTenant } from '../tenancy.js';
 
 type Env = { Variables: AuthVariables };
 
@@ -88,6 +89,7 @@ function defined<T extends object>(value: T): { [K in keyof T]?: Exclude<T[K], u
 
 const settingsBody = z.object({
   kind: z.enum(OUTBOUND_KINDS),
+  sharedFrom: z.string().min(1).max(100).optional(),
   cloudflareToken: z.string().max(400).optional(),
   clearCloudflareToken: z.boolean().optional(),
   clearSmtpPassword: z.boolean().optional(),
@@ -182,6 +184,10 @@ export function createMailHttp(
       ...(userAgent ? { userAgent } : {}),
     };
   };
+
+  // Lending one organisation's credentials to another is an installation decision.
+  const canShare = (c: Context<Env>) =>
+    hasPlatformPermission(platform, accountId(c), 'platform:admin');
 
   app.onError((err, c) => {
     if (isAppError(err)) {
@@ -519,7 +525,11 @@ export function createMailHttp(
     const proto = c.req.header('x-forwarded-proto') ?? new URL(c.req.url).protocol.replace(':', '');
     const host = c.req.header('host') ?? new URL(c.req.url).host;
     const settings = await platform.mail.getSettings(`${proto}://${host}`);
-    return c.json({ ...settings, workerScript: cloudflareWorkerScript(settings.ingest.url) });
+    return c.json({
+      ...settings,
+      canShare: await canShare(c),
+      workerScript: cloudflareWorkerScript(settings.ingest.url),
+    });
   });
 
   app.put('/mail/settings', async (c) => {
@@ -528,6 +538,7 @@ export function createMailHttp(
     const saved = await platform.mail.saveSettings(
       {
         kind: body.kind,
+        ...(body.sharedFrom ? { sharedFrom: body.sharedFrom } : {}),
         ...(body.cloudflareToken ? { cloudflareToken: body.cloudflareToken } : {}),
         ...(body.clearCloudflareToken ? { clearCloudflareToken: true } : {}),
         ...(body.clearSmtpPassword ? { clearSmtpPassword: true } : {}),
@@ -544,6 +555,7 @@ export function createMailHttp(
           : {}),
       },
       actor(c),
+      await canShare(c),
     );
     const proto = c.req.header('x-forwarded-proto') ?? new URL(c.req.url).protocol.replace(':', '');
     const host = c.req.header('host') ?? new URL(c.req.url).host;
@@ -551,6 +563,7 @@ export function createMailHttp(
     return c.json({
       ...view,
       outbound: saved.outbound,
+      canShare: await canShare(c),
       workerScript: cloudflareWorkerScript(view.ingest.url),
     });
   });
@@ -722,7 +735,36 @@ export function createMailHttp(
   // Cloudflare integration and guided domain setup
   app.get('/integrations/cloudflare', async (c) => {
     await requirePermission(platform, accountId(c), 'domains:read');
-    return c.json(await platform.domainSetup.status(c.req.query('check') === '1'));
+    return c.json({
+      ...(await platform.domainSetup.status(c.req.query('check') === '1')),
+      canShare: await canShare(c),
+    });
+  });
+
+  // Organisations whose own credentials the platform operator can lend to this one: for
+  // client organisations whose domains live in the operator's Cloudflare account.
+  app.get('/integrations/shared-sources', async (c) => {
+    await requirePlatformPermission(platform, accountId(c), 'platform:admin');
+    const current = requireTenantId(platform);
+    const items = [];
+    for (const org of await listActiveTenants(platform)) {
+      if (org.id === current) continue;
+      const [sending, cloudflare] = await Promise.all([
+        platform.mail.lendableSending(org.id),
+        platform.domainSetup.canLend(org.id),
+      ]);
+      if (sending || cloudflare) items.push({ id: org.id, name: org.name, sending, cloudflare });
+    }
+    return c.json({ items });
+  });
+
+  app.put('/integrations/cloudflare/shared', async (c) => {
+    await requirePermission(platform, accountId(c), 'domains:manage');
+    const body = await json(c, z.object({ from: z.string().min(1).max(100) }));
+    return c.json({
+      ...(await platform.domainSetup.shareCloudflare(body.from, actor(c), await canShare(c))),
+      canShare: true,
+    });
   });
 
   app.put('/integrations/cloudflare', async (c) => {

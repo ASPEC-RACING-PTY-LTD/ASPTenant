@@ -11,7 +11,8 @@ import { canOverseeMailboxes, inScope, listActiveTenants, tenantClient } from '.
 import { autoReplyActive, MailPreferencesStore } from './preferences.js';
 import { type MailAddress, MessageStore, SettingsStore, type StoredMessage } from './store.js';
 
-export const OUTBOUND_KINDS = ['none', 'cloudflare', 'smtp'] as const;
+/** 'shared' sends through another organisation's Cloudflare or SMTP setup (operator choice). */
+export const OUTBOUND_KINDS = ['none', 'cloudflare', 'smtp', 'shared'] as const;
 export type OutboundKind = (typeof OUTBOUND_KINDS)[number];
 export const SMTP_SECURITY = ['tls', 'starttls', 'none'] as const;
 export type SmtpSecurity = (typeof SMTP_SECURITY)[number];
@@ -26,6 +27,8 @@ interface StoredMailSettings {
   outbound: {
     kind: OutboundKind;
     fromOverride?: string | null;
+    /** With kind 'shared': the organisation whose sending setup is used. */
+    sharedFrom?: string | null;
     cloudflareToken?: string | null;
     smtp?: {
       host: string;
@@ -38,9 +41,22 @@ interface StoredMailSettings {
   ingestTokenHash?: string | null;
 }
 
+/** An organisation whose own credentials can be lent to others by the platform operator. */
+export interface SharedSource {
+  id: string;
+  name: string;
+}
+
 export interface MailSettingsView {
   outbound: {
     kind: OutboundKind;
+    /** With kind 'shared': where the setup comes from and whether it currently works. */
+    shared: {
+      tenantId: string;
+      name: string | null;
+      kind: 'cloudflare' | 'smtp' | null;
+      problem: string | null;
+    } | null;
     cloudflare: { hasToken: boolean };
     smtp: {
       host: string;
@@ -55,6 +71,8 @@ export interface MailSettingsView {
 
 export interface MailSettingsInput {
   kind: OutboundKind;
+  /** With kind 'shared': the organisation to send through. */
+  sharedFrom?: string;
   cloudflareToken?: string;
   /** Removes the saved Cloudflare Email Sending token. */
   clearCloudflareToken?: boolean;
@@ -162,12 +180,74 @@ export class MailService {
     );
   }
 
+  /** An active organisation by id, for sharing; null when archived or unknown. */
+  private async activeOrg(id: string): Promise<SharedSource | null> {
+    const org = (await listActiveTenants(this.platform)).find((item) => item.id === id);
+    return org ? { id: org.id, name: org.name } : null;
+  }
+
+  /** Another organisation's own settings, read in its scope. */
+  private async settingsOf(tenantId: string): Promise<StoredMailSettings | null> {
+    return inScope(this.platform, tenantId, () =>
+      this.settings.get<StoredMailSettings>(tenantId, SETTINGS_KEY),
+    );
+  }
+
+  /**
+   * The sending setup an organisation can lend: its own Cloudflare or SMTP configuration
+   * with credentials. A shared setup is never lent on, so there are no chains.
+   */
+  private usableOutbound(stored: StoredMailSettings | null): 'cloudflare' | 'smtp' | null {
+    const outbound = stored?.outbound;
+    if (outbound?.kind === 'cloudflare' && outbound.cloudflareToken) return 'cloudflare';
+    if (outbound?.kind === 'smtp' && outbound.smtp?.host) return 'smtp';
+    return null;
+  }
+
+  /** What another organisation could lend for sending (for the operator's choice). */
+  async lendableSending(tenantId: string): Promise<'cloudflare' | 'smtp' | null> {
+    return this.usableOutbound(await this.settingsOf(tenantId));
+  }
+
+  /** The outbound settings actually used: the lender's own when this organisation shares. */
+  private async effectiveOutbound(stored: StoredMailSettings): Promise<{
+    outbound: StoredMailSettings['outbound'] | null;
+    shared: MailSettingsView['outbound']['shared'];
+  }> {
+    if (stored.outbound.kind !== 'shared') return { outbound: stored.outbound, shared: null };
+    const id = stored.outbound.sharedFrom ?? '';
+    const org = id ? await this.activeOrg(id) : null;
+    if (!org) {
+      return {
+        outbound: null,
+        shared: {
+          tenantId: id,
+          name: null,
+          kind: null,
+          problem: 'The organisation it was shared from is archived or no longer exists.',
+        },
+      };
+    }
+    const source = await this.settingsOf(org.id);
+    const kind = this.usableOutbound(source);
+    return {
+      outbound: kind && source ? source.outbound : null,
+      shared: {
+        tenantId: org.id,
+        name: org.name,
+        kind,
+        problem: kind ? null : `${org.name} has no working Cloudflare or SMTP sending setup.`,
+      },
+    };
+  }
+
   async getSettings(fallbackOrigin?: string): Promise<MailSettingsView> {
     const stored = await this.load();
     const smtp = stored.outbound.smtp;
     return {
       outbound: {
         kind: stored.outbound.kind,
+        shared: (await this.effectiveOutbound(stored)).shared,
         cloudflare: { hasToken: Boolean(stored.outbound.cloudflareToken) },
         smtp: {
           host: smtp?.host ?? '',
@@ -181,10 +261,44 @@ export class MailService {
     };
   }
 
-  async saveSettings(input: MailSettingsInput, actor: Actor): Promise<MailSettingsView> {
+  /**
+   * Saves the sending setup. Choosing another organisation's setup (kind 'shared') lends that
+   * organisation's credentials, so only a platform operator (canShare) may choose or change
+   * it; administrators of this organisation can still switch back to their own setup.
+   */
+  async saveSettings(
+    input: MailSettingsInput,
+    actor: Actor,
+    canShare = false,
+  ): Promise<MailSettingsView> {
     const stored = await this.load();
     const secrets = this.platform.secrets;
     const outbound: StoredMailSettings['outbound'] = { ...stored.outbound, kind: input.kind };
+    if (input.kind === 'shared') {
+      const tenantId = await this.tenantId();
+      const from = input.sharedFrom ?? stored.outbound.sharedFrom ?? '';
+      const unchanged = stored.outbound.kind === 'shared' && stored.outbound.sharedFrom === from;
+      if (!unchanged) {
+        if (!canShare) {
+          throw new ForbiddenError(
+            "Only a platform operator can use another organisation's sending setup.",
+          );
+        }
+        if (!from || from === tenantId) {
+          throw new UnprocessableError('Choose another organisation to send through.');
+        }
+        const org = await this.activeOrg(from);
+        if (!org) throw new UnprocessableError('That organisation is archived or does not exist.');
+        if (!(await this.lendableSending(org.id))) {
+          throw new UnprocessableError(
+            `${org.name} has no working Cloudflare or SMTP sending setup to share.`,
+          );
+        }
+      }
+      outbound.sharedFrom = from;
+    } else {
+      outbound.sharedFrom = null;
+    }
     if (input.cloudflareToken?.trim()) {
       outbound.cloudflareToken = secrets.encrypt(input.cloudflareToken.trim());
     } else if (input.clearCloudflareToken) {
@@ -224,6 +338,7 @@ export class MailService {
       changes: {
         after: {
           kind: input.kind,
+          ...(input.kind === 'shared' ? { sharedFrom: outbound.sharedFrom } : {}),
           cloudflareToken: input.cloudflareToken?.trim()
             ? 'replaced'
             : input.clearCloudflareToken
@@ -297,10 +412,11 @@ export class MailService {
     kind: OutboundKind;
     transporter: nodemailer.Transporter | null;
   }> {
-    const stored = await this.load();
-    const { kind } = stored.outbound;
+    const { outbound } = await this.effectiveOutbound(await this.load());
+    if (!outbound) return { kind: 'none', transporter: null };
+    const { kind } = outbound;
     const secrets = this.platform.secrets;
-    if (kind === 'cloudflare' && stored.outbound.cloudflareToken) {
+    if (kind === 'cloudflare' && outbound.cloudflareToken) {
       return {
         kind,
         transporter: nodemailer.createTransport({
@@ -309,13 +425,13 @@ export class MailService {
           secure: true,
           auth: {
             user: CLOUDFLARE_SMTP.user,
-            pass: secrets.decrypt(stored.outbound.cloudflareToken),
+            pass: secrets.decrypt(outbound.cloudflareToken),
           },
         }),
       };
     }
-    if (kind === 'smtp' && stored.outbound.smtp?.host) {
-      const smtp = stored.outbound.smtp;
+    if (kind === 'smtp' && outbound.smtp?.host) {
+      const smtp = outbound.smtp;
       return {
         kind,
         transporter: nodemailer.createTransport({

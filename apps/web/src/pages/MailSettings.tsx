@@ -1,16 +1,20 @@
 import { type FormEvent, useCallback, useEffect, useState } from 'react';
 import {
   getMailSettings,
+  listSharedSources,
   type MailSettings,
   revokeIngestToken,
   rotateIngestToken,
+  type SharedSource,
   saveMailSettings,
   testMailSettings,
 } from '../api.js';
 
 export function MailSettingsPage() {
   const [settings, setSettings] = useState<MailSettings | null>(null);
-  const [kind, setKind] = useState<'none' | 'cloudflare' | 'smtp'>('none');
+  const [kind, setKind] = useState<MailSettings['outbound']['kind']>('none');
+  const [sharedFrom, setSharedFrom] = useState('');
+  const [sources, setSources] = useState<SharedSource[]>([]);
   const [cfToken, setCfToken] = useState('');
   const [host, setHost] = useState('');
   const [port, setPort] = useState(587);
@@ -26,6 +30,7 @@ export function MailSettingsPage() {
   const apply = useCallback((next: MailSettings) => {
     setSettings(next);
     setKind(next.outbound.kind);
+    setSharedFrom(next.outbound.shared?.tenantId ?? '');
     setHost(next.outbound.smtp.host);
     setPort(next.outbound.smtp.port);
     setSecurity(next.outbound.smtp.security);
@@ -34,7 +39,15 @@ export function MailSettingsPage() {
 
   useEffect(() => {
     void getMailSettings()
-      .then(apply)
+      .then((next) => {
+        apply(next);
+        // Only platform operators may lend another organisation's sending setup.
+        if (next.canShare) {
+          void listSharedSources()
+            .then((items) => setSources(items.filter((item) => item.sending)))
+            .catch(() => setSources([]));
+        }
+      })
       .catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)));
   }, [apply]);
 
@@ -56,6 +69,7 @@ export function MailSettingsPage() {
     void run(async () => {
       const next = await saveMailSettings({
         kind,
+        ...(kind === 'shared' && sharedFrom ? { sharedFrom } : {}),
         ...(cfToken.trim() ? { cloudflareToken: cfToken.trim() } : {}),
         smtp: {
           host,
@@ -105,8 +119,51 @@ export function MailSettingsPage() {
               <option value="none">Not configured</option>
               <option value="cloudflare">Cloudflare Email Sending</option>
               <option value="smtp">SMTP server or relay</option>
+              {settings.canShare || settings.outbound.kind === 'shared' ? (
+                <option value="shared">Same as another organisation</option>
+              ) : null}
             </select>
           </div>
+          {kind === 'shared' ? (
+            <div className="field">
+              <label htmlFor="shared-from">Send through</label>
+              {settings.canShare ? (
+                <select
+                  id="shared-from"
+                  value={sharedFrom}
+                  onChange={(event) => setSharedFrom(event.target.value)}
+                >
+                  <option value="">Choose an organisation</option>
+                  {settings.outbound.shared &&
+                  !sources.some((item) => item.id === settings.outbound.shared?.tenantId) ? (
+                    <option value={settings.outbound.shared.tenantId}>
+                      {settings.outbound.shared.name ?? 'Unavailable organisation'}
+                    </option>
+                  ) : null}
+                  {sources.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.name} ({item.sending === 'cloudflare' ? 'Cloudflare' : 'SMTP'})
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  id="shared-from"
+                  readOnly
+                  value={settings.outbound.shared?.name ?? 'Another organisation'}
+                />
+              )}
+              <small className="muted">
+                Mail is sent with that organisation's Cloudflare or SMTP credentials, which are
+                never shown here. For organisations whose domains are in the same Cloudflare
+                account: onboard each domain under Email Sending there. Only a platform operator can
+                choose this; administrators here can switch back to their own setup.
+              </small>
+              {settings.outbound.kind === 'shared' && settings.outbound.shared?.problem ? (
+                <p className="notice notice-error">{settings.outbound.shared.problem}</p>
+              ) : null}
+            </div>
+          ) : null}
           {kind === 'cloudflare' ? (
             <div className="field">
               <label htmlFor="cf-token">
