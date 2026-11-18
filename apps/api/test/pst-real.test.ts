@@ -3,6 +3,7 @@ import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { IMPORT_KIND } from '../src/imports/pst.js';
+import type { Job } from '../src/jobs/store.js';
 import {
   addVerifiedDomain,
   asTenant,
@@ -89,11 +90,16 @@ describe.skipIf(!existsSync(sample))('PST import with a real file', () => {
     }
     // Nothing on this node's disk: the leader rebuilds the file from the database.
     expect(existsSync(job.data.path)).toBe(false);
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    await ctx.platform.imports.idle();
-    const [done] = await asTenant(ctx, () =>
-      imports.jobs.list<unknown, { imported: number }>(IMPORT_KIND),
-    );
+    // The queue starts after the upload commits; wait for the import to finish.
+    let done: Job<unknown, { imported: number }> | undefined;
+    for (let i = 0; i < 600; i += 1) {
+      await ctx.platform.imports.idle();
+      [done] = await asTenant(ctx, () =>
+        imports.jobs.list<unknown, { imported: number }>(IMPORT_KIND),
+      );
+      if (done && done.status !== 'queued' && done.status !== 'running') break;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
     expect(done?.status).toBe('succeeded');
     expect(done?.progress.imported).toBeGreaterThan(10);
     const left = await ctx.database.query('SELECT count(*) AS n FROM aspectenant_import_chunks');
