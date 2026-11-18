@@ -27,7 +27,7 @@ The System page lists the nodes for platform operators: role, leader, online sta
 
 ## Setting it up
 
-1. **Create the database.** Create a PostgreSQL 17 database, for example a new Neon project. Copy the owner connection string, using the **direct** connection, not the `-pooler` one: migrations need session locks.
+1. **Create the database.** Create a PostgreSQL 17 database, for example a new Neon project, on a plan with room for your data plus growth (the installer prints your database size and refuses a plan that is too small; Neon's free plan stops at 0.5 to 1 GB). Copy the owner connection string, using the **direct** connection, not the `-pooler` one: migrations need session locks.
 2. **Move the first machine onto it.** On the existing installation, run `install.sh` and choose **4**. The installer:
    - checks the connection
    - stops the panel and copies the bundled database (with all mail) into the new one

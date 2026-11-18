@@ -122,17 +122,27 @@ case "${MODE}" in
       [[ "$(ask "That database already has ${tables} tables. Type REPLACE to overwrite them: ")" == "REPLACE" ]] ||
         die "Cancelled. Use an empty database."
     fi
-    ask_node primary
     cd "${PREFIX}"
+    # Make sure the data fits before anything is stopped (Neon reports its plan's size limit).
+    need="$(docker compose -p "${PROJECT}" exec -T postgres psql -U aspec -d aspec -tAc "SELECT pg_database_size('aspec')" | tr -d '[:space:]')"
+    limit_mb="$(pg_tool psql "${admin}" -tAc "SELECT current_setting('neon.max_cluster_size', true)" 2>/dev/null | tr -d '[:space:]' || true)"
+    need_mb=$(( ${need:-0} / 1048576 + 1 ))
+    say "Your database is ${need_mb} MB."
+    if [[ "${limit_mb}" =~ ^[0-9]+$ && "${limit_mb}" -gt 0 && $(( need_mb * 12 / 10 )) -ge "${limit_mb}" ]]; then
+      die "The external database allows ${limit_mb} MB, too little for ${need_mb} MB plus room to grow. Choose a larger plan (or another provider) and run option 4 again. Nothing was changed."
+    fi
+    ask_node primary
     stamp="$(date +%Y%m%d%H%M%S)"
     dump="${PREFIX}/database-${stamp}.dump"
     say "Stopping the panel and copying the database (mail included, this can take a while)..."
     docker compose -p "${PROJECT}" stop api web updater >/dev/null 2>&1 || true
+    # If the move stops part way, start the panel again on the bundled database.
+    trap 'docker compose -p "${PROJECT}" start api web updater >/dev/null 2>&1 && say "The panel was started again on its own database."' EXIT
     docker compose -p "${PROJECT}" exec -T postgres pg_dump -U aspec -d aspec --no-owner --no-privileges -Fc >"${dump}" ||
-      die "Could not copy the database. Nothing was changed; start again with option 2."
+      die "Could not copy the database. Nothing was changed."
     app_password="$(openssl rand -hex 24 2>/dev/null || tr -dc 'a-f0-9' </dev/urandom | head -c 48)"
     dbname="$(sed -E 's|^[^/]*//[^/]+/([^?]+).*|\1|' <<<"${admin}")"
-    pg_tool psql "${admin}" -v ON_ERROR_STOP=1 <<SQL || die "Could not create the application role. Nothing was changed; start again with option 2."
+    pg_tool psql "${admin}" -v ON_ERROR_STOP=1 <<SQL || die "Could not create the application role. Nothing was changed."
 DO \$\$ BEGIN
   IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'aspectenant_app') THEN
     CREATE ROLE aspectenant_app LOGIN PASSWORD '${app_password}' NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE;
@@ -151,7 +161,8 @@ SQL
     copied="$(pg_tool psql "${admin}" -qtA -c "SET app.tenant_id = '*'" -c 'SELECT count(*) FROM aspectenant_messages' 2>/dev/null | tr -d '[:space:]' || echo error)"
     local_count="$(docker compose -p "${PROJECT}" exec -T postgres psql -U aspec -d aspec -tAc 'SELECT count(*) FROM aspectenant_messages' | tr -d '[:space:]')"
     [[ "${copied}" == "${local_count}" ]] ||
-      die "The copy does not match (${copied} of ${local_count} messages). Nothing was switched; start again with option 2."
+      die "The copy does not match (${copied} of ${local_count} messages), so nothing was switched. The partial copy stays in the external database until the next attempt replaces it."
+    trap - EXIT
     app_url="$(sed -E "s|^(postgres(ql)?://)[^@]+@|\\1aspectenant_app:${app_password}@|" <<<"${admin}")"
     {
       echo "DATABASE_URL=${app_url}"
