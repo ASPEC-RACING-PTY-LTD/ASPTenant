@@ -11,6 +11,7 @@ platform.updates.start();
 void platform.mailServers.start();
 platform.imports.kick();
 platform.backups.start();
+platform.messageBodies.start();
 
 const server = createServer(createRequestListener(platform, app));
 server.listen(config.listenPort, config.listenHost, () => {

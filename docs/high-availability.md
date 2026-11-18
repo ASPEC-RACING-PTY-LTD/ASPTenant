@@ -20,6 +20,19 @@ ASPECTenant can run on several machines at once. All of them use one external Po
 
 The System page lists the nodes for platform operators: role, leader, online state, version and address. Offline machines that were retired can be removed there.
 
+## Message storage in R2 or S3
+
+Most of an installation's database is the original copy of each message, attachments included. Under System, **Message storage**, a platform operator can keep those originals in an S3-compatible bucket instead: Cloudflare R2, Amazon S3, Backblaze B2 or MinIO. The database then holds only the message list, folders, users and settings, which is small enough for a hosted PostgreSQL such as Neon's free plan.
+
+- New mail goes straight to the bucket, under `<folder>/messages/<organisation>/<month>/`. The database row keeps only the key (`raw_key`).
+- The leader moves existing messages across in the background, 50 at a time, and shows progress on the panel. Switching back to the database moves them home the same way.
+- If the bucket cannot be reached, mail is still delivered. It is kept in the database and moved later.
+- Reading is unchanged everywhere: the mail app, IMAP, downloads and forwarding. Each node keeps a small read cache.
+- Objects that no message refers to any more, such as deleted mail or a removed mailbox, are deleted after 30 days. A restored backup from the last month still finds its messages. Use a bucket or folder for this installation only.
+- Panel backups do not contain messages that live in the bucket. Protect the bucket on its own, with versioning or a bucket backup.
+
+To move to Neon with a large mailbox store: set message storage to R2, wait until the panel shows 0 messages in the database, then run `install.sh` option 4. It compacts the messages table first, so the copy only holds what is left.
+
 ## Traffic
 
 - **Panel, mail app and inbound mail.** Run `cloudflared` for the same Cloudflare Tunnel on every node, pointed at that node's panel port. Cloudflare sends traffic to a connector that is up, so no DNS change is needed when a machine stops. The Email Routing Worker posts to the panel URL, so inbound mail follows the tunnel too.

@@ -123,14 +123,6 @@ case "${MODE}" in
         die "Cancelled. Use an empty database."
     fi
     cd "${PREFIX}"
-    # Make sure the data fits before anything is stopped (Neon reports its plan's size limit).
-    need="$(docker compose -p "${PROJECT}" exec -T postgres psql -U aspec -d aspec -tAc "SELECT pg_database_size('aspec')" | tr -d '[:space:]')"
-    limit_mb="$(pg_tool psql "${admin}" -tAc "SELECT current_setting('neon.max_cluster_size', true)" 2>/dev/null | tr -d '[:space:]' || true)"
-    need_mb=$(( ${need:-0} / 1048576 + 1 ))
-    say "Your database is ${need_mb} MB."
-    if [[ "${limit_mb}" =~ ^[0-9]+$ && "${limit_mb}" -gt 0 && $(( need_mb * 12 / 10 )) -ge "${limit_mb}" ]]; then
-      die "The external database allows ${limit_mb} MB, too little for ${need_mb} MB plus room to grow. Choose a larger plan (or another provider) and run option 4 again. Nothing was changed."
-    fi
     ask_node primary
     stamp="$(date +%Y%m%d%H%M%S)"
     dump="${PREFIX}/database-${stamp}.dump"
@@ -138,6 +130,17 @@ case "${MODE}" in
     docker compose -p "${PROJECT}" stop api web updater >/dev/null 2>&1 || true
     # If the move stops part way, start the panel again on the bundled database.
     trap 'docker compose -p "${PROJECT}" start api web updater >/dev/null 2>&1 && say "The panel was started again on its own database."' EXIT
+    # Messages moved to an R2 or S3 bucket still take space until the table is compacted.
+    docker compose -p "${PROJECT}" exec -T postgres psql -U aspec -d aspec -qc 'VACUUM FULL aspectenant_messages' ||
+      die "Could not compact the messages table. Nothing was changed."
+    # Make sure the data fits (Neon reports its plan's size limit).
+    need="$(docker compose -p "${PROJECT}" exec -T postgres psql -U aspec -d aspec -tAc "SELECT pg_database_size('aspec')" | tr -d '[:space:]')"
+    limit_mb="$(pg_tool psql "${admin}" -tAc "SELECT current_setting('neon.max_cluster_size', true)" 2>/dev/null | tr -d '[:space:]' || true)"
+    need_mb=$(( ${need:-0} / 1048576 + 1 ))
+    say "Your database is ${need_mb} MB."
+    if [[ "${limit_mb}" =~ ^[0-9]+$ && "${limit_mb}" -gt 0 && $(( need_mb * 12 / 10 )) -ge "${limit_mb}" ]]; then
+      die "The external database allows ${limit_mb} MB, too little for ${need_mb} MB plus room to grow. Move messages to an R2 bucket first (System, Message storage) or choose a larger plan. Nothing was changed."
+    fi
     docker compose -p "${PROJECT}" exec -T postgres pg_dump -U aspec -d aspec --no-owner --no-privileges -Fc >"${dump}" ||
       die "Could not copy the database. Nothing was changed."
     app_password="$(openssl rand -hex 24 2>/dev/null || tr -dc 'a-f0-9' </dev/urandom | head -c 48)"

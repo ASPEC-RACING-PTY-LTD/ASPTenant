@@ -158,7 +158,7 @@ export class MailService {
 
   constructor(platform: Platform) {
     this.platform = platform;
-    this.messages = new MessageStore(tenantClient(platform));
+    this.messages = new MessageStore(tenantClient(platform), platform.messageBodies);
     this.settings = new SettingsStore(tenantClient(platform));
     this.preferences = new MailPreferencesStore(this.settings);
   }

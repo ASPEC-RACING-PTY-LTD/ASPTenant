@@ -11,6 +11,7 @@ import {
 import { s3Target } from '../backup/index.js';
 import { requireTenantId } from '../directory/service.js';
 import { IMPORT_KIND, MAX_CHUNK } from '../imports/pst.js';
+import { BODY_STORAGE_KINDS, type BodyStorageInput } from '../mail/bodies.js';
 import type { Platform } from '../platform.js';
 
 type Env = { Variables: AuthVariables };
@@ -199,6 +200,46 @@ export function createAdminHttp(
     const result = await platform.backups.restore(body.key, { actor: who });
     await platform.backups.recordRestore(body.key, result, who);
     return c.json({ ...result, restarting: platform.backups.exitAfterRestore });
+  });
+
+  // Message storage: original messages in the database or an R2 / S3 bucket.
+  const storageBody = z.object({
+    kind: z.enum(BODY_STORAGE_KINDS),
+    endpoint: z.string().max(500),
+    region: z.string().max(100),
+    bucket: z.string().max(255),
+    prefix: z.string().max(200),
+    accessKeyId: z.string().max(200),
+    secretAccessKey: z.string().max(500).optional(),
+    forcePathStyle: z.boolean(),
+  });
+  const storageInput = (body: z.infer<typeof storageBody>): BodyStorageInput => ({
+    kind: body.kind,
+    endpoint: body.endpoint,
+    region: body.region,
+    bucket: body.bucket,
+    prefix: body.prefix,
+    accessKeyId: body.accessKeyId,
+    forcePathStyle: body.forcePathStyle,
+    ...(body.secretAccessKey ? { secretAccessKey: body.secretAccessKey } : {}),
+  });
+
+  app.get('/message-storage', async (c) => {
+    await requirePlatformPermission(platform, accountId(c), 'platform:admin');
+    return c.json(await platform.messageBodies.view());
+  });
+
+  app.put('/message-storage', async (c) => {
+    await requirePlatformPermission(platform, accountId(c), 'platform:admin');
+    const body = await json(c, storageBody);
+    return c.json(await platform.messageBodies.save(storageInput(body), actor(c)));
+  });
+
+  app.post('/message-storage/test', async (c) => {
+    await requirePlatformPermission(platform, accountId(c), 'platform:admin');
+    const body = await json(c, storageBody);
+    await platform.messageBodies.test(storageInput(body));
+    return c.json({ ok: true });
   });
 
   // Redundancy nodes: which machines run this installation and which one leads.

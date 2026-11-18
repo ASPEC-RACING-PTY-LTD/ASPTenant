@@ -1429,3 +1429,35 @@ export async function saveClusterSettings(input: { dnsFailover: boolean }): Prom
 export async function forgetClusterNode(id: string): Promise<ClusterStatus> {
   return api(`/api/v1/cluster/nodes/${encodeURIComponent(id)}`, { method: 'DELETE' });
 }
+
+export interface MessageStorage {
+  kind: 'database' | 's3';
+  endpoint: string;
+  region: string;
+  bucket: string;
+  prefix: string;
+  accessKeyId: string;
+  hasSecret: boolean;
+  forcePathStyle: boolean;
+  lastError: string | null;
+  inDatabase: { messages: number; bytes: number };
+  inBucket: { messages: number; bytes: number };
+}
+
+export type MessageStorageInput = Omit<
+  MessageStorage,
+  'hasSecret' | 'lastError' | 'inDatabase' | 'inBucket'
+> & { secretAccessKey?: string };
+
+/** Where original messages are kept: the database or an R2 / S3 bucket (platform operators). */
+export async function getMessageStorage(): Promise<MessageStorage> {
+  return api('/api/v1/message-storage');
+}
+
+export async function saveMessageStorage(input: MessageStorageInput): Promise<MessageStorage> {
+  return api('/api/v1/message-storage', { method: 'PUT', body: JSON.stringify(input) });
+}
+
+export async function testMessageStorage(input: MessageStorageInput): Promise<void> {
+  await api('/api/v1/message-storage/test', { method: 'POST', body: JSON.stringify(input) });
+}

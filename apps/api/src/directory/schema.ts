@@ -431,6 +431,12 @@ ${rowLevelSecuritySql(['aspectenant_service_credentials'])}`,
 ${rowLevelSecuritySql(['aspectenant_import_chunks'])}`,
         sqlite: importChunksSql('sqlite'),
       },
+      {
+        // Key of the original message in the message storage bucket; raw is then empty.
+        id: '0010_message_storage',
+        postgres: 'ALTER TABLE aspectenant_messages ADD COLUMN raw_key TEXT;',
+        sqlite: 'ALTER TABLE aspectenant_messages ADD COLUMN raw_key TEXT;',
+      },
     ],
   });
   await migrator.up();

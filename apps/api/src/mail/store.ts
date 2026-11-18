@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { SqlClient } from '@aspec/db';
+import type { MessageBodies } from './bodies.js';
 
 /** System folders every mailbox has. Names are IMAP names. */
 export const SYSTEM_FOLDERS = [
@@ -141,9 +142,12 @@ export function normaliseFolderName(name: string): string {
 export class MessageStore {
   private readonly db: SqlClient;
   private readonly ensured = new Set<string>();
+  /** Where original copies go when message storage uses a bucket (R2, S3). */
+  private readonly bodies: Pick<MessageBodies, 'put' | 'get'> | null;
 
-  constructor(db: SqlClient) {
+  constructor(db: SqlClient, bodies: Pick<MessageBodies, 'put' | 'get'> | null = null) {
     this.db = db;
+    this.bodies = bodies;
   }
 
   async ensureFolders(tenantId: string, mailboxId: string): Promise<void> {
@@ -288,12 +292,13 @@ export class MessageStore {
     const id = randomUUID();
     const receivedAt = input.receivedAt ?? Date.now();
     const uid = await this.allocUid(input.mailboxId, folder);
+    const rawKey = this.bodies ? await this.bodies.put(input.tenantId, input.raw) : null;
     await this.db.query(
       `INSERT INTO aspectenant_messages (id, tenant_id, mailbox_id, folder, uid, message_id, subject,
         from_address, from_name, to_json, cc_json, sent_at, received_at, size_bytes, seen, flagged,
-        answered, draft, deleted, has_attachments, snippet, import_key, raw)
+        answered, draft, deleted, has_attachments, snippet, import_key, raw, raw_key)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, 0,
-        $19, $20, $21, $22)`,
+        $19, $20, $21, $22, $23)`,
       [
         id,
         input.tenantId,
@@ -316,7 +321,8 @@ export class MessageStore {
         input.hasAttachments ? 1 : 0,
         input.snippet,
         input.importKey ?? null,
-        Buffer.from(input.raw),
+        rawKey ? Buffer.alloc(0) : Buffer.from(input.raw),
+        rawKey,
       ],
     );
     return {
@@ -431,7 +437,12 @@ export class MessageStore {
   }
 
   async raw(id: string): Promise<Buffer | null> {
-    const result = await this.db.query(`SELECT raw FROM aspectenant_messages WHERE id = $1`, [id]);
+    const result = await this.db.query(
+      `SELECT raw, raw_key FROM aspectenant_messages WHERE id = $1`,
+      [id],
+    );
+    const key = result.rows[0]?.raw_key;
+    if (key && this.bodies) return this.bodies.get(String(key));
     const value = result.rows[0]?.raw;
     if (value === undefined || value === null) return null;
     return Buffer.isBuffer(value) ? value : Buffer.from(value as Uint8Array);

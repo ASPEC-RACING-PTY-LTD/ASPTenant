@@ -23,6 +23,7 @@ import { DomainConnect } from './dns/domainconnect.js';
 import { DomainSetup } from './dns/index.js';
 import { PstImporter } from './imports/pst.js';
 import { TenantLimitsService } from './limits.js';
+import { MessageBodies } from './mail/bodies.js';
 import { MailService } from './mail/service.js';
 import { SettingsStore } from './mail/store.js';
 import { MailServers } from './mailserver/index.js';
@@ -70,6 +71,8 @@ export interface Platform {
   readonly domainConnect: DomainConnect;
   /** Redundancy nodes sharing this database, and which one leads. */
   readonly cluster: Cluster;
+  /** Where original messages are kept: the database, or an R2 or S3 bucket. */
+  readonly messageBodies: MessageBodies;
   readonly secrets: SecretBox;
   /** Sign-in keys: MFA secret encryption, OIDC cookie and token signing keys. */
   readonly identity: { store: IdentityKeyStore; keys: IdentityKeys };
@@ -183,6 +186,7 @@ export async function createPlatform(options: CreatePlatformOptions = {}): Promi
     domainSetup: undefined as unknown as DomainSetup,
     domainConnect: undefined as unknown as DomainConnect,
     cluster: undefined as unknown as Cluster,
+    messageBodies: undefined as unknown as MessageBodies,
     secrets,
     identity: { store: identityStore, keys: identityKeys },
     dns: options.dns ?? publicDns(),
@@ -193,6 +197,8 @@ export async function createPlatform(options: CreatePlatformOptions = {}): Promi
     setupCode: null,
     startedAt: Date.now(),
   };
+  // Message storage first: the mail service hands it to its message store.
+  Object.assign(platform, { messageBodies: new MessageBodies(platform) });
   Object.assign(platform, {
     directory: new DirectoryService(platform),
     mail: new MailService(platform),
@@ -216,7 +222,11 @@ export async function createPlatform(options: CreatePlatformOptions = {}): Promi
   platform.cluster.onSignal('mail-clients', () => {
     void platform.mailServers.reconcile('cluster');
   });
-  platform.cluster.onLeader(() => platform.imports.kick());
+  platform.cluster.onSignal('message-storage', () => platform.messageBodies.invalidate());
+  platform.cluster.onLeader(() => {
+    platform.imports.kick();
+    void platform.messageBodies.moveNow();
+  });
   await platform.cluster.start();
   await reconcileLegacyRoleAssignments(platform);
   if (db.dialect === 'postgres') {
@@ -240,6 +250,7 @@ export async function createPlatform(options: CreatePlatformOptions = {}): Promi
 
 export async function closePlatform(platform: Platform): Promise<void> {
   await platform.cluster.stop();
+  platform.messageBodies.stop();
   platform.updates.stop();
   platform.mailServers.shutdown();
   platform.imports.stop();

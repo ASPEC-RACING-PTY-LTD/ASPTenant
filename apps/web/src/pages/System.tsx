@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { getReadiness, getSystem, type HealthReport, type SystemDiagnostics } from '../api.js';
 import { useAuth } from '../auth.js';
 import { ClusterPanel } from '../layout/ClusterPanel.js';
+import { MessageStoragePanel } from '../layout/MessageStoragePanel.js';
 
 export function SystemPage() {
   const { session } = useAuth();
@@ -92,6 +93,7 @@ export function SystemPage() {
         </table>
       </section>
       {operator ? <ClusterPanel /> : null}
+      {operator ? <MessageStoragePanel /> : null}
       {system ? (
         <section className="panel">
           <h2>Counts for this organisation</h2>
