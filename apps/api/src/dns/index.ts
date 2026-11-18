@@ -377,7 +377,8 @@ export class DomainSetup {
   private async storedOf(tenantId: string): Promise<StoredCloudflare> {
     return (
       (await inScope(this.platform, tenantId, () =>
-        this.settings.get<StoredCloudflare>(tenantId, KEY),
+        // The raw client: tenantClient would re-bind to the request's own organisation.
+        new SettingsStore(this.platform.db).get<StoredCloudflare>(tenantId, KEY),
       )) ?? {}
     );
   }

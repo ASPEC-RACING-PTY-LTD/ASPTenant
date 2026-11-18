@@ -189,7 +189,8 @@ export class MailService {
   /** Another organisation's own settings, read in its scope. */
   private async settingsOf(tenantId: string): Promise<StoredMailSettings | null> {
     return inScope(this.platform, tenantId, () =>
-      this.settings.get<StoredMailSettings>(tenantId, SETTINGS_KEY),
+      // The raw client: tenantClient would re-bind to the request's own organisation.
+      new SettingsStore(this.platform.db).get<StoredMailSettings>(tenantId, SETTINGS_KEY),
     );
   }
 
